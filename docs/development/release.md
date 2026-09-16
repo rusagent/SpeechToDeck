@@ -37,10 +37,15 @@ store credentials.
    `defaults/runtime-manifest.json` per [bin/README.md](../../bin/README.md)
    and place the binary at `bin/voxtype`. The strict manifest gate makes this
    a hard prerequisite of every release run. Never invent a digest.
-2. **Icon + screenshot.** Add `assets/icon.png` and host a screenshot
-   somewhere stable; put the hosted URL into `plugin.json` `publish.image`.
-   (Empty `image` only triggers a validator warning; the store submission
-   needs the real URL.)
+2. **Icon + screenshot.** Add `assets/icon.png` and `assets/screenshot.jpg`
+   (the store listing image: a real settings-panel render produced by
+   `tests/visual/capture.mjs`) and put the hosted URL into `plugin.json`
+   `publish.image`. This repository serves the screenshot via
+   raw.githubusercontent:
+   `https://raw.githubusercontent.com/rusagent/SpeechToDeck/main/assets/screenshot.jpg`
+   — reachable only once the asset is merged to `main`. The store CI
+   hard-fails when `image` is empty or broken: it POSTs the URL to the store
+   upload endpoint, so a reachable URL is a hard submission requirement.
 3. **Fork the db repo** `SteamDeckHomebrew/decky-plugin-database` under the
    owner account.
 4. **Repository variables** (Settings → Secrets and variables → Actions):
@@ -55,9 +60,14 @@ store credentials.
    template asks whether generative AI was used. The automation deliberately
    does **not** answer that question (see the PR checklist it posts); have the
    conversation with the maintainers and state the answer yourself.
-7. **Test pass.** Install a build on SteamOS **Stable and Beta** and verify
-   dictation end to end. Release automation never claims testing on your
-   behalf.
+7. **Test pass (third party, SteamOS Preview channel).** This plugin ships
+   prebuilt dynamically-linked voxtype binaries, so the db review template's
+   "Tested on Stable and Beta" line does not apply here and must be
+   **removed**. The required testing line for this plugin is a **SteamOS
+   Preview update channel** test pass performed by a **third party** (a
+   tester other than the author — never self-checked); arrange it with the
+   maintainers while the PR is open. Release automation never claims testing
+   on your behalf.
 
 ## Stable release flow
 
@@ -71,8 +81,9 @@ store credentials.
 4. **While the db PR is open, testers can install from the testing store**
    <https://testing.deckbrew.xyz>.
 5. Complete the PR's **OWNER REVIEW REQUIRED** checklist (AI-usage
-   declaration, icon/screenshot URL, Stable+Beta testing, `defaults.txt`
-   check). Only then ask maintainers for review.
+   declaration, icon/screenshot URL, third-party SteamOS Preview-channel
+   testing — this plugin's prebuilt dynamically-linked binaries — and the
+   `defaults.txt` check). Only then ask maintainers for review.
 6. Maintainers merge → the plugin appears in the production store.
 
 ## Preview flow (prereleases)
