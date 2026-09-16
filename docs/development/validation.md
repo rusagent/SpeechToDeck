@@ -5,16 +5,16 @@ pipeline list from spec §97; "no release artifact if any required gate fails".
 
 ## Local L1 checks (run before every commit)
 
-| Command                                   | Proves                                                         |
-| ----------------------------------------- | -------------------------------------------------------------- |
-| `pnpm install --frozen-lockfile`          | Lockfile and manifests are consistent (§111 reproducibility).  |
-| `node scripts/validate-manifests.mjs`     | defaults/ manifests satisfy §50/§53; fail-closed.              |
-| `node scripts/validate-licenses.mjs`      | Declared runtime deps are covered by THIRD_PARTY_NOTICES.md.   |
-| `pnpm exec prettier --check .`            | Frontend/docs formatting (§97 frontend formatting).            |
-| `.venv/bin/ruff --version` / `ruff check` | Python lint/format gates available and clean (§97).            |
-| `.venv/bin/mypy`                          | Python type checking (§97) — active once backend/ exists.      |
-| `pnpm typecheck`                          | TypeScript strict compile (§97/§98) — active once src/ exists. |
-| `pnpm test`                               | Frontend unit tests (§97) — active once tests/ exists.         |
+| Command                                   | Proves                                                                                                                                                  |
+| ----------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `pnpm install --frozen-lockfile`          | Lockfile and manifests are consistent (§111 reproducibility).                                                                                           |
+| `node scripts/validate-manifests.mjs`     | defaults/ manifests satisfy §50/§53; unpinned runtime → loud `RUNTIME_UNPINNED` diagnostic, still green (§129); `--strict` fails for release packaging. |
+| `node scripts/validate-licenses.mjs`      | Declared runtime deps are covered by THIRD_PARTY_NOTICES.md.                                                                                            |
+| `pnpm exec prettier --check .`            | Frontend/docs formatting (§97 frontend formatting).                                                                                                     |
+| `.venv/bin/ruff --version` / `ruff check` | Python lint/format gates available and clean (§97).                                                                                                     |
+| `.venv/bin/mypy`                          | Python type checking (§97) — active once backend/ exists.                                                                                               |
+| `pnpm typecheck`                          | TypeScript strict compile (§97/§98) — active once src/ exists.                                                                                          |
+| `pnpm test`                               | Frontend unit tests (§97) — active once tests/ exists.                                                                                                  |
 
 ## CI gate mapping (spec §97)
 

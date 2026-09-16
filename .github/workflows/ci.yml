@@ -96,7 +96,8 @@ jobs:
               with:
                   python-version: "3.11"
             - run: pip install ruff==0.16.8
-            - run: ruff check backend main.py
+            # pyproject.toml [tool.ruff] include covers backend/, tests/, main.py.
+            - run: ruff check .
 
     python-type-checking:
         if: ${{ hashFiles('backend/**/*.py', 'main.py') != '' }}
@@ -117,7 +118,9 @@ jobs:
             - uses: actions/setup-python@v5
               with:
                   python-version: "3.11"
-            - run: pip install pytest
+            # The suite runs under plain pytest (asyncio.run scenarios, no
+            # pytest-asyncio) and imports aiohttp for the model fetcher.
+            - run: pip install pytest aiohttp
             - run: pytest tests/backend
 
     contract-tests:
@@ -130,14 +133,10 @@ jobs:
               with:
                   node-version: 24
                   cache: pnpm
-            - uses: actions/setup-python@v5
-              with:
-                  python-version: "3.11"
             - run: pnpm install --frozen-lockfile
-            - run: pip install pytest
-            # Contract tests cover boundary validation across the Decky event
-            # protocol (§67, §99).
-            - run: pytest tests/contract
+            # Contract tests are TypeScript (boundary validation across the
+            # Decky event protocol, §67, §99) and run under vitest.
+            - run: pnpm exec vitest run tests/contract
 
     # ── Artifact and package gates ────────────────────────────────────────────
 
@@ -148,7 +147,10 @@ jobs:
             - uses: actions/setup-node@v4
               with:
                   node-version: 24
-            # Fail-closed (§50/§53): fails while the runtime artifact is unpinned.
+            # Default policy: models.json violations fail hard; the unpinned
+            # runtime artifact prints a loud RUNTIME_UNPINNED diagnostic and
+            # stays green (product code fails closed at startup, §129).
+            # Release packaging must add --strict, which fails on unpinned.
             - run: node scripts/validate-manifests.mjs
 
     license-validation:

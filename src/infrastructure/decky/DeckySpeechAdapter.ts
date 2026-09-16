@@ -68,6 +68,50 @@ function isSpeechErrorPayload(value: unknown): value is SpeechErrorPayload {
     return true;
 }
 
+/**
+ * Versioned backend `runtime_status` payload (§67): the supervisor (§37) and
+ * the status monitor (§41) publish `{protocolVersion, state, ...}` with the
+ * supervisor states (starting/stopped/crashed/unavailable/restarted) and the
+ * daemon states (idle/recording/transcribing/error/stopped).
+ */
+interface BackendRuntimeStatusPayload {
+    readonly protocolVersion: unknown;
+    readonly state: string;
+}
+
+function isBackendRuntimeStatusPayload(value: unknown): value is BackendRuntimeStatusPayload {
+    if (typeof value !== "object" || value === null) {
+        return false;
+    }
+    const record = value as Record<string, unknown>;
+    return record["protocolVersion"] === 1 && typeof record["state"] === "string";
+}
+
+/**
+ * Maps the backend's versioned payload onto the application runtime status
+ * (§99: unknown states are dropped, never guessed).
+ */
+function mapBackendRuntimeStatus(payload: BackendRuntimeStatusPayload): SpeechRuntimeStatus | null {
+    switch (payload.state) {
+        case "starting":
+            return "starting";
+        case "restarted":
+        case "idle":
+        case "recording":
+        case "transcribing":
+            return "ready";
+        case "crashed":
+        case "error":
+            return "crashed";
+        case "stopped":
+        case "unavailable":
+        case "unknown":
+            return "unavailable";
+        default:
+            return null;
+    }
+}
+
 export class DeckySpeechAdapter implements SpeechPort {
     private readonly listeners = new Set<SpeechEventListener>();
     private backendEventDisposables: Disposable[] = [];
@@ -161,11 +205,18 @@ export class DeckySpeechAdapter implements SpeechPort {
     }
 
     private onRuntimeStatus(payload: unknown): void {
-        if (!isSpeechRuntimeStatus(payload)) {
+        // Canonical backend form is the versioned payload; a bare status
+        // string is also accepted (both are guarded, §99).
+        let status: SpeechRuntimeStatus | null = null;
+        if (isBackendRuntimeStatusPayload(payload)) {
+            status = mapBackendRuntimeStatus(payload);
+        } else if (isSpeechRuntimeStatus(payload)) {
+            status = payload;
+        }
+        if (status === null) {
             this.logger.warn("dropped runtime_status payload: boundary guard failed");
             return;
         }
-        const status: SpeechRuntimeStatus = payload;
         this.dispatch({ type: "runtime-status", status });
     }
 

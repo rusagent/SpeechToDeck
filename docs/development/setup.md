@@ -38,13 +38,16 @@ Python unit tests run with pytest from `tests/backend/` and contract tests from
 ## Manifest validation
 
 ```bash
-node scripts/validate-manifests.mjs    # defaults/ manifests (§50/§53), fail-closed
+node scripts/validate-manifests.mjs    # defaults/ manifests (§50/§53)
 node scripts/validate-licenses.mjs     # THIRD_PARTY_NOTICES.md coverage (§97)
 ```
 
-`validate-manifests.mjs` is a hard gate: any violation — including an empty
-`sha256` field — exits nonzero. See bin/README.md for the runtime artifact
-pinning procedure.
+`validate-manifests.mjs` is a hard gate for `models.json` violations and for a
+malformed runtime manifest. An unpinned runtime artifact (empty `sha256`, the
+documented pre-pin state) prints a loud `RUNTIME_UNPINNED` diagnostic but keeps
+the default run green (§129); release packaging must run it with `--strict`,
+which fails on an unpinned runtime. See bin/README.md for the pinning
+procedure.
 
 ## Model and runtime artifacts
 

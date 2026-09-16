@@ -185,10 +185,30 @@ class Application:
     # ── §30 callables ────────────────────────────────────────────────────────
 
     async def get_capabilities(self) -> dict[str, object]:
+        """§57 speech-side capability half (the frontend probes the Steam side).
+
+        The microphone and compute-backend probes live inside the native
+        daemon (§115 Spike C/D, hardware-gated); until a live daemon reports,
+        this report stays conservative (§57: no optimistic assumption):
+
+        - the running daemon owns the microphone; per-recording failures
+          surface as the §68 ``MICROPHONE_UNAVAILABLE`` code, so microphone
+          availability is reported as the runtime's availability;
+        - the CPU backend is the pinned runtime's baseline compute path on the
+          supported platform, so it is always reported available;
+        - Vulkan is only claimed when the daemon itself reported it.
+        """
         settings = await self.settings_repository.load()
+        running = self.supervisor.is_running()
+        snapshot = self.watcher.last_snapshot
         return {
             "protocolVersion": PROTOCOL_VERSION_V1,
-            "speechRuntimeAvailable": self.supervisor.is_running(),
+            "speechRuntimeAvailable": running,
+            "microphoneAvailable": running,
+            "cpuAvailable": True,
+            "vulkanAvailable": snapshot is not None and snapshot.backend == "vulkan",
+            "modelInstalled": await self.models.store.is_installed(settings.model_id),
+            # §54 context for diagnostics; the §99 guard ignores extra fields.
             "computeBackend": settings.compute_backend,
             "modelId": settings.model_id,
             "language": settings.language,

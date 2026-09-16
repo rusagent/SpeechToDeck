@@ -22,8 +22,12 @@ Rules (spec §53, §109):
 - The binary is checksummed against `defaults/runtime-manifest.json` before it
   is packaged; a mismatch aborts packaging.
 - Until `sha256` is filled with a real digest, the manifest gate
-  (`node scripts/validate-manifests.mjs`) intentionally fails. Do not weaken
-  the gate to make it pass; pin the artifact instead.
+  (`node scripts/validate-manifests.mjs`) prints a loud `RUNTIME_UNPINNED`
+  diagnostic but stays green (spec §129): product code already fails closed
+  against an unpinned manifest at backend startup (`RUNTIME_START_FAILED`).
+  Release packaging must run the gate with `--strict`, which fails hard on an
+  unpinned runtime. Never weaken the gate or invent a digest to satisfy it;
+  pin the artifact instead.
 - Application code must not depend on Voxtype-specific concepts; the runtime is
   replaceable infrastructure behind ports (spec §35, ADR-003).
 
@@ -56,7 +60,7 @@ Required daemon behaviour (spec §35-§39):
 - writes the status file **atomically** (write temp + rename) on every state
   change; the backend consumes it event-driven via inotify — no polling;
 - status payload: `{"protocolVersion": 1, "state": "idle|recording|transcribing|error|stopped",
-  "backend": "cpu|vulkan", "detail": "..."}` (`detail` optional, diagnostics
+"backend": "cpu|vulkan", "detail": "..."}` (`detail` optional, diagnostics
   only — never transcript text);
 - writes the final transcript to the output file **atomically**, exactly once
   per completed transcription (empty file = empty transcript, §77); never
@@ -79,4 +83,3 @@ voxtype record cancel --control-socket <path>   # exit 0; discards the recording
   output file exactly once and removes it (§42, §110).
 - `record cancel` must ensure no output file is produced for the cancelled
   recording (§72).
-

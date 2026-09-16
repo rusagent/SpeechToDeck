@@ -92,6 +92,12 @@ def test_facade_fails_closed_against_unpinned_runtime(tmp_path: Path) -> None:
             capabilities = await plugin.get_capabilities()
             assert capabilities["protocolVersion"] == 1
             assert capabilities["speechRuntimeAvailable"] is False
+            # §57 speech-side capability fields (conservative while the
+            # hardware probes live in the native daemon, §115 Spike C/D).
+            assert capabilities["microphoneAvailable"] is False
+            assert capabilities["cpuAvailable"] is True
+            assert capabilities["vulkanAvailable"] is False
+            assert capabilities["modelInstalled"] is True  # fake model installed below
 
             models = await plugin.list_models()
             assert [m["id"] for m in models["models"]] == ["tiny", "base", "small"]

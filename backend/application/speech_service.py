@@ -391,7 +391,16 @@ class SpeechApplicationService:
         transcription_ms = result.transcription_duration_ms
         if transcription_ms is None:
             transcription_ms = max(0.0, (self._clock() - stop_monotonic) * 1000.0)
-        backend = result.backend if result.backend is not None else settings.compute_backend
+        # §67 freezes metrics.computeBackend to "cpu" | "vulkan": prefer the
+        # daemon-reported backend, then the explicit setting; "auto" resolves
+        # to the runtime's baseline "cpu" when the daemon under-reports.
+        backend = (
+            result.backend
+            if result.backend in ("cpu", "vulkan")
+            else (
+                settings.compute_backend if settings.compute_backend in ("cpu", "vulkan") else "cpu"
+            )
+        )
 
         payload: dict[str, object] = {
             "protocolVersion": PROTOCOL_VERSION_V1,

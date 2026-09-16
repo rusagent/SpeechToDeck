@@ -198,6 +198,13 @@ export const ERROR_MESSAGES: Record<Locale, Record<DictationErrorCode, string>> 
 
         TRANSCRIPT_INVALID: "The transcript contains invalid characters.",
         TRANSCRIPT_TOO_LARGE: "The transcript is too large to insert.",
+
+        RUNTIME_UNAVAILABLE: "The speech runtime is not available.",
+        INVALID_SESSION_ID: "This recording session is no longer valid.",
+        INVALID_TRANSCRIPT: "The transcript contains invalid characters.",
+        SETTINGS_INVALID: "The settings are invalid.",
+        MANIFEST_INVALID: "The model manifest is invalid.",
+        INTERNAL_ERROR: "An unexpected internal error occurred.",
     },
     de: {
         STEAM_KEYBOARD_NOT_FOUND: "Steam-Tastatur nicht gefunden.",
@@ -226,6 +233,13 @@ export const ERROR_MESSAGES: Record<Locale, Record<DictationErrorCode, string>> 
 
         TRANSCRIPT_INVALID: "Das Transkript enthält ungültige Zeichen.",
         TRANSCRIPT_TOO_LARGE: "Das Transkript ist zu groß zum Einfügen.",
+
+        RUNTIME_UNAVAILABLE: "Die Spracherkennung ist nicht verfügbar.",
+        INVALID_SESSION_ID: "Diese Aufnahmesitzung ist nicht mehr gültig.",
+        INVALID_TRANSCRIPT: "Das Transkript enthält ungültige Zeichen.",
+        SETTINGS_INVALID: "Die Einstellungen sind ungültig.",
+        MANIFEST_INVALID: "Die Modell-Manifestdatei ist ungültig.",
+        INTERNAL_ERROR: "Es ist ein unerwarteter interner Fehler aufgetreten.",
     },
 };
 

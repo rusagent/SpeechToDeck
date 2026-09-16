@@ -1,57 +1,145 @@
 # Implementation Status
 
-Current repository state. The canon is docs/spec/spec-v1.0.md; the phase plan
-is §115-§121.
+Current repository state after the integration pass over the merged tree
+(main: scaffold + frontend core + python backend + steam/UI layers). The canon
+is docs/spec/spec-v1.0.md; the phase plan is §115-§121. All gate evidence below
+is from a single validation run of this integration lane on the merged tree.
 
-## What exists today (scaffold only)
+## What exists today
 
-- Repository hubs: `package.json` (+ pinned `pnpm-lock.yaml`), `tsconfig.json`
-  with the §98 strict flags, `vitest.config.ts`, `rollup.config.mjs`,
-  `pyproject.toml`, `plugin.json` (no root flag, §113), ESLint flat config,
-  Prettier config, LICENSE, THIRD_PARTY_NOTICES.md.
-- `defaults/models.json`: tiny / base / small whisper ggml entries with **real
-  SHA-256 digests** computed from downloaded artifacts (spec §48/§50).
-- `defaults/runtime-manifest.json`: Voxtype runtime artifact schema (§53) with
-  the binary intentionally **not** bundled and the pin fields (version, source,
-  sha256, license) deliberately empty; bin/README.md documents acquisition.
-  The manifest validation gate therefore **fails by design** until the runtime
-  lane pins the artifact.
-- `scripts/validate-manifests.mjs` and `scripts/validate-licenses.mjs`
-  (dependency-free Node validators, §97 gates).
-- Docs: architecture overview, compatibility checklist (§93), development
-  guides, ADR-001..010 (§126).
-- CI: .github/workflows/ci.yml implementing the §97 gate list. Gates whose
-  input code does not exist yet are present but skipped; active gates:
-  formatting, manifest validation, license validation.
-- `.venv/` (gitignored, not committed) with ruff and mypy for later lanes.
+- Frontend core (`src/domain`, `src/application`): dictation state machine,
+  controller, ports, lifecycle (merged at `bc73bec`).
+- Python backend (`backend/`, `main.py`): composition root, daemon supervisor
+  over the pinned-runtime CLI, inotify status monitor, model store, settings
+  repository, real-subprocess supervision tests (merged at `797fa45`).
+- Steam ACL / Decky adapters / presentation (`src/infrastructure`,
+  `src/presentation`, `src/index.tsx`): keyboard profiles, capability probe,
+  clipboard/paste adapters, Decky transport/adapters, microphone button and
+  settings UI, contract tests (merged at `1b5e3ae`).
+- Tooling hubs: `package.json` (+ pinned lockfile), §98-strict `tsconfig.json`,
+  `vitest.config.ts`, `rollup.config.mjs` (esbuild TSX transform),
+  `pyproject.toml`, `plugin.json` (§113), ESLint/Prettier, CI (§97).
+- `defaults/models.json`: curated v1 whisper models with real SHA-256 digests.
+- `defaults/runtime-manifest.json`: Voxtype artifact schema, deliberately
+  **unpinned** (no binary may be invented); see gate policy below.
 
-## What does not exist yet (owned by later lanes)
+## Integration seam fixes applied (this pass)
 
-- `src/**` frontend implementation and `backend/**` Python implementation.
-- `tests/**` suites (frontend, backend, contract, fixtures).
-- Phase-0 hardware spikes (§115): keyboard mounting, bulk insertion, STT
-  runtime in Game Mode, Vulkan vs CPU benchmarks. The Phase-0 exit gate (§116)
-  has not been evaluated; **no architecture assumption is finalized from
-  theoretical capability alone.**
-- Runtime artifact pinning (fills `defaults/runtime-manifest.json`).
-- The packaging/structure validator (`scripts/validate-package.mjs`).
+Fixed toward §30/§67/§68/§55/§57; each was a real frontend↔backend mismatch:
 
-## Known integration decisions pending
+1. **Coded-result envelope (§68)** — `main.py` `Plugin._call` returns
+   `{"ok": true, ...payload}` / `{"ok": false, "code": ...}` (frozen by backend
+   tests), but the frontend ignored the envelope, silently swallowing failures.
+   `DeckyBackendClient.call` now unwraps success payloads and throws a
+   `DictationError` carrying the stable §68 code on `ok: false`.
+2. **`get_capabilities` shape (§57)** — the backend returned context fields
+   only; the frontend guard requires the §57 speech-side booleans. The backend
+   now reports them conservatively (microphone = runtime availability; CPU is
+   the baseline backend; Vulkan only when the daemon reported it;
+   `modelInstalled` from the real store query). Hardware probes stay in the
+   daemon (§115 Spike C/D).
+3. **`runtime_status` payload (§67/§99)** — backend publishes versioned
+   `{protocolVersion, state, ...}` dicts with supervisor/daemon state
+   vocabularies; the frontend guard expected a bare string and would have
+   dropped every real payload. The adapter now maps the versioned payload
+   (`starting|idle|recording|transcribing|restarted|crashed|error|stopped|
+unavailable|unknown` → `starting|ready|crashed|unavailable`) and still
+   accepts the bare-string form; unknown states are dropped (§99).
+4. **`speech_error` codes (§68)** — the backend produces `RUNTIME_UNAVAILABLE`,
+   `INVALID_SESSION_ID`, `INVALID_TRANSCRIPT`, `SETTINGS_INVALID`,
+   `MANIFEST_INVALID`, `INTERNAL_ERROR`; the frontend code list did not contain
+   them (guard would drop those payloads). List extended; UI text added for
+   both locales (`ERROR_MESSAGES` stays complete over all codes).
+5. **`transcript_ready` metrics (§67)** — `computeBackend` could leak `"auto"`
+   when the daemon under-reported; §67 freezes the union to `"cpu" | "vulkan"`.
+   The backend now prefers the daemon-reported backend, then the explicit
+   setting, and resolves `auto` to the baseline `"cpu"`.
+6. **Settings update payload (§55)** — the settings adapter sent the full
+   document including `schemaVersion`, which the backend rejects
+   (backend-owned field). The adapter now sends exactly the client-settable
+   fields.
 
-- The rollup config carries the three scaffold plugins (node-resolve,
-  commonjs, json) and externalizes react, react-dom, @decky/ui, @decky/api.
-  A TypeScript/TSX transform for `src/index.tsx` must be added by the build
-  lane that lands src/ (rollup does not compile TSX natively). `pnpm typecheck`
-  (tsc) is the strict-compile gate and activates with the first sources.
-- TypeScript typecheck is deliberately not an L1 gate until src/ exists
-  (tsconfig `include` is empty today; tsc would fail with "no inputs").
+## Gate policy: unpinned runtime manifest
 
-## How to verify the current state
+`node scripts/validate-manifests.mjs` (default, CI):
+`models.json` violations and a malformed runtime manifest fail hard; the
+intentionally unpinned runtime artifact prints a loud `RUNTIME_UNPINNED`
+diagnostic and the run stays **green** (§129 — a permanently red CI gate would
+contradict "done" without adding safety, because product code already fails
+closed against the unpinned manifest at backend startup with
+`RUNTIME_START_FAILED`, covered by tests). `node scripts/validate-manifests.mjs
+--strict` (release packaging) fails hard on an unpinned runtime. Rationale and
+acquisition procedure: bin/README.md.
 
-```bash
-pnpm install --frozen-lockfile
-node scripts/validate-manifests.mjs   # exits 1: runtime artifact unpinned (expected)
-node scripts/validate-licenses.mjs    # exits 0
-pnpm exec prettier --check .
-.venv/bin/ruff --version
-```
+## Validation evidence (this run, merged tree)
+
+| Command                                        | Exit | Proves                                                                         |
+| ---------------------------------------------- | ---- | ------------------------------------------------------------------------------ |
+| `pnpm install`                                 | 0    | node_modules synced with the post-merge lockfile                               |
+| `pnpm typecheck`                               | 0    | §97/§98 TypeScript strict compile                                              |
+| `pnpm test`                                    | 0    | 168 tests / 17 files (frontend unit + steam/Decky contract suites)             |
+| `pnpm lint`                                    | 0    | §97 frontend lint (ESLint flat config)                                         |
+| `pnpm build`                                   | 0    | rollup bundle; `dist/index.js` produced                                        |
+| `pnpm format:check`                            | 0    | §97 frontend formatting (Prettier, repo-wide)                                  |
+| `python -m pytest tests/backend -q`            | 0    | 93 passed (real-subprocess supervision tests; plain pytest, no pytest-asyncio) |
+| `ruff check .`                                 | 0    | §97 Python lint (backend, tests, main.py)                                      |
+| `python -m mypy`                               | 0    | §97 Python type checking (strict, 21 source files)                             |
+| `ruff format --check backend main.py tests`    | 0    | §97 Python formatting                                                          |
+| `node scripts/validate-manifests.mjs`          | 0    | models.json valid; unpinned runtime → `RUNTIME_UNPINNED` diagnostic            |
+| `node scripts/validate-manifests.mjs --strict` | 1    | intended: fails on the unpinned runtime (release gate)                         |
+| `node scripts/validate-licenses.mjs`           | 0    | 4 runtime dependencies covered by THIRD_PARTY_NOTICES.md                       |
+
+Backend environment note: the venv is created with uv (`ruff` + `mypy`) and
+needs `uv pip install --python .venv/bin/python pytest aiohttp` for the suite.
+On desktop sessions that leak AppImage `LD_LIBRARY_PATH` into child processes,
+run the venv python through `env -u LD_LIBRARY_PATH`.
+
+## Capability matrix
+
+Proven by the suites above (offline/fake-path evidence):
+
+- Frontend domain/state machine, controller, lifecycle, protocol guards,
+  transcript validation (unit tests, jsdom).
+- Steam ACL contracts: keyboard discovery/profiles, capability probe,
+  clipboard/paste adapters, bulk insertion, hook registry (contract tests over
+  DOM fixtures; not a live Steam session).
+- Decky adapter contracts: frozen §30 callable/event names, §67 payload
+  guards, §99 boundary dropping, §68 coded envelope (fake transport).
+- Backend: composition, session coordination, speech service, daemon
+  supervision with a real subprocess fixture daemon, model store, settings
+  repository, status monitor (pytest; the fixture daemon is not Voxtype).
+
+Unproven live-path capabilities (hardware/loader-gated; §115 Phase-0 spikes
+A-D remain open and the §116 exit gate has not been evaluated):
+
+- Real Steam keyboard hooking against a live `SteamUIStore` (Spike A).
+- Real bulk insertion: CEF clipboard write + native paste on target apps (Spike B).
+- STT end-to-end with a pinned Voxtype binary on Deck hardware (Spike C),
+  including Vulkan/CPU benchmarks (Spike D).
+- Real Decky callable/event round-trip through the Decky loader (the loader
+  transport is not executable in the development sandbox).
+- Runtime artifact pinning: `defaults/runtime-manifest.json` stays unpinned
+  until a real Voxtype artifact is acquired (bin/README.md); startup fails
+  closed (`RUNTIME_START_FAILED`, tested) against it today.
+
+## Documented transport seam
+
+`main.py` composes the backend with `LoggingEventPublisher` at the
+`EventPublisher` port: without a Decky event transport, events are logged with
+transcript text redacted (§73) instead of being silently dropped. The real
+loader wiring point is the `event_publisher` parameter of
+`backend.composition.compose`; the Decky-facing callable transport
+(`DeckyApiTransport`) is implemented on the frontend side and imported only by
+the composition root.
+
+## Next actions
+
+1. Phase-0 hardware spikes (§115 A-D) on Deck hardware; evaluate the §116 exit
+   gate before finalizing any architecture assumption.
+2. Acquire and pin the Voxtype runtime artifact (bin/README.md), flip the
+   manifest gate to `--strict` for release packaging.
+3. Wire the real Decky loader transport for backend events (replace
+   `LoggingEventPublisher` at the `compose` seam) and verify one live
+   callable/event round-trip through the loader.
+4. Packaging lane: `scripts/validate-package.mjs` against §112 (CI job is
+   declared and skips until the script exists).

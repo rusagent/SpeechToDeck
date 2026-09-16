@@ -12,6 +12,7 @@
  * importing `@decky/api` executes Decky Loader connection side effects.
  */
 
+import { DictationError, isDictationErrorCode } from "../../domain/DictationError";
 import type { Disposable } from "../../shared/Disposable";
 import { Logger } from "../../shared/Logger";
 
@@ -23,6 +24,34 @@ export interface DeckyTransport {
     removeEventListener(event: string, listener: (...args: unknown[]) => void): void;
 }
 
+/**
+ * Unwraps the backend's coded-result envelope (§68): the Python `Plugin`
+ * facade returns `{"ok": true, ...payload}` on success and
+ * `{"ok": false, "code": <§68 code>, ...}` on failure. A coded failure is
+ * thrown as a `DictationError` so callers observe stable §68 codes instead
+ * of a silently swallowed `ok: false`. Responses that are not coded results
+ * (payloads handed over directly by a transport) pass through unchanged.
+ */
+function unwrapCodedResult(response: unknown, route: string): unknown {
+    if (typeof response !== "object" || response === null) {
+        return response;
+    }
+    const record = response as Record<string, unknown>;
+    if (record["ok"] !== true && record["ok"] !== false) {
+        return response;
+    }
+    if (record["ok"]) {
+        const payload: Record<string, unknown> = { ...record };
+        delete payload["ok"];
+        return payload;
+    }
+    const detail = record["detail"];
+    throw new DictationError(
+        isDictationErrorCode(record["code"]) ? record["code"] : "INTERNAL_ERROR",
+        typeof detail === "string" && detail.length > 0 ? detail : `backend call ${route} failed`,
+    );
+}
+
 export class DeckyBackendClient {
     constructor(
         private readonly transport: DeckyTransport,
@@ -30,7 +59,7 @@ export class DeckyBackendClient {
     ) {}
 
     async call(route: string, ...args: unknown[]): Promise<unknown> {
-        return this.transport.call(route, ...args);
+        return unwrapCodedResult(await this.transport.call(route, ...args), route);
     }
 
     /**

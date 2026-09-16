@@ -2,3 +2,10 @@
 # be reformatted or otherwise modified by tooling.
 docs/spec/
 LICENSE
+
+# Generated artifacts, dependency state, and wave-owned temp tooling are not
+# formatting inputs.
+pnpm-lock.yaml
+dist/
+.venv/
+.tmp/

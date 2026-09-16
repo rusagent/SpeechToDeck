@@ -8,6 +8,7 @@ import { describe, expect, it } from "vitest";
 import { DeckyBackendClient } from "../../src/infrastructure/decky/DeckyBackendClient";
 import { DeckySpeechAdapter } from "../../src/infrastructure/decky/DeckySpeechAdapter";
 import { DeckySettingsAdapter } from "../../src/infrastructure/decky/DeckySettingsAdapter";
+import { DictationError } from "../../src/domain/DictationError";
 import { FakeDeckyTransport } from "./helpers";
 import { TEST_SETTINGS } from "../frontend/fakes/FakeSettingsPort";
 
@@ -85,6 +86,64 @@ describe("DeckySpeechAdapter", () => {
         expect(received[1]).toEqual({ type: "runtime-status", status: "crashed" });
     });
 
+    it("maps the backend's versioned runtime_status payloads onto typed events", async () => {
+        const transport = new FakeDeckyTransport();
+        const adapter = new DeckySpeechAdapter(new DeckyBackendClient(transport));
+        const received: { type: string; status?: string }[] = [];
+        adapter.subscribe((event) => received.push(event));
+
+        // Supervisor payloads (§37) and daemon/monitor payloads (§41) with
+        // their real state vocabularies.
+        transport.emit("runtime_status", {
+            protocolVersion: 1,
+            available: true,
+            state: "starting",
+            pid: 4242,
+        });
+        transport.emit("runtime_status", { protocolVersion: 1, available: true, state: "idle" });
+        transport.emit("runtime_status", {
+            protocolVersion: 1,
+            available: true,
+            state: "recording",
+        });
+        transport.emit("runtime_status", {
+            protocolVersion: 1,
+            available: false,
+            state: "crashed",
+        });
+        transport.emit("runtime_status", { protocolVersion: 1, available: true, state: "error" });
+        transport.emit("runtime_status", {
+            protocolVersion: 1,
+            available: true,
+            state: "restarted",
+        });
+        transport.emit("runtime_status", {
+            protocolVersion: 1,
+            available: false,
+            state: "unavailable",
+            detail: "restart policy exhausted",
+        });
+        transport.emit("runtime_status", {
+            protocolVersion: 1,
+            available: false,
+            state: "stopped",
+        });
+        // Unknown state and wrong protocol version are dropped (§99).
+        transport.emit("runtime_status", { protocolVersion: 1, state: "exploded" });
+        transport.emit("runtime_status", { protocolVersion: 2, state: "idle" });
+
+        expect(received).toEqual([
+            { type: "runtime-status", status: "starting" },
+            { type: "runtime-status", status: "ready" },
+            { type: "runtime-status", status: "ready" },
+            { type: "runtime-status", status: "crashed" },
+            { type: "runtime-status", status: "crashed" },
+            { type: "runtime-status", status: "ready" },
+            { type: "runtime-status", status: "unavailable" },
+            { type: "runtime-status", status: "unavailable" },
+        ]);
+    });
+
     it("unsubscribe removes exactly its backend event listeners", async () => {
         const transport = new FakeDeckyTransport();
         const adapter = new DeckySpeechAdapter(new DeckyBackendClient(transport));
@@ -112,6 +171,50 @@ describe("DeckySpeechAdapter", () => {
     });
 });
 
+describe("DeckyBackendClient coded-result envelope (§68)", () => {
+    it("unwraps the backend's {ok: true, ...} result and drops the envelope flag", async () => {
+        const transport = new FakeDeckyTransport();
+        transport.callResponses.set("get_settings", { ok: true, ...TEST_SETTINGS });
+        const client = new DeckyBackendClient(transport);
+
+        await expect(client.call("get_settings")).resolves.toEqual(TEST_SETTINGS);
+    });
+
+    it("throws a stable §68 DictationError for a coded {ok: false} failure", async () => {
+        const transport = new FakeDeckyTransport();
+        transport.callResponses.set("start_recording", {
+            ok: false,
+            protocolVersion: 1,
+            code: "RUNTIME_UNAVAILABLE",
+            detail: "native runtime is not running",
+        });
+        const client = new DeckyBackendClient(transport);
+
+        await expect(client.call("start_recording", "session-1")).rejects.toMatchObject({
+            code: "RUNTIME_UNAVAILABLE",
+            message: "native runtime is not running",
+        });
+    });
+
+    it("maps an unknown failure code onto INTERNAL_ERROR", async () => {
+        const transport = new FakeDeckyTransport();
+        transport.callResponses.set("restart_runtime", { ok: false, code: "MYSTERY" });
+        const client = new DeckyBackendClient(transport);
+
+        const error = await client.call("restart_runtime").catch((caught: unknown) => caught);
+        expect(error).toBeInstanceOf(DictationError);
+        expect(error).toMatchObject({ code: "INTERNAL_ERROR" });
+    });
+
+    it("passes non-envelope payloads through unchanged", async () => {
+        const transport = new FakeDeckyTransport();
+        transport.callResponses.set("get_capabilities", { custom: true });
+        const client = new DeckyBackendClient(transport);
+
+        await expect(client.call("get_capabilities")).resolves.toEqual({ custom: true });
+    });
+});
+
 describe("DeckySettingsAdapter", () => {
     it("loads and updates settings through the frozen §30 callables with guards", async () => {
         const transport = new FakeDeckyTransport();
@@ -122,9 +225,20 @@ describe("DeckySettingsAdapter", () => {
         expect(loaded).toEqual(TEST_SETTINGS);
 
         await adapter.save({ ...TEST_SETTINGS, enabled: false });
+        // §55: schemaVersion is backend-owned and never travels in the update.
         expect(transport.calls[1]).toEqual({
             route: "update_settings",
-            args: [{ ...TEST_SETTINGS, enabled: false }],
+            args: [
+                {
+                    enabled: false,
+                    computeBackend: TEST_SETTINGS.computeBackend,
+                    modelId: TEST_SETTINGS.modelId,
+                    language: TEST_SETTINGS.language,
+                    maxRecordingSeconds: TEST_SETTINGS.maxRecordingSeconds,
+                    vadEnabled: TEST_SETTINGS.vadEnabled,
+                    outputMode: TEST_SETTINGS.outputMode,
+                },
+            ],
         });
     });
 

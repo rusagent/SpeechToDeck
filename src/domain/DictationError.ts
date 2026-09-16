@@ -30,6 +30,16 @@ export const DICTATION_ERROR_CODES = [
 
     "TRANSCRIPT_INVALID",
     "TRANSCRIPT_TOO_LARGE",
+
+    // Backend-produced §68 codes (main.py `Plugin._call` envelopes and
+    // `speech_error` events). Mirrors backend/domain/errors.py::ErrorCode;
+    // both sides must stay in sync (§68: UI text is mapped from codes).
+    "RUNTIME_UNAVAILABLE",
+    "INVALID_SESSION_ID",
+    "INVALID_TRANSCRIPT",
+    "SETTINGS_INVALID",
+    "MANIFEST_INVALID",
+    "INTERNAL_ERROR",
 ] as const;
 
 export type DictationErrorCode = (typeof DICTATION_ERROR_CODES)[number];

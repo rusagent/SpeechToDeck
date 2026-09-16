@@ -29,6 +29,18 @@ export class DeckySettingsAdapter implements SettingsPort {
         if (!isPluginSettings(settings)) {
             throw new Error("refusing to save a malformed settings document");
         }
-        await this.backend.call(SETTINGS_CALLABLES.updateSettings, settings);
+        // §55: schemaVersion is backend-owned; the update payload whitelists
+        // exactly the client-settable fields and never carries it (the backend
+        // rejects a client-side schemaVersion).
+        const update = {
+            enabled: settings.enabled,
+            computeBackend: settings.computeBackend,
+            modelId: settings.modelId,
+            language: settings.language,
+            maxRecordingSeconds: settings.maxRecordingSeconds,
+            vadEnabled: settings.vadEnabled,
+            outputMode: settings.outputMode,
+        };
+        await this.backend.call(SETTINGS_CALLABLES.updateSettings, update);
     }
 }
