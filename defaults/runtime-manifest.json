@@ -1,0 +1,14 @@
+{
+    "schemaVersion": 1,
+    "artifacts": [
+        {
+            "id": "voxtype",
+            "engine": "whisper",
+            "arch": "x86_64",
+            "version": "",
+            "source": "",
+            "sha256": "",
+            "license": ""
+        }
+    ]
+}

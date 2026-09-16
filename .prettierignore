@@ -1,0 +1,4 @@
+# The product spec is committed canon (docs/spec/spec-v1.0.md) and must never
+# be reformatted or otherwise modified by tooling.
+docs/spec/
+LICENSE

@@ -8,3 +8,17 @@ __pycache__/
 coverage/
 *.log
 .DS_Store
+
+# Tooling caches
+.mypy_cache/
+.ruff_cache/
+.pytest_cache/
+
+# Partial model downloads (ModelStore download algorithm, spec §51)
+*.part
+
+# Model binaries and runtime artifacts are never committed to git; they are
+# downloaded at runtime and checksummed against defaults/ manifests (§50/§53).
+*.bin
+bin/*
+!bin/README.md

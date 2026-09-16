@@ -1,0 +1,28 @@
+[project]
+name = "decky-voice-keyboard"
+version = "0.1.0"
+description = "Steam Deck plugin backend: local speech-to-text coordination for the Decky Voice Keyboard plugin."
+readme = "README.md"
+requires-python = ">=3.11"
+license = { file = "LICENSE" }
+
+# Runtime dependencies are intentionally empty. The backend runs inside the
+# Decky Loader Python runtime (spec §100/§101): stdlib plus the aiohttp that
+# Decky already provides. No additional runtime framework is permitted.
+dependencies = []
+
+[tool.ruff]
+target-version = "py311"
+line-length = 100
+src = ["backend", "tests"]
+include = ["backend/**/*.py", "tests/**/*.py", "main.py"]
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "UP", "B", "SIM", "RUF"]
+
+[tool.mypy]
+python_version = "3.11"
+strict = true
+files = ["backend", "main.py"]
+# Platform parity with the Decky runtime; override per-module if needed.
+ignore_missing_imports = false

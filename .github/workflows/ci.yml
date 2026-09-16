@@ -1,0 +1,190 @@
+# CI pipeline implementing the gate list from docs/spec/spec-v1.0.md §97.
+#
+# Staged activation: gates whose input code does not exist yet are declared
+# here but skip (hashFiles guard) until their paths appear. Skipped is not
+# passing — each job becomes required the moment its inputs exist. Gates that
+# can run today are active.
+#
+# No release artifact is produced while any required gate fails (§97).
+
+name: CI
+
+on:
+    push:
+        branches: [main]
+    pull_request:
+
+concurrency:
+    group: ci-${{ github.ref }}
+    cancel-in-progress: true
+
+jobs:
+    # ── Frontend gates ────────────────────────────────────────────────────────
+
+    frontend-formatting:
+        runs-on: ubuntu-latest
+        steps:
+            - uses: actions/checkout@v4
+            - uses: pnpm/action-setup@v4
+            - uses: actions/setup-node@v4
+              with:
+                  node-version: 24
+                  cache: pnpm
+            - run: pnpm install --frozen-lockfile
+            - run: pnpm exec prettier --check .
+
+    frontend-lint:
+        if: ${{ hashFiles('src/**/*.ts', 'src/**/*.tsx') != '' }}
+        runs-on: ubuntu-latest
+        steps:
+            - uses: actions/checkout@v4
+            - uses: pnpm/action-setup@v4
+            - uses: actions/setup-node@v4
+              with:
+                  node-version: 24
+                  cache: pnpm
+            - run: pnpm install --frozen-lockfile
+            - run: pnpm lint
+
+    typescript-strict-compile:
+        if: ${{ hashFiles('src/**/*.ts', 'src/**/*.tsx') != '' }}
+        runs-on: ubuntu-latest
+        steps:
+            - uses: actions/checkout@v4
+            - uses: pnpm/action-setup@v4
+            - uses: actions/setup-node@v4
+              with:
+                  node-version: 24
+                  cache: pnpm
+            - run: pnpm install --frozen-lockfile
+            # §98 strict flags: strict, noImplicitAny, noUncheckedIndexedAccess,
+            # exactOptionalPropertyTypes (all set in tsconfig.json).
+            - run: pnpm typecheck
+
+    frontend-unit-tests:
+        if: ${{ hashFiles('tests/frontend/**', 'tests/**/*.test.*') != '' }}
+        runs-on: ubuntu-latest
+        steps:
+            - uses: actions/checkout@v4
+            - uses: pnpm/action-setup@v4
+            - uses: actions/setup-node@v4
+              with:
+                  node-version: 24
+                  cache: pnpm
+            - run: pnpm install --frozen-lockfile
+            - run: pnpm test
+
+    # ── Python gates ──────────────────────────────────────────────────────────
+
+    python-formatting:
+        if: ${{ hashFiles('backend/**/*.py', 'main.py') != '' }}
+        runs-on: ubuntu-latest
+        steps:
+            - uses: actions/checkout@v4
+            - uses: actions/setup-python@v5
+              with:
+                  python-version: "3.11"
+            - run: pip install ruff==0.16.8
+            - run: ruff format --check backend main.py
+
+    python-lint:
+        if: ${{ hashFiles('backend/**/*.py', 'main.py') != '' }}
+        runs-on: ubuntu-latest
+        steps:
+            - uses: actions/checkout@v4
+            - uses: actions/setup-python@v5
+              with:
+                  python-version: "3.11"
+            - run: pip install ruff==0.16.8
+            - run: ruff check backend main.py
+
+    python-type-checking:
+        if: ${{ hashFiles('backend/**/*.py', 'main.py') != '' }}
+        runs-on: ubuntu-latest
+        steps:
+            - uses: actions/checkout@v4
+            - uses: actions/setup-python@v5
+              with:
+                  python-version: "3.11"
+            - run: pip install mypy==2.3.1
+            - run: mypy
+
+    backend-unit-tests:
+        if: ${{ hashFiles('tests/backend/**') != '' }}
+        runs-on: ubuntu-latest
+        steps:
+            - uses: actions/checkout@v4
+            - uses: actions/setup-python@v5
+              with:
+                  python-version: "3.11"
+            - run: pip install pytest
+            - run: pytest tests/backend
+
+    contract-tests:
+        if: ${{ hashFiles('tests/contract/**') != '' }}
+        runs-on: ubuntu-latest
+        steps:
+            - uses: actions/checkout@v4
+            - uses: pnpm/action-setup@v4
+            - uses: actions/setup-node@v4
+              with:
+                  node-version: 24
+                  cache: pnpm
+            - uses: actions/setup-python@v5
+              with:
+                  python-version: "3.11"
+            - run: pnpm install --frozen-lockfile
+            - run: pip install pytest
+            # Contract tests cover boundary validation across the Decky event
+            # protocol (§67, §99).
+            - run: pytest tests/contract
+
+    # ── Artifact and package gates ────────────────────────────────────────────
+
+    manifest-validation:
+        runs-on: ubuntu-latest
+        steps:
+            - uses: actions/checkout@v4
+            - uses: actions/setup-node@v4
+              with:
+                  node-version: 24
+            # Fail-closed (§50/§53): fails while the runtime artifact is unpinned.
+            - run: node scripts/validate-manifests.mjs
+
+    license-validation:
+        runs-on: ubuntu-latest
+        steps:
+            - uses: actions/checkout@v4
+            - uses: actions/setup-node@v4
+              with:
+                  node-version: 24
+            - run: node scripts/validate-licenses.mjs
+
+    package-build:
+        if: ${{ hashFiles('src/**/*.ts', 'src/**/*.tsx') != '' }}
+        runs-on: ubuntu-latest
+        steps:
+            - uses: actions/checkout@v4
+            - uses: pnpm/action-setup@v4
+            - uses: actions/setup-node@v4
+              with:
+                  node-version: 24
+                  cache: pnpm
+            - run: pnpm install --frozen-lockfile
+            - run: pnpm build
+
+    package-structure-validation:
+        if: ${{ hashFiles('scripts/validate-package.mjs') != '' }}
+        needs: package-build
+        runs-on: ubuntu-latest
+        steps:
+            - uses: actions/checkout@v4
+            - uses: pnpm/action-setup@v4
+            - uses: actions/setup-node@v4
+              with:
+                  node-version: 24
+                  cache: pnpm
+            - run: pnpm install --frozen-lockfile
+            - run: pnpm build
+            # Validates the packaged layout against §112 (owned by the packaging lane).
+            - run: node scripts/validate-package.mjs
