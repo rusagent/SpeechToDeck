@@ -116,7 +116,9 @@ jobs:
             - uses: actions/setup-python@v5
               with:
                   python-version: "3.11"
-            - run: pip install mypy==2.3.1
+            # aiohttp is needed for mypy to resolve the lazily-imported aiohttp
+            # module's types (matches the local dev venv).
+            - run: pip install mypy==2.3.1 aiohttp
             - run: mypy
 
     backend-unit-tests:
