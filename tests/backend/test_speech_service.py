@@ -197,13 +197,19 @@ def test_empty_transcript_is_not_an_error() -> None:
             harness.service.stop_recording("session-1")
         )
         await asyncio.sleep(0.05)
+        # The real runtime reports empty speech as an empty result (client
+        # maps the `record stop --wait` exit 3 outcome).
         await harness.runtime.emit_transcript("   ")
         await asyncio.wait_for(stop_task, 2.0)
-        # §77: empty speech returns to ready without an error; the frontend
-        # decides on user messaging.
-        ready = harness.publisher.payloads(READY)
-        assert len(ready) == 1 and ready[0]["text"] == ""
+        # §77: transcribing → ready directly; no transcript, no insertion,
+        # no error. The frontend decides on user messaging from the state.
+        assert harness.publisher.payloads(READY) == []
         assert harness.publisher.payloads(ERROR) == []
+        states = [p["state"] for p in harness.publisher.payloads(EVENTS)]
+        assert states == ["recording", "transcribing", "ready"]
+        status = harness.service.get_status()
+        assert status["counters"]["recordingsCompleted"] == 1
+        assert not harness.service.has_pending_work()
 
     asyncio.run(scenario())
 

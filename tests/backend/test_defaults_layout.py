@@ -9,6 +9,7 @@ layouts, the conflict rule, and that `compose()` loads the installed layout.
 
 from __future__ import annotations
 
+import json
 import shutil
 from pathlib import Path
 
@@ -86,3 +87,23 @@ def test_composition_loads_manifest_from_installed_layout(tmp_path: Path) -> Non
     _stage_flattened(root)
     app = compose(plugin_root=root, data_dir=tmp_path / "data")
     assert {model.id for model in app.manifest.models} == {"tiny", "base", "small"}
+
+
+def test_remote_binary_entries_match_pinned_runtime_manifest() -> None:
+    """§53 integrity: the loader `remote_binary` entries (what the Decky
+    loader downloads at install time, verified by sha256hash) must be exactly
+    the artifacts pinned in defaults/runtime-manifest.json (what the backend
+    verifies at startup) — one pin, two consumers, zero drift."""
+    package = json.loads((REPO_ROOT / "package.json").read_text(encoding="utf-8"))
+    manifest = json.loads(
+        (REPO_ROOT / "defaults" / "runtime-manifest.json").read_text(encoding="utf-8")
+    )
+    loader_entries = {
+        entry["name"]: (entry["url"], entry["sha256hash"]) for entry in package["remote_binary"]
+    }
+    pinned_artifacts = {
+        artifact["id"]: (artifact["source"], artifact["sha256"])
+        for artifact in manifest["artifacts"]
+    }
+    assert set(loader_entries) == {"voxtype-avx2", "voxtype-vulkan"}
+    assert loader_entries == pinned_artifacts

@@ -379,6 +379,16 @@ class SpeechApplicationService:
     ) -> None:
         # §43 normalization: trim only. NUL and size are hard rejections (§78).
         text = result.text.strip()
+        if not text:
+            # §77 empty-speech path: the runtime itself reported empty (the
+            # client delivers exit 3 as an empty result). Return to ready
+            # with no transcript, no insertion and no error.
+            await self._sessions.clear(session.session_id)
+            self._active_session_id = None
+            self.counters.recordings_completed += 1
+            self.counters.note_transcription(max(0.0, (self._clock() - stop_monotonic) * 1000.0))
+            await self._publish_state("ready", session_id=None)
+            return
         if "\0" in text:
             await self._fail(
                 InvalidTranscriptError(

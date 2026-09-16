@@ -2,15 +2,23 @@
 
 Owns the native STT daemon child process for its whole lifetime:
 
-- starts the exact pinned binary from defaults/runtime-manifest.json and
-  fails closed with RUNTIME_START_FAILED while the artifact is unpinned
-  (§35, §53 — the repository ships an intentionally unpinned manifest);
+- resolves the pinned binary per compute variant from
+  defaults/runtime-manifest.json (cpu → avx2 build, vulkan → vulkan build,
+  auto → the §47 probe policy in runtime_variant.py) and fails closed with
+  RUNTIME_START_FAILED when the selected artifact is unpinned, its binary is
+  missing, or its bytes do not match the pinned digest (§35, §53);
+- generates one TOML config per daemon start with the exact upstream keys
+  (state_file, output file mode, whisper model/language, VAD, disabled
+  hotkey/notifications/OSD/streaming) and spawns
+  `bin/<variant> --config <generated> daemon` — the daemon subcommand takes
+  no options upstream; all tuning travels through the config file;
 - spawns via argument-array `create_subprocess_exec` only (§40);
 - redirects daemon stdout/stderr into a rotating log file under the plugin
   data dir, actively drained from a pipe (§39: no unread pipes, no
   transcript content is ever written by this process itself);
 - stops in the §38 order: SIGTERM → bounded wait → SIGKILL only if required,
-  killing the whole process group so no orphan survives;
+  killing the whole process group so no orphan survives (upstream handles
+  SIGTERM gracefully and deletes its state file);
 - applies the §70 restart policy: at most 3 attempts with bounded exponential
   delay, only when no active session/transcription is pending; afterwards the
   runtime stays unavailable until an explicit restart.
@@ -20,11 +28,9 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
-import hashlib
 import json
 import logging
 import os
-import re
 import signal
 import time
 from collections.abc import Callable
@@ -37,7 +43,16 @@ from backend.domain.contracts import (
     Settings,
 )
 from backend.domain.errors import RuntimeStartError, SpeechError
-from backend.infrastructure.process.process_environment import PluginPaths, child_environment
+from backend.infrastructure.process.process_environment import (
+    PluginPaths,
+    apply_private_file_mode,
+    child_environment,
+)
+from backend.infrastructure.process.runtime_variant import (
+    ResolvedRuntime,
+    RuntimeVariantResolver,
+    hash_binary,
+)
 
 LOGGER = logging.getLogger("speech.runtime")
 
@@ -49,9 +64,13 @@ RESTART_MAX_DELAY_S = 8.0
 # budget resets so a later crash gets a fresh policy window.
 RESTART_STABILITY_WINDOW_S = 60.0
 
-_SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
 _LOG_MAX_BYTES = 512 * 1024
 _LOG_BACKUPS = 2
+
+# Model path resolver: settings model id → absolute .bin path in the plugin
+# data dir (the ModelStore download target; composition wires it to the
+# loaded model manifest so downloads/checksums stay under our control).
+ModelPathResolver = Callable[[str], Path]
 
 
 class DaemonLog:
@@ -85,89 +104,106 @@ class DaemonLog:
         self._path.rename(self._path.with_name(self._path.name + ".1"))
 
 
-class _RuntimeArtifact:
-    """Pinned native runtime metadata (§53)."""
-
-    def __init__(
-        self,
-        *,
-        artifact_id: str,
-        engine: str,
-        arch: str,
-        version: str,
-        source: str,
-        sha256: str,
-        license: str,
-    ) -> None:
-        self.artifact_id = artifact_id
-        self.engine = engine
-        self.arch = arch
-        self.version = version
-        self.source = source
-        self.sha256 = sha256
-        self.license = license
+def _toml_string(value: str) -> str:
+    """Escape a TOML basic string (JSON string escaping is TOML-compatible)."""
+    return json.dumps(value)
 
 
-def load_pinned_runtime_artifact(manifest_path: Path) -> _RuntimeArtifact:
-    """Load defaults/runtime-manifest.json; fail closed unless pinned (§53).
+def daemon_config_toml(
+    settings: Settings,
+    *,
+    state_file: Path,
+    output_file: Path,
+    model_path: Path,
+) -> str:
+    """Generate the daemon TOML for one start (verified upstream v1.0.1 keys).
 
-    The committed manifest is intentionally unpinned until the runtime lane
-    fills it (see bin/README.md); every unpinned field is a hard
-    RUNTIME_START_FAILED, never a fallback or a download (§109).
+    Key mapping against the upstream default config
+    (github.com/peteonrails/voxtype `dev`, config/default.toml and
+    src/config/*.rs, all cited in bin/README.md):
+
+    - `engine = "whisper"` — top-level engine selection;
+    - `state_file` — bare-word state file; the daemon deletes it on shutdown
+      (missing file = stopped for consumers);
+    - `[audio] max_duration_secs` — §44 recording bound;
+    - `[whisper] model` — absolute path to OUR downloaded ggml file (upstream
+      accepts ids or absolute .bin paths; the absolute path keeps downloads
+      and checksums under our ModelStore control);
+    - `[whisper] language` — our "system" setting has no upstream equivalent,
+      so it maps to "auto" at this adapter boundary; codes pass through;
+    - `[whisper] on_demand_loading = false` — the model stays loaded (§82);
+    - `[whisper] eager_processing = false` — one-shot dictation only;
+    - `[vad] enabled` — settings VAD toggle;
+    - `[output] mode = "file"` + `file_path` + `file_mode = "overwrite"` —
+      atomic per-recording transcript writes with the `.done` sidecar;
+    - `[output.notification]` all off and `[osd] enabled = false` (upstream
+      OSD default is enabled) — no UI side effects from the plugin runtime;
+    - `[streaming]` is omitted entirely — upstream treats the section as
+      opt-in (`Option<StreamingConfig>`), so streaming stays disabled;
+    - `[hotkey] enabled = false` — recording is driven by our client only.
     """
-    try:
-        raw = json.loads(manifest_path.read_bytes().decode("utf-8"))
-    except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
-        raise RuntimeStartError(
-            "runtime manifest cannot be read",
-            detail=f"{manifest_path.name}: {type(exc).__name__}",
-        ) from exc
+    language = "auto" if settings.language == "system" else settings.language
+    lines = [
+        f"engine = {_toml_string('whisper')}",
+        f"state_file = {_toml_string(str(state_file))}",
+        "",
+        "[hotkey]",
+        "enabled = false",
+        "",
+        "[audio]",
+        f"max_duration_secs = {int(settings.max_recording_seconds)}",
+        "",
+        "[whisper]",
+        f"model = {_toml_string(str(model_path))}",
+        f"language = {_toml_string(language)}",
+        "on_demand_loading = false",
+        "eager_processing = false",
+        "",
+        "[vad]",
+        f"enabled = {'true' if settings.vad_enabled else 'false'}",
+        "",
+        "[output]",
+        f"mode = {_toml_string('file')}",
+        f"file_path = {_toml_string(str(output_file))}",
+        f"file_mode = {_toml_string('overwrite')}",
+        "",
+        "[output.notification]",
+        "on_recording_start = false",
+        "on_recording_stop = false",
+        "on_transcription = false",
+        "",
+        "[osd]",
+        "enabled = false",
+        "",
+    ]
+    return "\n".join(lines)
 
-    problems: list[str] = []
-    artifact_raw: object = None
-    if not isinstance(raw, dict) or raw.get("schemaVersion") != 1:
-        problems.append("schemaVersion must be 1")
-    else:
-        artifacts_raw = raw.get("artifacts")
-        if not isinstance(artifacts_raw, list) or len(artifacts_raw) == 0:
-            problems.append("artifacts must be a non-empty array")
-        else:
-            artifact_raw = artifacts_raw[0]
 
-    if not problems and not isinstance(artifact_raw, dict):
-        problems.append("artifacts[0] must be an object")
-
-    fields = ("id", "engine", "arch", "version", "source", "sha256", "license")
-    values: dict[str, str] = {}
-    if not problems and isinstance(artifact_raw, dict):
-        for field in fields:
-            value = artifact_raw.get(field)
-            if not isinstance(value, str) or len(value) == 0:
-                problems.append(f"{field} is not pinned (empty)")
-            else:
-                values[field] = value
-        sha = values.get("sha256", "")
-        if sha and _SHA256_RE.fullmatch(sha) is None:
-            problems.append("sha256 must be 64 lowercase hex characters")
-        source = values.get("source", "")
-        if source and not source.startswith("https://"):
-            problems.append("source must be an https URL (§53: never download latest)")
-
-    if problems:
-        raise RuntimeStartError(
-            "native runtime artifact is not pinned",
-            detail="; ".join(problems[:4]),
-        )
-
-    return _RuntimeArtifact(
-        artifact_id=values["id"],
-        engine=values["engine"],
-        arch=values["arch"],
-        version=values["version"],
-        source=values["source"],
-        sha256=values["sha256"],
-        license=values["license"],
+def write_daemon_config(
+    paths: PluginPaths,
+    settings: Settings,
+    model_path: Path,
+) -> Path:
+    """Write the generated daemon config atomically; return its path (§55)."""
+    payload = daemon_config_toml(
+        settings,
+        state_file=paths.status_file,
+        output_file=paths.output_file,
+        model_path=model_path,
     )
+    config_path = paths.daemon_config
+    config_path.parent.mkdir(parents=True, exist_ok=True)
+    tmp_path = config_path.with_name(config_path.name + ".tmp")
+    try:
+        tmp_path.write_text(payload, encoding="utf-8")
+        os.replace(tmp_path, config_path)
+    except OSError as exc:
+        tmp_path.unlink(missing_ok=True)
+        raise RuntimeStartError(
+            "daemon config could not be written", detail=type(exc).__name__
+        ) from exc
+    apply_private_file_mode(config_path)
+    return config_path
 
 
 class SpeechDaemonSupervisor:
@@ -177,7 +213,9 @@ class SpeechDaemonSupervisor:
         self,
         paths: PluginPaths,
         publisher: EventPublisher,
+        resolver: RuntimeVariantResolver,
         *,
+        model_path_for: ModelPathResolver,
         on_unexpected_exit: Callable[[int | None], object] | None = None,
         is_idle: Callable[[], bool] | None = None,
         shutdown_timeout: float = SHUTDOWN_TIMEOUT_S,
@@ -189,6 +227,8 @@ class SpeechDaemonSupervisor:
     ) -> None:
         self._paths = paths
         self._publisher = publisher
+        self._resolver = resolver
+        self._model_path_for = model_path_for
         self._on_unexpected_exit = on_unexpected_exit
         self._is_idle = is_idle or (lambda: True)
         self._shutdown_timeout = shutdown_timeout
@@ -209,25 +249,29 @@ class SpeechDaemonSupervisor:
     # ── §37 supervisor surface ───────────────────────────────────────────────
 
     async def start(self, settings: Settings) -> None:
-        """Start the pinned binary; idempotent while running (§35, §53)."""
+        """Start the pinned variant binary; idempotent while running (§35, §53)."""
         if self.is_running():
             return
         self._stopping = False
-        artifact = load_pinned_runtime_artifact(self._paths.runtime_manifest)
-        binary = self._paths.runtime_binary
-        if not binary.is_file():
+        # The config exists before resolution: the §47 auto probe runs the
+        # candidate binary against exactly this configuration.
+        config_path = await asyncio.to_thread(
+            write_daemon_config, self._paths, settings, self._model_path_for(settings.model_id)
+        )
+        resolved = await self._resolver.resolve(settings.compute_backend, config_path=config_path)
+        if not resolved.binary.is_file():
             raise RuntimeStartError(
                 "pinned runtime binary is missing",
-                detail=str(binary.relative_to(self._paths.plugin_root)),
+                detail=str(resolved.binary.relative_to(self._paths.plugin_root)),
             )
-        digest = await asyncio.to_thread(_hash_binary, binary)
-        if digest != artifact.sha256:
+        digest = await asyncio.to_thread(hash_binary, resolved.binary)
+        if digest != resolved.artifact.sha256:
             raise RuntimeStartError(
                 "runtime binary does not match the pinned digest (§53)",
-                detail=f"expected {artifact.sha256[:12]}… got {digest[:12]}…",
+                detail=f"expected {resolved.artifact.sha256[:12]}… got {digest[:12]}…",
             )
         self._settings = settings
-        await self._spawn(settings)
+        await self._spawn(settings, resolved, config_path)
 
     async def stop(self) -> None:
         """§38 stop order: SIGTERM → bounded wait → SIGKILL, group-wide."""
@@ -260,28 +304,26 @@ class SpeechDaemonSupervisor:
     def pid(self) -> int | None:
         return self._proc.pid if self._proc is not None else None
 
+    @property
+    def selected_backend(self) -> str | None:
+        """§67 metrics backend of the running/last-started variant."""
+        return self._resolver.selected_backend
+
     # ── internals ────────────────────────────────────────────────────────────
 
-    async def _spawn(self, settings: Settings) -> None:
+    async def _spawn(
+        self,
+        settings: Settings,
+        resolved: ResolvedRuntime,
+        config_path: Path,
+    ) -> None:
+        # Real upstream surface: global flags precede the option-less daemon
+        # subcommand; all tuning travels through the generated config file.
         argv = [
-            str(self._paths.runtime_binary),
+            str(resolved.binary),
+            "--config",
+            str(config_path),
             "daemon",
-            "--status-file",
-            str(self._paths.status_file),
-            "--output-file",
-            str(self._paths.output_file),
-            "--control-socket",
-            str(self._paths.control_socket),
-            "--model",
-            settings.model_id,
-            "--compute-backend",
-            settings.compute_backend,
-            "--language",
-            settings.language,
-            "--vad-enabled",
-            "true" if settings.vad_enabled else "false",
-            "--max-recording-seconds",
-            str(settings.max_recording_seconds),
         ]
         try:
             # §40: argument-array only. start_new_session gives the daemon its
@@ -309,6 +351,7 @@ class SpeechDaemonSupervisor:
             available=True,
             state="starting",
             pid=proc.pid,
+            backend=resolved.backend,
         )
 
     async def _drain_output(self, proc: asyncio.subprocess.Process) -> None:
@@ -378,7 +421,8 @@ class SpeechDaemonSupervisor:
         if self._stopping or self.is_running():
             return
         try:
-            await self._spawn(settings)
+            resolved, config_path = await self._resolve_for_restart(settings)
+            await self._spawn(settings, resolved, config_path)
         except SpeechError as exc:
             await self._publish_status(
                 available=False,
@@ -388,6 +432,14 @@ class SpeechDaemonSupervisor:
             )
             return
         await self._publish_status(available=True, state="restarted", restart_attempt=attempt)
+
+    async def _resolve_for_restart(self, settings: Settings) -> tuple[ResolvedRuntime, Path]:
+        """Rebuild spawn inputs for a §70 restart (config + resolved variant)."""
+        config_path = await asyncio.to_thread(
+            write_daemon_config, self._paths, settings, self._model_path_for(settings.model_id)
+        )
+        resolved = await self._resolver.resolve(settings.compute_backend, config_path=config_path)
+        return resolved, config_path
 
     async def _terminate(self, proc: asyncio.subprocess.Process) -> None:
         pid = proc.pid
@@ -426,6 +478,7 @@ class SpeechDaemonSupervisor:
         pid: int | None = None,
         restart_attempt: int | None = None,
         detail: str | None = None,
+        backend: str | None = None,
     ) -> None:
         payload: dict[str, object] = {
             "protocolVersion": PROTOCOL_VERSION_V1,
@@ -438,6 +491,8 @@ class SpeechDaemonSupervisor:
             payload["pid"] = pid
         if restart_attempt is not None:
             payload["restartAttempt"] = restart_attempt
+        if backend is not None:
+            payload["backend"] = backend
         if detail is not None:
             payload["detail"] = detail
         await self._publisher.publish(EVENT_RUNTIME_STATUS, payload)
@@ -446,11 +501,3 @@ class SpeechDaemonSupervisor:
 async def _maybe_await(callback_result: object) -> None:
     if asyncio.iscoroutine(callback_result):
         await callback_result
-
-
-def _hash_binary(path: Path) -> str:
-    digest = hashlib.sha256()
-    with path.open("rb") as handle:
-        for block in iter(lambda: handle.read(1024 * 1024), b""):
-            digest.update(block)
-    return digest.hexdigest()

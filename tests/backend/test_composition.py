@@ -1,9 +1,10 @@
 """Composition root and main.py facade tests (spec §30, §31, §82, §90).
 
-The fail-closed facade test runs against the repository's real committed
-manifests (unpinned runtime → RUNTIME_START_FAILED). The full-pipeline test
-runs the real fixture daemon through composition: real supervision, control
-CLI, event-driven transcription delivery — no STT hardware.
+The fail-closed facade test runs against a deliberately unpinned runtime
+manifest (the committed manifest is pinned since the v1.0.1 acquisition).
+The full-pipeline test runs the real fixture daemon through composition:
+real supervision, the record CLI protocol, event-driven transcription
+delivery — no STT hardware.
 """
 
 from __future__ import annotations
@@ -20,11 +21,18 @@ from backend.composition import Application, compose
 from backend.domain.errors import RuntimeUnavailableError, SpeechError
 from conftest import (
     REAL_MODELS_MANIFEST,
-    REAL_RUNTIME_MANIFEST,
     FakeEventPublisher,
     build_fixture_binary,
     wait_until,
     write_pinned_runtime_manifest,
+)
+
+UNPINNED_MANIFEST_JSON = (
+    '{"schemaVersion": 1, "artifacts": ['
+    '{"id": "voxtype-avx2", "engine": "whisper", "arch": "x86_64", "variant": "cpu",'
+    ' "version": "", "source": "", "sha256": "", "license": ""},'
+    '{"id": "voxtype-vulkan", "engine": "whisper", "arch": "x86_64", "variant": "vulkan",'
+    ' "version": "", "source": "", "sha256": "", "license": ""}]}'
 )
 
 SPEC_CALLABLES = {
@@ -66,8 +74,8 @@ def build_plugin_roots(tmp_path: Path, *, with_fake_model: bool = False) -> tupl
             if entry["id"] == "base":
                 entry["sha256"] = digest
     (defaults / "models.json").write_text(json.dumps(manifest_payload))
-    # The committed runtime manifest is intentionally unpinned → fail closed.
-    (defaults / "runtime-manifest.json").write_bytes(REAL_RUNTIME_MANIFEST.read_bytes())
+    # The unpinned runtime manifest → fail closed at startup (§53).
+    (defaults / "runtime-manifest.json").write_text(UNPINNED_MANIFEST_JSON, encoding="utf-8")
     return root, data_dir
 
 
@@ -184,8 +192,7 @@ def test_full_pipeline_with_real_fixture_daemon(tmp_path: Path) -> None:
             assert await wait_until(
                 lambda: (
                     app.supervisor.is_running()
-                    and json.loads(app.paths.status_file.read_text(encoding="utf-8"))["state"]
-                    == "recording"
+                    and app.paths.status_file.read_text(encoding="utf-8").strip() == "recording"
                 ),
                 timeout=3.0,
             )
@@ -295,7 +302,9 @@ def test_update_settings_drives_runtime_lifecycle(tmp_path: Path) -> None:
             assert updated["modelId"] == "tiny"
             assert await wait_until(app.supervisor.is_running, timeout=5.0)
             assert len(starting_events(publisher)) == starting_before + 1
-            log_line = f"daemon starting model={updated['modelId']}"
+            # The generated config carries the absolute model path; the new
+            # model reaches the daemon when the log shows its .bin file.
+            log_line = "models/ggml-tiny.bin"
 
             async def new_model_in_daemon_log() -> bool:
                 try:

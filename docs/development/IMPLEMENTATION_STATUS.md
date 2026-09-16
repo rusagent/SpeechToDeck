@@ -5,6 +5,37 @@ Current repository state after the integration pass over the merged tree
 is docs/spec/spec-v1.0.md; the phase plan is §115-§121. All gate evidence below
 is from a single validation run of this integration lane on the merged tree.
 
+## Runtime integration lane (pin-runtime)
+
+The real Voxtype v1.0.1 runtime (github.com/peteonrails/voxtype, MIT) is
+integrated and pinned:
+
+- `defaults/runtime-manifest.json` pins both x86_64 Linux artifacts (avx2 +
+  vulkan) with exact version, release URL, SHA-256 (from the release
+  `SHA256SUMS.txt`) and license; `package.json` carries the matching
+  `remote_binary` entries so the Decky loader downloads and verifies them at
+  install time (consistency covered by a backend test).
+- The process adapters speak the REAL v1.0.1 CLI protocol (verified against
+  the upstream sources; full contract in bin/README.md): `daemon` with a
+  generated TOML config (no daemon options exist), bare-word state file
+  deleted on shutdown (missing = stopped), `.done` completion sidecar,
+  `record start --file=` / `record stop --wait --json` with the upstream
+  exit contract (0/3/4/1) and `record cancel`. The settings
+  `computeBackend` selects the binary (cpu → avx2, vulkan → vulkan, auto →
+  explicit §47 probe with avx2 fallback). `record stop --wait --json`
+  stdout is never logged (it embeds transcript text, §73). Empty speech
+  (exit 3) follows §77: no transcript, no error, straight back to ready.
+- `node scripts/validate-manifests.mjs --strict` (the release gate) is now
+  green; the default run reports no `RUNTIME_UNPINNED` anymore.
+- The test fixture daemon implements the real protocol surface (signals,
+  bare-word state, sidecar, exit codes) and the backend suite exercises
+  supervision, cancellation, timeouts, restart bounds, orphan prevention
+  and variant selection against it.
+
+Remaining unproven on real hardware: STT end-to-end with the pinned binary
+on Deck hardware (Spike C) and Vulkan/CPU benchmarks (Spike D) — the
+pinning itself is done.
+
 ## What exists today
 
 - Frontend core (`src/domain`, `src/application`): dictation state machine,
@@ -20,8 +51,9 @@ is from a single validation run of this integration lane on the merged tree.
   `vitest.config.ts`, `rollup.config.mjs` (esbuild TSX transform),
   `pyproject.toml`, `plugin.json` (§113), ESLint/Prettier, CI (§97).
 - `defaults/models.json`: curated v1 whisper models with real SHA-256 digests.
-- `defaults/runtime-manifest.json`: Voxtype artifact schema, deliberately
-  **unpinned** (no binary may be invented); see gate policy below.
+- `defaults/runtime-manifest.json`: both Voxtype v1.0.1 artifacts (avx2 +
+  vulkan) pinned with real digests; acquisition via `package.json`
+  `remote_binary` (bin/README.md).
 
 ## Integration seam fixes applied (this pass)
 
@@ -146,17 +178,16 @@ re-run green on the repaired tree (counts in the validation section).
    the benign `RuntimeWarning`. No test semantics weakened (the affected
    assertion now actually polls).
 
-## Gate policy: unpinned runtime manifest
+## Gate policy: runtime manifest
 
-`node scripts/validate-manifests.mjs` (default, CI):
-`models.json` violations and a malformed runtime manifest fail hard; the
-intentionally unpinned runtime artifact prints a loud `RUNTIME_UNPINNED`
-diagnostic and the run stays **green** (§129 — a permanently red CI gate would
-contradict "done" without adding safety, because product code already fails
-closed against the unpinned manifest at backend startup with
-`RUNTIME_START_FAILED`, covered by tests). `node scripts/validate-manifests.mjs
---strict` (release packaging) fails hard on an unpinned runtime. Rationale and
-acquisition procedure: bin/README.md.
+`node scripts/validate-manifests.mjs` (default, CI): `models.json` violations
+and a malformed runtime manifest fail hard. Since the runtime integration
+lane both Voxtype artifacts are pinned, the run reports no `RUNTIME_UNPINNED`
+and `--strict` (release packaging) is green. Should an artifact ever lose its
+digest, the default run reports the loud `RUNTIME_UNPINNED` diagnostic and
+stays green while product code fails closed at backend startup
+(`RUNTIME_START_FAILED`, covered by tests); `--strict` fails hard. Rationale
+and acquisition procedure: bin/README.md.
 
 ## Validation evidence (this run, merged tree)
 
@@ -205,9 +236,6 @@ A-D remain open and the §116 exit gate has not been evaluated):
   including Vulkan/CPU benchmarks (Spike D).
 - Real Decky callable/event round-trip through the Decky loader (the loader
   transport is not executable in the development sandbox).
-- Runtime artifact pinning: `defaults/runtime-manifest.json` stays unpinned
-  until a real Voxtype artifact is acquired (bin/README.md); startup fails
-  closed (`RUNTIME_START_FAILED`, tested) against it today.
 
 ## Documented transport seam
 
@@ -223,10 +251,8 @@ the composition root.
 
 1. Phase-0 hardware spikes (§115 A-D) on Deck hardware; evaluate the §116 exit
    gate before finalizing any architecture assumption.
-2. Acquire and pin the Voxtype runtime artifact (bin/README.md), flip the
-   manifest gate to `--strict` for release packaging.
-3. Wire the real Decky loader transport for backend events (replace
+2. Wire the real Decky loader transport for backend events (replace
    `LoggingEventPublisher` at the `compose` seam) and verify one live
    callable/event round-trip through the loader.
-4. Packaging lane: `scripts/validate-package.mjs` against §112 (CI job is
+3. Packaging lane: `scripts/validate-package.mjs` against §112 (CI job is
    declared and skips until the script exists).

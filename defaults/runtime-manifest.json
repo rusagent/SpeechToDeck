@@ -2,13 +2,24 @@
     "schemaVersion": 1,
     "artifacts": [
         {
-            "id": "voxtype",
+            "id": "voxtype-avx2",
             "engine": "whisper",
             "arch": "x86_64",
-            "version": "",
-            "source": "",
-            "sha256": "",
-            "license": ""
+            "variant": "cpu",
+            "version": "1.0.1",
+            "source": "https://github.com/peteonrails/voxtype/releases/download/v1.0.1/voxtype-1.0.1-linux-x86_64-avx2",
+            "sha256": "cb3843a894ef47aca230b30bb1c45c2ef8e0d015adf2fa754d60e55123165fd0",
+            "license": "MIT"
+        },
+        {
+            "id": "voxtype-vulkan",
+            "engine": "whisper",
+            "arch": "x86_64",
+            "variant": "vulkan",
+            "version": "1.0.1",
+            "source": "https://github.com/peteonrails/voxtype/releases/download/v1.0.1/voxtype-1.0.1-linux-x86_64-vulkan",
+            "sha256": "c569d038057464aa60290296794bcbd79b928ee0efd038e33062a4c015558ed8",
+            "license": "MIT"
         }
     ]
 }

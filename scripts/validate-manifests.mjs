@@ -10,14 +10,14 @@
 //   code. A model entry without a real, verified digest can never pass this
 //   gate; digests are never guessed or computed from anything other than the
 //   actual downloaded artifact.
-// - The runtime artifact is intentionally unpinned while no Voxtype binary
-//   has been acquired (bin/README.md). Product code already fails closed
-//   against an unpinned manifest (backend startup: RUNTIME_START_FAILED), so
-//   a permanently red CI gate would contradict §129 without adding safety.
-//   The DEFAULT run therefore exits 0 but prints a loud RUNTIME_UNPINNED
-//   diagnostic. `--strict` (release packaging) additionally fails on an
-//   unpinned runtime. Everything else about the runtime manifest (malformed
-//   JSON, wrong schemaVersion, invalid https source, bad sha256 format) is a
+// - The runtime manifest pins both Voxtype v1.0.1 x86_64 Linux artifacts
+//   (avx2 + vulkan; see bin/README.md). The gate still reports a loud
+//   RUNTIME_UNPINNED diagnostic if an artifact ever loses its digest: product
+//   code fails closed against an unpinned manifest (backend startup:
+//   RUNTIME_START_FAILED), so the DEFAULT run exits 0 with the diagnostic.
+//   `--strict` (release packaging) fails on any unpinned runtime. Everything
+//   else about the runtime manifest (malformed JSON, wrong schemaVersion,
+//   invalid https source, bad sha256 format, duplicate ids/variants) is a
 //   hard failure in both modes.
 
 import { readFileSync } from "node:fs";
@@ -191,6 +191,13 @@ function validateRuntimeManifest() {
         return;
     }
 
+    // One artifact per compute variant, selected by the supervisor from the
+    // settings computeBackend (cpu → avx2 build, vulkan → vulkan build, auto →
+    // explicit probe policy). Each variant must appear at most once.
+    const VARIANT_VALUES = new Set(["cpu", "vulkan"]);
+    const seenIds = new Set();
+    const seenVariants = new Set();
+
     artifacts.forEach((artifact, index) => {
         const label = `${relativePath}: artifacts[${index}]`;
         if (!isPlainObject(artifact)) {
@@ -215,6 +222,27 @@ function validateRuntimeManifest() {
             if (typeof artifact[field] !== "string" || artifact[field].length === 0) {
                 fail(`${label}.${field}: must be a non-empty string (spec §53)`);
             }
+        }
+
+        if (typeof artifact.id === "string" && artifact.id.length > 0) {
+            if (seenIds.has(artifact.id)) {
+                fail(`${label}.id: duplicate artifact id ${JSON.stringify(artifact.id)}`);
+            }
+            seenIds.add(artifact.id);
+        }
+
+        if (typeof artifact.variant !== "string" || artifact.variant.length === 0) {
+            fail(`${label}.variant: must be a non-empty string (one of cpu, vulkan)`);
+        } else if (!VARIANT_VALUES.has(artifact.variant)) {
+            fail(
+                `${label}.variant: must be one of ${[...VARIANT_VALUES].join(", ")}, ` +
+                    `got ${JSON.stringify(artifact.variant)}`,
+            );
+        } else {
+            if (seenVariants.has(artifact.variant)) {
+                fail(`${label}.variant: duplicate variant ${JSON.stringify(artifact.variant)}`);
+            }
+            seenVariants.add(artifact.variant);
         }
 
         if (pinned) {
