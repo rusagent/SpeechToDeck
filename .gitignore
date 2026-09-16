@@ -1,0 +1,10 @@
+node_modules/
+dist/
+.tmp/
+.worktrees/
+__pycache__/
+*.pyc
+.venv/
+coverage/
+*.log
+.DS_Store
