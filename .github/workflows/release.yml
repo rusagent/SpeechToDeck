@@ -1,0 +1,321 @@
+# Automated release pipeline: GitHub release + Decky store distribution.
+#
+# Flow (owner handbook: docs/development/release.md):
+#   tag push `v*` or workflow_dispatch(channel)
+#     → gates       same checks as the ci.yml core jobs; the artifact manifest
+#                   gate runs with --strict, so a release cannot be cut while
+#                   the native runtime artifact is unpinned (bin/README.md, §53)
+#     → package     toolchain build inside ghcr.io/steamdeckhomebrew/builder
+#                   (entrypoint: pnpm i --frozen-lockfile, pnpm run build,
+#                   assemble to /out), then scripts/build-package.mjs produces
+#                   the contract-conformant zip(s) + SHA256SUMS.txt; --dev adds
+#                   the URL-install dev zip for preview/*-pre.*/*-rc* builds
+#     → validate    scripts/validate-package.mjs against every produced zip
+#     → github-release  zips + checksums; prerelease for preview / pre / rc
+#     → store-pr    OPTIONAL: only when vars.STORE_PR_ENABLED == 'true' AND the
+#                   DB_PR_PAT secret exists. Updates the plugin submodule in the
+#                   DB_FORK_REPO fork and opens an HONEST PR to
+#                   SteamDeckHomebrew/decky-plugin-database. The automation fills
+#                   nothing it cannot know: it never declares AI usage and never
+#                   claims testing; it inserts a visible OWNER REVIEW REQUIRED
+#                   checklist for the repository owner to complete.
+#
+# No release artifact is produced while any gate fails.
+
+name: Release
+
+on:
+    push:
+        tags: ["v*"]
+    workflow_dispatch:
+        inputs:
+            channel:
+                description: "preview publishes a prerelease with a -dev zip"
+                type: choice
+                default: stable
+                options:
+                    - stable
+                    - preview
+
+# package.json deliberately carries no `packageManager` field (the Decky
+# builder container ships a global pnpm 9), so the version is pinned here.
+env:
+    PNPM_VERSION: "10.33.2"
+
+permissions:
+    contents: read
+
+concurrency:
+    group: release-${{ github.ref }}
+    cancel-in-progress: false
+
+jobs:
+    # ── Release gates (mirror of the ci.yml core jobs) ───────────────────────
+
+    gates:
+        runs-on: ubuntu-latest
+        steps:
+            - uses: actions/checkout@v4
+            - uses: pnpm/action-setup@v4
+              with:
+                  version: ${{ env.PNPM_VERSION }}
+            - uses: actions/setup-node@v4
+              with:
+                  node-version: 24
+                  cache: pnpm
+            - run: pnpm install --frozen-lockfile
+            - run: pnpm exec prettier --check .
+            - run: pnpm lint
+            - run: pnpm typecheck
+            - run: pnpm test
+            - run: pnpm build
+            # §53: release packaging requires the strict manifest gate (fails
+            # hard on an unpinned runtime artifact).
+            - run: node scripts/validate-manifests.mjs --strict
+            - run: node scripts/validate-licenses.mjs
+            - uses: actions/setup-python@v5
+              with:
+                  python-version: "3.11"
+            - name: ruff / mypy / pytest (plain venv)
+              run: |
+                  python -m venv .venv
+                  .venv/bin/pip install ruff==0.16.8 mypy==2.3.1 pytest aiohttp
+                  .venv/bin/ruff format --check backend main.py
+                  .venv/bin/ruff check .
+                  .venv/bin/mypy
+                  .venv/bin/pytest tests/backend
+
+    # ── Package (toolchain build in the official builder image) ──────────────
+
+    package:
+        needs: gates
+        runs-on: ubuntu-latest
+        outputs:
+            prerelease: ${{ steps.meta.outputs.prerelease }}
+        steps:
+            - uses: actions/checkout@v4
+            - name: Determine channel
+              id: meta
+              run: |
+                  PRERELEASE=false
+                  case "$GITHUB_REF_NAME" in
+                      *-pre.* | *-rc*) PRERELEASE=true ;;
+                  esac
+                  if [ "${{ inputs.channel }}" = "preview" ]; then
+                      PRERELEASE=true
+                  fi
+                  echo "prerelease=$PRERELEASE" >> "$GITHUB_OUTPUT"
+                  echo "Building prerelease=$PRERELEASE"
+            - name: Toolchain build in the Decky builder image
+              # The builder image entrypoint runs `pnpm i --frozen-lockfile`,
+              # `pnpm run build` and assembles its output tree into /out
+              # (excluding src/, __pycache__, node_modules). The image ships no
+              # decky CLI binary (observed), so the contract-conformant zip is
+              # produced from its output by scripts/build-package.mjs below.
+              # /out mounts OUTSIDE the workspace: the entrypoint rsyncs
+              # /plugin/ into /out, and nesting the destination inside the
+              # source would make rsync self-copy.
+              run: |
+                  mkdir -p "$RUNNER_TEMP/builder-out"
+                  docker run --rm \
+                      -v "$GITHUB_WORKSPACE:/plugin" \
+                      -v "$RUNNER_TEMP/builder-out:/out" \
+                      ghcr.io/steamdeckhomebrew/builder:latest
+            - name: Build release zips + SHA256 checksums
+              # --dev adds the URL-install dev zip for preview releases
+              # (the `-d` equivalent; docs/development/release.md).
+              run: |
+                  DEV_FLAG=""
+                  if [ "${{ steps.meta.outputs.prerelease }}" = "true" ]; then
+                      DEV_FLAG="--dev"
+                  fi
+                  node scripts/build-package.mjs \
+                      --src "$RUNNER_TEMP/builder-out" \
+                      --out .tmp/release $DEV_FLAG
+                  cat .tmp/release/SHA256SUMS.txt
+            - uses: actions/upload-artifact@v4
+              with:
+                  name: release-packages
+                  path: .tmp/release/
+                  if-no-files-found: error
+
+    # ── Validate the produced archive against the store contract ────────────
+
+    validate:
+        needs: package
+        runs-on: ubuntu-latest
+        steps:
+            - uses: actions/checkout@v4
+            - uses: actions/download-artifact@v4
+              with:
+                  name: release-packages
+                  path: release-packages
+            - name: Validate package structure
+              run: |
+                  set -euo pipefail
+                  ls -la release-packages
+                  status=0
+                  for zip in release-packages/*.zip; do
+                      node scripts/validate-package.mjs "$zip" || status=1
+                  done
+                  exit $status
+
+    # ── GitHub release (zips + checksums) ────────────────────────────────────
+
+    github-release:
+        needs: [package, validate]
+        runs-on: ubuntu-latest
+        permissions:
+            contents: write
+        steps:
+            - uses: actions/checkout@v4
+            - uses: actions/download-artifact@v4
+              with:
+                  name: release-packages
+                  path: release-packages
+            - name: Create GitHub release
+              env:
+                  GH_TOKEN: ${{ github.token }}
+                  PRERELEASE: ${{ needs.package.outputs.prerelease }}
+              run: |
+                  set -euo pipefail
+                  if [ "$GITHUB_REF_TYPE" = "tag" ]; then
+                      TAG="$GITHUB_REF_NAME"
+                      TARGET_ARGS=""
+                  else
+                      # workflow_dispatch from a branch: release package.json's
+                      # version at this commit.
+                      TAG="v$(node -p "require('./package.json').version")"
+                      TARGET_ARGS="--target $GITHUB_SHA"
+                  fi
+                  FLAGS=""
+                  if [ "$PRERELEASE" = "true" ]; then
+                      FLAGS="--prerelease"
+                  fi
+                  VERSION="$(node -p "require('./package.json').version")"
+                  cat > release-notes.md <<NOTES
+                  Automated release of Voice Keyboard v$VERSION (commit $GITHUB_SHA).
+
+                  Packages: the plugin zip (plus a `-dev` zip for preview builds)
+                  and `SHA256SUMS.txt` with SHA-256 checksums of every archive.
+
+                  Store distribution is a separate review flow:
+                  docs/development/release.md (decky-plugin-database PR + owner
+                  review checklist). GitHub releases are URL-install artifacts,
+                  not store uploads.
+                  NOTES
+                  gh release create "$TAG" release-packages/* $FLAGS $TARGET_ARGS \
+                      --title "Voice Keyboard v$VERSION" \
+                      --notes-file release-notes.md
+
+    # ── Store PR (OPTIONAL, owner-gated, honest content only) ────────────────
+
+    store-pr:
+        needs: [package, validate, github-release]
+        # Double gate: repository variable (owner enables the flow) and a tag
+        # push (a store PR always points at a tagged commit). The DB_PR_PAT
+        # secret is checked inside the step so a missing secret skips cleanly.
+        if: vars.STORE_PR_ENABLED == 'true' && startsWith(github.ref, 'refs/tags/v')
+        runs-on: ubuntu-latest
+        steps:
+            - uses: actions/checkout@v4
+            - name: Check store PR prerequisites
+              id: prereq
+              env:
+                  DB_PR_PAT: ${{ secrets.DB_PR_PAT }}
+              run: |
+                  if [ -z "$DB_PR_PAT" ]; then
+                      echo "::notice::DB_PR_PAT is not configured; skipping the store PR (docs/development/release.md)."
+                      echo "present=false" >> "$GITHUB_OUTPUT"
+                  else
+                      echo "present=true" >> "$GITHUB_OUTPUT"
+                  fi
+            - name: Open decky-plugin-database PR from the fork
+              if: steps.prereq.outputs.present == 'true'
+              env:
+                  DB_PR_PAT: ${{ secrets.DB_PR_PAT }}
+                  DB_FORK_REPO: ${{ vars.DB_FORK_REPO }}
+                  COMMIT: ${{ github.sha }}
+                  REPO: ${{ github.repository }}
+              run: |
+                  set -euo pipefail
+                  # The plugin name contains a space ("Voice Keyboard"); read
+                  # name and description in two separate substitutions so no
+                  # word splitting can corrupt either value.
+                  PLUGIN_NAME="$(node -p 'JSON.parse(require("fs").readFileSync("plugin.json", "utf8")).name')"
+                  DESCRIPTION="$(node -p 'JSON.parse(require("fs").readFileSync("plugin.json", "utf8")).publish.description')"
+                  VERSION="$(node -p "require('./package.json').version")"
+                  SUBMODULE="plugins/$PLUGIN_NAME"
+                  FORK_OWNER="${DB_FORK_REPO%%/*}"
+                  BRANCH="release/$(echo "$PLUGIN_NAME" | tr '[:upper:] ' '[:lower:]-')-$VERSION"
+
+                  git clone "https://x-access-token:${DB_PR_PAT}@github.com/${DB_FORK_REPO}.git" db
+                  git -C db config user.name "voice-keyboard-release-bot"
+                  git -C db config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+                  git -C db checkout -b "$BRANCH"
+
+                  # Addition (new submodule entry) or update (move the gitlink).
+                  ADDITION=true
+                  if git -C db cat-file -e "HEAD:$SUBMODULE" 2>/dev/null; then
+                      ADDITION=false
+                      git -C db submodule update --init "$SUBMODULE"
+                  else
+                      git -C db submodule add "https://github.com/${REPO}.git" "$SUBMODULE"
+                  fi
+                  git -C "db/$SUBMODULE" fetch --depth 1 origin "$COMMIT"
+                  git -C "db/$SUBMODULE" checkout --detach "$COMMIT"
+                  git -C db add "$SUBMODULE"
+                  git -C db add .gitmodules 2>/dev/null || true
+
+                  if [ "$ADDITION" = "true" ]; then
+                      TITLE="Plugin addition: $PLUGIN_NAME v$VERSION"
+                  else
+                      TITLE="Plugin update: $PLUGIN_NAME v$VERSION"
+                  fi
+                  cat > pr-body.md <<BODY
+                  ## $TITLE
+
+                  **Plugin repository:** https://github.com/${REPO}
+                  **Submodule:** \`$SUBMODULE @ $COMMIT\`
+                  **Version:** $VERSION (package.json, semver)
+
+                  ### Description
+
+                  $DESCRIPTION
+
+                  ### OWNER REVIEW REQUIRED — automation completed nothing below
+
+                  > This pull request was opened by the plugin's release
+                  > automation. The items below are deliberately NOT filled in:
+                  > the repository owner must verify and complete each one before
+                  > maintainers are asked to review. Automation makes no
+                  > declarations on the owner's behalf.
+
+                  - [ ] **Generative AI declaration:** the
+                        decky-plugin-database submission asks whether generative
+                        AI was used in developing the plugin. **This automation
+                        does not answer that question** — the owner must state
+                        it here truthfully before requesting review.
+                  - [ ] **Icon / screenshot URL:** \`plugin.json\`
+                        \`publish.image\` must point at a hosted, accessible
+                        image before submission.
+                  - [ ] **SteamOS Stable and Beta testing:** the owner must
+                        install this build on both SteamOS channels and declare
+                        the results honestly. No testing is claimed here.
+                  - [ ] **defaults.txt:** confirm the repository-root
+                        \`defaults.txt\` documents every defaults file shipped
+                        in the package.
+
+                  ### Maintainer checklist (left for maintainer review)
+
+                  - [ ] decky-plugin-database CI build passes
+                  - [ ] Store rules and metadata review
+                  BODY
+
+                  git -C db commit -m "$TITLE"
+                  git -C db push origin "$BRANCH"
+                  GH_TOKEN="$DB_PR_PAT" gh pr create \
+                      -R SteamDeckHomebrew/decky-plugin-database \
+                      --head "$FORK_OWNER:$BRANCH" \
+                      --title "$TITLE" \
+                      --body-file pr-body.md

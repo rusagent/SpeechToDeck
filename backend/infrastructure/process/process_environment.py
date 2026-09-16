@@ -22,9 +22,41 @@ CONTROL_SOCKET_NAME = "control.sock"
 DAEMON_LOG_NAME = "daemon.log"
 SETTINGS_FILENAME = "settings.json"
 
+DEFAULTS_DIRNAME = "defaults"
+
+
+def resolve_defaults_file(plugin_root: Path, filename: str) -> Path:
+    """The single resolver for shipped defaults files across both layouts.
+
+    Two layouts exist for the same files:
+
+    - Installed package (Decky loader): the packager **flattens**
+      `defaults/` into the plugin root, so the files sit at
+      `<plugin_root>/<filename>` next to `main.py`.
+    - Repository checkout (development): the files are committed under
+      `<plugin_root>/defaults/<filename>`.
+
+    The packaged (flattened) location wins when both exist because the
+    shipped artifact is what users run. When neither exists, the flattened
+    path is returned so fail-closed loaders report a stable location.
+    Read-only existence probes only; no filesystem effects.
+    """
+    flattened = plugin_root / filename
+    if flattened.is_file():
+        return flattened
+    nested = plugin_root / DEFAULTS_DIRNAME / filename
+    if nested.is_file():
+        return nested
+    return flattened
+
 
 class PluginPaths:
-    """Resolved plugin locations (pure description; no filesystem effects)."""
+    """Resolved plugin locations.
+
+    Writable paths are pure descriptions with no filesystem effects; the
+    defaults properties additionally probe (read-only) which shipped layout
+    is present via `resolve_defaults_file`.
+    """
 
     def __init__(self, plugin_root: Path, data_dir: Path) -> None:
         self.plugin_root = plugin_root
@@ -32,11 +64,13 @@ class PluginPaths:
 
     @property
     def bin_dir(self) -> Path:
+        # bin/ is NOT flattened by the packager: the shipped layout keeps it.
         return self.plugin_root / "bin"
 
     @property
     def defaults_dir(self) -> Path:
-        return self.plugin_root / "defaults"
+        """Development layout location; installed packages flatten this away."""
+        return self.plugin_root / DEFAULTS_DIRNAME
 
     @property
     def runtime_binary(self) -> Path:
@@ -44,11 +78,11 @@ class PluginPaths:
 
     @property
     def models_manifest(self) -> Path:
-        return self.defaults_dir / "models.json"
+        return resolve_defaults_file(self.plugin_root, "models.json")
 
     @property
     def runtime_manifest(self) -> Path:
-        return self.defaults_dir / "runtime-manifest.json"
+        return resolve_defaults_file(self.plugin_root, "runtime-manifest.json")
 
     @property
     def models_dir(self) -> Path:

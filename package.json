@@ -5,7 +5,6 @@
     "description": "Steam Deck plugin: a microphone button for the Steam virtual keyboard that transcribes speech locally and inserts the final transcript as one complete payload.",
     "type": "module",
     "license": "MIT",
-    "packageManager": "pnpm@10.33.2",
     "scripts": {
         "build": "rollup -c",
         "watch": "rollup -c -w",

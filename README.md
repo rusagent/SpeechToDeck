@@ -49,7 +49,8 @@ pnpm typecheck && pnpm test && pnpm lint && pnpm build
 ```
 
 Full setup and the CI gate mapping: [docs/development/setup.md](docs/development/setup.md),
-[docs/development/validation.md](docs/development/validation.md).
+[docs/development/validation.md](docs/development/validation.md). Releasing to
+GitHub and the Decky store: [docs/development/release.md](docs/development/release.md).
 
 ## Layout
 
