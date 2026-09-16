@@ -13,7 +13,8 @@
  * `MicrophoneControlPresenter` is the reactive binding: it subscribes to the
  * controller store and mounts/updates/unmounts the control through the host
  * port whenever the model output meaningfully changes (§66 — the button
- * rerenders only on meaningful state changes).
+ * rerenders only on meaningful state changes; the §20 recording timer is the
+ * single sanctioned exception and runs only during an active session).
  */
 
 import * as React from "react";
@@ -30,7 +31,7 @@ import type { Disposable } from "../../shared/Disposable";
 import { MicrophoneButton } from "./MicrophoneButton";
 import { microphoneButtonModel } from "./MicrophoneButtonModel";
 import type { MicrophoneVisualState } from "./MicrophoneButtonModel";
-import { detectEnvironmentLocale } from "../i18n/messages";
+import { detectEnvironmentLocale, translateError } from "../i18n/messages";
 import type { Locale } from "../i18n/messages";
 
 interface MicrophoneButtonBridgeProps {
@@ -38,6 +39,36 @@ interface MicrophoneButtonBridgeProps {
     readonly visible: boolean;
     readonly onPress: () => void;
     readonly locale: Locale;
+}
+
+/** mm:ss display for an elapsed duration; minutes may exceed 59. */
+function formatElapsedMs(elapsedMs: number): string {
+    const totalSeconds = Math.max(0, Math.floor(elapsedMs / 1000));
+    const minutes = Math.floor(totalSeconds / 60);
+    const seconds = totalSeconds % 60;
+    return `${String(minutes).padStart(2, "0")}:${String(seconds).padStart(2, "0")}`;
+}
+
+/**
+ * §20/§66 recording timer: a single active-session interval that ticks only
+ * while the acknowledged recording state is on screen and disposes on stop,
+ * unmount, or session change. The label is recomputed from the session's
+ * monotonic start (§7.1), never accumulated from tick counts.
+ */
+function useRecordingElapsedLabel(state: DictationState): string | undefined {
+    const [, setTick] = React.useState(0);
+    const sessionStartMs = state.kind === "recording" ? state.session.startedAtMonotonicMs : null;
+    React.useEffect(() => {
+        if (sessionStartMs === null) {
+            return;
+        }
+        const interval = window.setInterval(() => setTick((tick) => tick + 1), 1000);
+        return () => window.clearInterval(interval);
+    }, [sessionStartMs]);
+    if (sessionStartMs === null) {
+        return undefined;
+    }
+    return formatElapsedMs(performance.now() - sessionStartMs);
 }
 
 function MicrophoneButtonBridge({
@@ -57,17 +88,22 @@ function MicrophoneButtonBridge({
         () => (store === null ? snapshotNever : () => store.getSnapshot()),
         [store],
     );
-    React.useSyncExternalStore(subscribe, getSnapshot);
+    const state = React.useSyncExternalStore(subscribe, getSnapshot);
+    const elapsedLabel = useRecordingElapsedLabel(state);
     if (store === null || !visible) {
         return null;
     }
-    const model = microphoneButtonModel(store.getSnapshot());
+    const model = microphoneButtonModel(state);
+    const errorMessage =
+        state.kind === "error" ? translateError(locale, state.error.code) : undefined;
     return (
         <MicrophoneButton
             state={model.visualState}
             disabled={model.disabled}
             onPress={onPress}
             locale={locale}
+            {...(elapsedLabel === undefined ? {} : { elapsedLabel })}
+            {...(errorMessage === undefined ? {} : { errorMessage })}
         />
     );
 }

@@ -7,6 +7,7 @@
 
 import { act, cleanup, fireEvent } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { DictationError } from "../../src/domain/DictationError";
 import {
     MicrophoneControlPresenter,
     createMicrophoneControlRenderer,
@@ -205,5 +206,85 @@ describe("MicrophoneControlPresenter", () => {
 
         expect(mountSpy).toHaveBeenCalledTimes(2); // ready → recording; same-kind update filtered
         presenter.dispose();
+    });
+});
+
+describe("recording timer (§20/§66)", () => {
+    afterEach(() => {
+        vi.useRealTimers();
+    });
+
+    function mountBridge(store: FakeStateStore): { host: HTMLDivElement; dispose: () => void } {
+        const renderer = createMicrophoneControlRenderer(() => store, "en");
+        const host = document.createElement("div");
+        document.body.appendChild(host);
+        let disposable: Disposable | null = null;
+        act(() => {
+            disposable = renderer.render(host, {
+                visible: true,
+                active: false,
+                busy: false,
+                onPress: () => undefined,
+            });
+        });
+        return {
+            host,
+            dispose: () => {
+                act(() => {
+                    disposable?.dispose();
+                });
+            },
+        };
+    }
+
+    it("formats the monotonic session elapsed time as mm:ss and ticks once per second", () => {
+        vi.useFakeTimers();
+        const now = performance.now();
+        const store = new FakeStateStore({
+            kind: "recording",
+            session: {
+                sessionId: "s1",
+                keyboardContextId: "c1",
+                startedAtMonotonicMs: now - 65_000,
+            },
+        });
+        const { host } = mountBridge(store);
+
+        expect(host.querySelector("button")!.textContent).toMatch(/^01:0[45]$/); // ~65 s elapsed
+
+        const before = host.querySelector("button")!.textContent;
+        act(() => {
+            vi.advanceTimersByTime(1000);
+        });
+        expect(host.querySelector("button")!.textContent).not.toBe(before); // timer ticked
+
+        act(() => {
+            store.set(readyState());
+        });
+        expect(host.querySelector("button")!.textContent).not.toMatch(/^\d{2}:\d{2}$/);
+
+        // The interval is disposed with the session: a fresh recording
+        // session restarts the timer from its own monotonic start.
+        act(() => {
+            store.set(recordingState());
+        });
+        act(() => {
+            vi.advanceTimersByTime(1000);
+        });
+        expect(host.querySelector("button")!.textContent).toMatch(/^\d{2}:\d{2}$/);
+    });
+
+    it("maps an error state to the localized §68 message flash", () => {
+        const store = new FakeStateStore({
+            kind: "error",
+            error: new DictationError("TRANSCRIPTION_FAILED"),
+            recoverable: true,
+        });
+        const { dispose } = mountBridge(store);
+        expect(document.querySelector('[role="status"]')?.textContent).toBe(
+            "Transcription failed.",
+        );
+        dispose();
+        expect(document.querySelector('[role="status"]')).toBeNull();
     });
 });

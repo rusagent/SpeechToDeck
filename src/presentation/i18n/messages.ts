@@ -47,6 +47,18 @@ export const EN_MESSAGES = {
     "option.output.direct-insert": "Direct insert",
     "option.output.clipboard-only": "Clipboard only",
 
+    "hint.backend.auto": "Checks for Vulkan and uses the CPU when Vulkan is unavailable.",
+    "hint.backend.vulkan":
+        "Vulkan is required. If it fails, an error is shown — no silent switch to CPU.",
+    "hint.backend.cpu": "Uses the CPU only.",
+    "hint.model.installed": "Model is installed and ready.",
+    "hint.model.notInstalled":
+        "Model is not installed. Dictation stays unavailable until it is downloaded.",
+    "hint.model.unknown": "Installation status is not known yet.",
+    "hint.language.system": "Uses the Steam interface language.",
+    "hint.language.auto": "Detects the spoken language automatically.",
+    "hint.language.explicit": "Transcriptions are made in this language.",
+
     "common.available": "Available",
     "common.unavailable": "Unavailable",
     "common.unknown": "Unknown",
@@ -123,6 +135,18 @@ export const DE_MESSAGES: Record<MessageKey, string> = {
     "option.language.auto": "Automatisch erkennen",
     "option.output.direct-insert": "Direkt einfügen",
     "option.output.clipboard-only": "Nur Zwischenablage",
+
+    "hint.backend.auto": "Prüft Vulkan und nutzt die CPU, wenn Vulkan nicht verfügbar ist.",
+    "hint.backend.vulkan":
+        "Vulkan ist erforderlich. Schlägt es fehl, wird ein Fehler angezeigt — kein stiller Wechsel zu CPU.",
+    "hint.backend.cpu": "Nutzt nur die CPU.",
+    "hint.model.installed": "Modell ist installiert und bereit.",
+    "hint.model.notInstalled":
+        "Modell ist nicht installiert. Spracheingabe bleibt unverfügbar, bis es geladen wurde.",
+    "hint.model.unknown": "Der Installationsstatus ist noch nicht bekannt.",
+    "hint.language.system": "Nutzt die Sprache der Steam-Oberfläche.",
+    "hint.language.auto": "Erkennt die gesprochene Sprache automatisch.",
+    "hint.language.explicit": "Transkriptionen werden in dieser Sprache erstellt.",
 
     "common.available": "Verfügbar",
     "common.unavailable": "Nicht verfügbar",

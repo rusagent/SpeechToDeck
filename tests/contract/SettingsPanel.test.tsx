@@ -40,8 +40,15 @@ vi.mock("@decky/ui", async () => {
             ),
         ButtonItem: (props: { label?: string; children?: Children }) =>
             h("button", null, props.children ?? props.label),
+        // Field wraps label and children in separate nodes like the Steam UI
+        // field, so label and value are individually queryable.
         Field: (props: { label: string; children?: Children }) =>
-            h("div", { "data-field": props.label }, props.label, props.children),
+            h(
+                "div",
+                { "data-field": props.label },
+                h("span", { "data-field-label": props.label }, props.label),
+                h("span", { "data-field-value": props.label }, props.children),
+            ),
     };
 });
 
