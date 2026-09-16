@@ -1,0 +1,21 @@
+# defaults.txt — shipped defaults files (Decky store review checklist)
+
+This file documents every file the plugin ships in `defaults/` and why it is
+required at runtime. Store reviewers use it to verify that nothing under
+`defaults/` is an unexplained blob; acquisition rules for the runtime artifact
+itself are in [bin/README.md](bin/README.md).
+
+Note on packaging: the Decky packager flattens `defaults/` into the plugin
+root of the installed package, so on a Steam Deck these files sit next to
+`main.py`. In this repository (development layout) they live under
+`defaults/`. The backend resolves both layouts (see
+`backend/infrastructure/process/process_environment.py`,
+`resolve_defaults_file`).
+
+| File                                            | Purpose                                                                                                                                 |
+| ---------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------- |
+| `defaults/models.json`                          | Curated whisper model catalog (tiny / base / small) with pinned https download URLs, SHA-256 digests and sizes. Consumed by the backend `ModelStore` (strict validation; a bad manifest fails closed at startup). Model binaries are downloaded to the plugin data dir at runtime and verified against these digests — never shipped or committed. |
+| `defaults/runtime-manifest.json`                | Pinned provenance (version, source, sha256, license, arch) of the packaged native Voxtype runtime binary in `bin/`. The backend fails closed (`RUNTIME_START_FAILED`) until every field is pinned; see `bin/README.md` for the pinning procedure. |
+
+No other files ship in `defaults/`, and no defaults file is written at
+runtime (writable state lives exclusively in the plugin data directory).
