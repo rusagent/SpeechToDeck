@@ -35,6 +35,7 @@ from backend.infrastructure.process.process_environment import (
     PluginPaths,
     ensure_directories,
 )
+from backend.infrastructure.process.runtime_variant import RuntimeVariantResolver
 from backend.infrastructure.process.status_monitor import (
     RuntimeStatusMonitor,
     StatusFileWatcher,
@@ -102,6 +103,7 @@ class Application:
         client: VoxtypeClient,
         watcher: StatusFileWatcher,
         manifest: ModelManifest,
+        resolver: RuntimeVariantResolver,
     ) -> None:
         self.paths = paths
         self.publisher = publisher
@@ -113,6 +115,7 @@ class Application:
         self.client = client
         self.watcher = watcher
         self.manifest = manifest
+        self.resolver = resolver
         self._started = False
         self._disposed = False
         # Serializes every §36 lifecycle transition (§82 startup, settings
@@ -234,17 +237,17 @@ class Application:
           availability is reported as the runtime's availability;
         - the CPU backend is the pinned runtime's baseline compute path on the
           supported platform, so it is always reported available;
-        - Vulkan is only claimed when the daemon itself reported it.
+        - Vulkan is only claimed when the resolved runtime variant is the
+          vulkan binary (§47 selection).
         """
         settings = await self.settings_repository.load()
         running = self.supervisor.is_running()
-        snapshot = self.watcher.last_snapshot
         return {
             "protocolVersion": PROTOCOL_VERSION_V1,
             "speechRuntimeAvailable": running,
             "microphoneAvailable": running,
             "cpuAvailable": True,
-            "vulkanAvailable": snapshot is not None and snapshot.backend == "vulkan",
+            "vulkanAvailable": self.resolver.selected_backend == "vulkan",
             "modelInstalled": await self.models.store.is_installed(settings.model_id),
             # §54 context for diagnostics; the §99 guard ignores extra fields.
             "computeBackend": settings.compute_backend,
@@ -437,8 +440,21 @@ def compose(
     settings_repository = JsonSettingsRepository(paths.settings_file)
     models = ModelService(manifest, paths.models_dir, fetcher, publisher)
 
-    watcher = StatusFileWatcher(paths.runtime_dir)
-    client = VoxtypeClient(paths, watcher)
+    def model_path_for(model_id: str) -> Path:
+        """Absolute .bin path of a curated model (§48/§51/§109).
+
+        The daemon config points at OUR downloaded model file so downloads
+        and checksums stay under ModelStore control; ids validate against
+        the loaded manifest exactly like the store (no traversal).
+        """
+        info = manifest.by_id(model_id)
+        if info is None:
+            raise ModelNotInstalledError("unknown model id", detail=f"id={model_id!r}")
+        return paths.models_dir / info.filename
+
+    resolver = RuntimeVariantResolver(paths)
+    watcher = StatusFileWatcher(paths.native_runtime_dir)
+    client = VoxtypeClient(paths, resolver)
     settings_provider: Callable[[], Awaitable[Settings]] = settings_repository.load
     speech = SpeechApplicationService(
         client,
@@ -451,6 +467,8 @@ def compose(
     supervisor = SpeechDaemonSupervisor(
         paths,
         publisher,
+        resolver,
+        model_path_for=model_path_for,
         on_unexpected_exit=speech.notify_runtime_lost,
         is_idle=lambda: not speech.has_pending_work(),
     )
@@ -467,4 +485,5 @@ def compose(
         client=client,
         watcher=watcher,
         manifest=manifest,
+        resolver=resolver,
     )

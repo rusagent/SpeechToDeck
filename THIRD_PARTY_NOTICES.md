@@ -33,10 +33,14 @@ This project itself is MIT-licensed (see LICENSE).
 
 ### Voxtype runtime daemon
 
-- Pinned artifact: exact version, build source, SHA-256, license and
-  architecture are recorded in `defaults/runtime-manifest.json` before
-  packaging (see bin/README.md). The license entry is completed when the
-  artifact is pinned; the manifest validation gate fails until then.
+- Source: https://github.com/peteonrails/voxtype
+- License: MIT, Copyright (c) the Voxtype authors.
+- Both pinned x86_64 Linux binaries (avx2 + vulkan, v1.0.1) are recorded
+  with exact version, build source, SHA-256 and license in
+  `defaults/runtime-manifest.json` and downloaded at install time through
+  the `remote_binary` entries in `package.json` (see bin/README.md). The
+  backend verifies the pinned digest before every start. Never committed to
+  this repository.
 
 ## Development-only tooling (not shipped in the plugin package)
 

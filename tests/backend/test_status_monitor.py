@@ -1,9 +1,12 @@
-"""Event-driven status monitor tests (spec §41, §90 malformed status)."""
+"""Event-driven status monitor tests (spec §41, §90 malformed status).
+
+The real daemon writes bare state words and DELETES the file on shutdown;
+missing file = stopped is a synthesized consumer state.
+"""
 
 from __future__ import annotations
 
 import asyncio
-import json
 import os
 
 import pytest
@@ -11,32 +14,24 @@ from backend.infrastructure.process.status_monitor import (
     RuntimeStatusMonitor,
     StatusFileWatcher,
     WatcherClosedError,
-    parse_status_payload,
+    parse_status_word,
 )
 from conftest import FakeEventPublisher, make_paths, wait_until
 
 
-def write_status_file(paths: object, state: str, *, backend: str = "cpu") -> None:
+def write_status_file(paths: object, word: str) -> None:
     paths.runtime_dir.mkdir(parents=True, exist_ok=True)  # type: ignore[attr-defined]
-    payload = {"protocolVersion": 1, "state": state, "backend": backend}
-    tmp = paths.runtime_dir / "status.json.tmp"  # type: ignore[attr-defined]
-    tmp.write_text(json.dumps(payload), encoding="utf-8")
-    os.replace(tmp, paths.status_file)  # type: ignore[attr-defined]
+    paths.native_runtime_dir.mkdir(parents=True, exist_ok=True)  # type: ignore[attr-defined]
+    paths.status_file.write_text(word, encoding="utf-8")  # type: ignore[attr-defined]
 
 
-def test_parse_status_payload_valid_and_malformed() -> None:
-    snapshot = parse_status_payload(b'{"protocolVersion":1,"state":"recording"}')
-    assert snapshot is not None and snapshot.state == "recording"
-    assert snapshot.backend is None
-    for bad in (
-        b"not json{{{",
-        b'{"state":"recording"}',  # missing protocolVersion
-        b'{"protocolVersion":2,"state":"idle"}',  # wrong version
-        b'{"protocolVersion":1,"state":"warp-drive"}',  # unknown state
-        b"[1,2,3]",
-        b"",
-    ):
-        assert parse_status_payload(bad) is None
+def test_parse_status_word_valid_and_malformed() -> None:
+    for word in ("idle", "recording", "streaming", "transcribing", " idle\n"):
+        snapshot = parse_status_word(word)
+        assert snapshot is not None
+    assert parse_status_word(b"recording").state == "recording"
+    for bad in (b'{"state": "idle"}', b"", b"stopped", b"warp-drive", "error"):
+        assert parse_status_word(bad) is None
 
 
 def test_monitor_emits_typed_events_and_survives_malformed_status(tmp_path: object) -> None:
@@ -44,7 +39,7 @@ def test_monitor_emits_typed_events_and_survives_malformed_status(tmp_path: obje
         paths = make_paths(tmp_path)
         write_status_file(paths, "idle")
         publisher = FakeEventPublisher()
-        watcher = StatusFileWatcher(paths.runtime_dir)
+        watcher = StatusFileWatcher(paths.native_runtime_dir)
         monitor = RuntimeStatusMonitor(watcher, publisher)
         try:
             await monitor.start()
@@ -62,7 +57,7 @@ def test_monitor_emits_typed_events_and_survives_malformed_status(tmp_path: obje
             )
 
             # §90 malformed native status: surfaced, never fatal.
-            paths.status_file.write_text("garbage-not-json{{{", encoding="utf-8")
+            paths.status_file.write_text("garbage-not-a-word{{{", encoding="utf-8")
             assert await wait_until(
                 lambda: any(
                     p.get("malformedPayload") is True for p in publisher.payloads("runtime_status")
@@ -70,7 +65,7 @@ def test_monitor_emits_typed_events_and_survives_malformed_status(tmp_path: obje
                 timeout=2.0,
             )
 
-            # Recovery: the next valid status resumes the stream.
+            # Recovery: the next valid word resumes the stream.
             write_status_file(paths, "transcribing")
             assert await wait_until(
                 lambda: any(
@@ -79,10 +74,75 @@ def test_monitor_emits_typed_events_and_survives_malformed_status(tmp_path: obje
                 timeout=2.0,
             )
             assert monitor.last_state == "transcribing"
-            # The in-place garbage write produces several real file events;
-            # what matters is that every one of them was surfaced, not the
-            # exact count.
             assert monitor.malformed_payloads >= 1
+        finally:
+            await monitor.stop()
+            watcher.close()
+
+    asyncio.run(scenario())
+
+
+def test_streaming_state_maps_to_recording(tmp_path: object) -> None:
+    """Adapter mapping: upstream `streaming` (capture active) maps onto our
+    `recording` vocabulary instead of being dropped by the §99 boundary."""
+
+    async def scenario() -> None:
+        paths = make_paths(tmp_path)
+        publisher = FakeEventPublisher()
+        watcher = StatusFileWatcher(paths.native_runtime_dir)
+        monitor = RuntimeStatusMonitor(watcher, publisher)
+        try:
+            await monitor.start()
+            write_status_file(paths, "streaming")
+            assert await wait_until(
+                lambda: any(
+                    p.get("state") == "recording" and p.get("malformedPayload") is False
+                    for p in publisher.payloads("runtime_status")
+                ),
+                timeout=2.0,
+            )
+        finally:
+            await monitor.stop()
+            watcher.close()
+
+    asyncio.run(scenario())
+
+
+def test_missing_state_file_is_synthesized_as_stopped(tmp_path: object) -> None:
+    async def scenario() -> None:
+        paths = make_paths(tmp_path)
+        publisher = FakeEventPublisher()
+        watcher = StatusFileWatcher(paths.native_runtime_dir)
+        monitor = RuntimeStatusMonitor(watcher, publisher)
+        try:
+            # No state file at watch start: the daemon deleted it on shutdown
+            # (or never ran) — consumers synthesize "stopped".
+            await monitor.start()
+            assert await wait_until(
+                lambda: any(
+                    p.get("state") == "stopped" and p.get("available") is False
+                    for p in publisher.payloads("runtime_status")
+                ),
+                timeout=2.0,
+            )
+
+            # The daemon's shutdown deletion of the state file IS the
+            # stopped transition.
+            write_status_file(paths, "recording")
+            assert await wait_until(
+                lambda: any(
+                    p.get("state") == "recording" for p in publisher.payloads("runtime_status")
+                ),
+                timeout=2.0,
+            )
+            os.unlink(paths.status_file)
+            assert await wait_until(
+                lambda: (
+                    [p.get("state") for p in publisher.payloads("runtime_status")].count("stopped")
+                    >= 2
+                ),
+                timeout=2.0,
+            )
         finally:
             await monitor.stop()
             watcher.close()
@@ -93,7 +153,7 @@ def test_monitor_emits_typed_events_and_survives_malformed_status(tmp_path: obje
 def test_watcher_notifies_output_events(tmp_path: object) -> None:
     async def scenario() -> None:
         paths = make_paths(tmp_path)
-        watcher = StatusFileWatcher(paths.runtime_dir)
+        watcher = StatusFileWatcher(paths.native_runtime_dir)
         try:
             watcher.start()
             waiter = asyncio.get_running_loop().create_task(
@@ -101,7 +161,7 @@ def test_watcher_notifies_output_events(tmp_path: object) -> None:
             )
             await asyncio.sleep(0.05)
             tmp = paths.output_file.with_suffix(".tmp")
-            tmp.write_text("final words", encoding="utf-8")
+            tmp.write_text("final words\n", encoding="utf-8")
             os.replace(tmp, paths.output_file)
             event = await asyncio.wait_for(waiter, 2.0)
             assert event is not None and event.kind == "output"
@@ -114,7 +174,7 @@ def test_watcher_notifies_output_events(tmp_path: object) -> None:
 def test_watcher_wait_times_out_without_events(tmp_path: object) -> None:
     async def scenario() -> None:
         paths = make_paths(tmp_path)
-        watcher = StatusFileWatcher(paths.runtime_dir)
+        watcher = StatusFileWatcher(paths.native_runtime_dir)
         try:
             watcher.start()
             started = asyncio.get_running_loop().time()
@@ -131,7 +191,7 @@ def test_watcher_wait_times_out_without_events(tmp_path: object) -> None:
 def test_watcher_close_fails_pending_waiters(tmp_path: object) -> None:
     async def scenario() -> None:
         paths = make_paths(tmp_path)
-        watcher = StatusFileWatcher(paths.runtime_dir)
+        watcher = StatusFileWatcher(paths.native_runtime_dir)
         watcher.start()
         waiter = asyncio.get_running_loop().create_task(
             watcher.wait_until(lambda event: event.kind == "output", timeout=10.0)
@@ -148,7 +208,7 @@ def test_no_events_after_stop(tmp_path: object) -> None:
     async def scenario() -> None:
         paths = make_paths(tmp_path)
         publisher = FakeEventPublisher()
-        watcher = StatusFileWatcher(paths.runtime_dir)
+        watcher = StatusFileWatcher(paths.native_runtime_dir)
         monitor = RuntimeStatusMonitor(watcher, publisher)
         await monitor.start()
         await monitor.stop()
