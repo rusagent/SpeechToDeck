@@ -52,6 +52,14 @@ Full setup and the CI gate mapping: [docs/development/setup.md](docs/development
 [docs/development/validation.md](docs/development/validation.md). Releasing to
 GitHub and the Decky store: [docs/development/release.md](docs/development/release.md).
 
+## Store
+
+- **Testing store:** while the submission PR is open, SpeechToDeck is
+  installable from <https://testing.deckbrew.xyz> (Decky settings →
+  Store channel → Testing).
+- **Manual install:** release zips for URL-install are attached to
+  [GitHub Releases](https://github.com/rusagent/SpeechToDeck/releases).
+
 ## Layout
 
 ```text

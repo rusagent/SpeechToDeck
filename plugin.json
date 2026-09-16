@@ -6,6 +6,6 @@
     "publish": {
         "tags": ["utility", "keyboard", "speech", "voice"],
         "description": "Adds a microphone button to the Steam virtual keyboard that transcribes speech locally and inserts the final transcript as one complete payload — no cloud services, no live streaming.",
-        "image": ""
+        "image": "https://raw.githubusercontent.com/rusagent/SpeechToDeck/main/assets/screenshot.jpg"
     }
 }

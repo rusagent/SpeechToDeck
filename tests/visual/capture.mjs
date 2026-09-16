@@ -6,6 +6,11 @@
  * long edge ≤ 800px, height ≤ 450px. Files land in .tmp/ui-visual/
  * (gitignored); only the harness SOURCE under tests/visual/ is committed.
  *
+ * Single committed exception: storeShot() writes the store listing asset
+ * assets/screenshot.jpg from the same real-panel page (EN, top sections) at
+ * 2x device scale and JPEG quality 75 — the review capture limits above do
+ * not bind store assets.
+ *
  * Host tools (no project dependencies): a headless-capable Chromium and
  * ImageMagick (`magick`/`convert`). Override via CHROME env var.
  *
@@ -72,13 +77,13 @@ execFileSync(
     { cwd: root, stdio: "inherit" },
 );
 
-function chromeArgs(windowSize, extra) {
+function chromeArgs(windowSize, extra, deviceScaleFactor = 1) {
     return [
         "--headless",
         "--no-sandbox",
         "--disable-gpu",
         "--hide-scrollbars",
-        "--force-device-scale-factor=1",
+        `--force-device-scale-factor=${deviceScaleFactor}`,
         "--virtual-time-budget=3000",
         `--window-size=${windowSize}`,
         ...extra,
@@ -159,6 +164,49 @@ function overflowProbe(width, query) {
     console.log(`overflow probe at ${width}px: ${match?.[0] ?? "marker missing"}`);
 }
 
+// Store listing asset: the real settings panel (EN, top sections) at 2x
+// device scale, JPEG quality 75 (store assets are not bound by the
+// wave-visual-read review limits; target < 150KB). Committed under assets/.
+function storeShot() {
+    const query = "case=panel&locale=en";
+    const height = 450;
+    const scale = 2;
+    // Geometry is measured at scale 1 (CSS px); the 2x screenshot crop is
+    // the same region in device px.
+    const geometry = readGeometry(query, height + BOTTOM_MARGIN);
+    const png = path.join(out, "store-screenshot.png");
+    execFileSync(
+        chrome,
+        chromeArgs(
+            `${CAPTURE_WINDOW_WIDTH},${height + BOTTOM_MARGIN}`,
+            [`--screenshot=${png}`, `file://${root}/tests/visual/index.html?${query}`],
+            scale,
+        ),
+        { stdio: "ignore" },
+    );
+    const assets = path.join(root, "assets");
+    mkdirSync(assets, { recursive: true });
+    const jpg = path.join(assets, "screenshot.jpg");
+    execFileSync(
+        magick,
+        [
+            png,
+            "-crop",
+            `${COLUMN_WIDTH * scale}x${height * scale}+${geometry.rootX * scale}+0`,
+            "+repage",
+            "-strip",
+            "-quality",
+            "75",
+            jpg,
+        ],
+        { stdio: "ignore" },
+    );
+    rmSync(png);
+    console.log(
+        `store screenshot (assets/screenshot.jpg) ${COLUMN_WIDTH * scale}x${height * scale} ${statSync(jpg).size} bytes`,
+    );
+}
+
 // Panel clips (QAM column: top, and a Diagnostics-targeted section clip).
 shot("panel-en-top", "case=panel&locale=en");
 shot("panel-en-diag", "case=panel&locale=en&scroll=Diagnostics", { sectionTitle: "Diagnostics" });
@@ -166,6 +214,7 @@ shot("panel-de-top", "case=panel&locale=de");
 // Microphone button, all four §20 states in one clip (EN + DE error text).
 shot("mic-states-en", "case=mic&locale=en", { height: 160 });
 shot("mic-states-de", "case=mic&locale=de", { height: 160 });
+storeShot();
 
 // Numeric overflow checks at the acceptance widths (no bitmaps needed).
 for (const width of [390, 768]) {

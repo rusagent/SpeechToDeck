@@ -146,6 +146,21 @@ re-run green on the repaired tree (counts in the validation section).
    the benign `RuntimeWarning`. No test semantics weakened (the affected
    assertion now actually polls).
 
+## Store submission prep (lane/store-assets)
+
+- Store assets added: `assets/icon.png` (512x512, drawn with ImageMagick
+  primitives; panel-dark background consistent with the visual harness
+  tokens) and `assets/screenshot.jpg` (real `SettingsPanel` render, English,
+  top sections; captured by `tests/visual/capture.mjs`, 820x900).
+- `plugin.json` `publish.image` points at the raw.githubusercontent URL of
+  `assets/screenshot.jpg` (store CI POSTs this URL to the store upload
+  endpoint; an empty or broken image hard-fails). URL reachability is proven
+  only after this lane merges to `main`.
+- `docs/development/release.md` testing-channel guidance corrected: this
+  plugin ships prebuilt dynamically-linked voxtype binaries, so the db
+  template's "Tested on Stable and Beta" line is replaced by third-party
+  SteamOS Preview-channel testing (never self-checked).
+
 ## Gate policy: unpinned runtime manifest
 
 `node scripts/validate-manifests.mjs` (default, CI):
