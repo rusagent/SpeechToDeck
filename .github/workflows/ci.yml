@@ -1,9 +1,10 @@
 # CI pipeline implementing the gate list from docs/spec/spec-v1.0.md §97.
 #
-# Staged activation: gates whose input code does not exist yet are declared
-# here but skip (hashFiles guard) until their paths appear. Skipped is not
-# passing — each job becomes required the moment its inputs exist. Gates that
-# can run today are active.
+# All gates run unconditionally: their inputs (src/, tests/, backend/,
+# main.py, scripts/validate-package.mjs) are permanent parts of this
+# repository. The former job-level hashFiles guards are not valid GitHub
+# Actions (hashFiles is step-only) and were removed after run 35155004723
+# failed at startup.
 #
 # No release artifact is produced while any required gate fails (§97).
 
@@ -42,7 +43,6 @@ jobs:
             - run: pnpm exec prettier --check .
 
     frontend-lint:
-        if: ${{ hashFiles('src/**/*.ts', 'src/**/*.tsx') != '' }}
         runs-on: ubuntu-latest
         steps:
             - uses: actions/checkout@v4
@@ -57,7 +57,6 @@ jobs:
             - run: pnpm lint
 
     typescript-strict-compile:
-        if: ${{ hashFiles('src/**/*.ts', 'src/**/*.tsx') != '' }}
         runs-on: ubuntu-latest
         steps:
             - uses: actions/checkout@v4
@@ -74,7 +73,6 @@ jobs:
             - run: pnpm typecheck
 
     frontend-unit-tests:
-        if: ${{ hashFiles('tests/frontend/**', 'tests/**/*.test.*') != '' }}
         runs-on: ubuntu-latest
         steps:
             - uses: actions/checkout@v4
@@ -91,7 +89,6 @@ jobs:
     # ── Python gates ──────────────────────────────────────────────────────────
 
     python-formatting:
-        if: ${{ hashFiles('backend/**/*.py', 'main.py') != '' }}
         runs-on: ubuntu-latest
         steps:
             - uses: actions/checkout@v4
@@ -102,7 +99,6 @@ jobs:
             - run: ruff format --check backend main.py
 
     python-lint:
-        if: ${{ hashFiles('backend/**/*.py', 'main.py') != '' }}
         runs-on: ubuntu-latest
         steps:
             - uses: actions/checkout@v4
@@ -114,7 +110,6 @@ jobs:
             - run: ruff check .
 
     python-type-checking:
-        if: ${{ hashFiles('backend/**/*.py', 'main.py') != '' }}
         runs-on: ubuntu-latest
         steps:
             - uses: actions/checkout@v4
@@ -125,7 +120,6 @@ jobs:
             - run: mypy
 
     backend-unit-tests:
-        if: ${{ hashFiles('tests/backend/**') != '' }}
         runs-on: ubuntu-latest
         steps:
             - uses: actions/checkout@v4
@@ -138,7 +132,6 @@ jobs:
             - run: pytest tests/backend
 
     contract-tests:
-        if: ${{ hashFiles('tests/contract/**') != '' }}
         runs-on: ubuntu-latest
         steps:
             - uses: actions/checkout@v4
@@ -179,7 +172,6 @@ jobs:
             - run: node scripts/validate-licenses.mjs
 
     package-build:
-        if: ${{ hashFiles('src/**/*.ts', 'src/**/*.tsx') != '' }}
         runs-on: ubuntu-latest
         steps:
             - uses: actions/checkout@v4
@@ -194,7 +186,6 @@ jobs:
             - run: pnpm build
 
     package-structure-validation:
-        if: ${{ hashFiles('scripts/validate-package.mjs') != '' }}
         needs: package-build
         runs-on: ubuntu-latest
         steps:
