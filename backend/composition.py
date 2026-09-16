@@ -8,6 +8,7 @@ application-domain classes.
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from collections.abc import Awaitable, Callable
 from pathlib import Path
@@ -45,6 +46,21 @@ from backend.infrastructure.settings.json_settings_repository import (
 )
 
 LOGGER = logging.getLogger("plugin.lifecycle")
+
+# §36/§65: settings the native daemon consumes at start (see
+# SpeechDaemonSupervisor._spawn). While the daemon is up, a change to any of
+# them requires a supervised restart for the new value to take effect.
+_RUNTIME_FIELDS = (
+    "model_id",
+    "compute_backend",
+    "language",
+    "max_recording_seconds",
+    "vad_enabled",
+)
+
+
+def _runtime_relevant_change(before: Settings, after: Settings) -> bool:
+    return any(getattr(before, field) != getattr(after, field) for field in _RUNTIME_FIELDS)
 
 
 class LoggingEventPublisher:
@@ -99,8 +115,11 @@ class Application:
         self.manifest = manifest
         self._started = False
         self._disposed = False
+        # Serializes §36 lifecycle transitions: concurrent settings updates
+        # coalesce into one ordered sequence and never restart in parallel.
+        self._lifecycle_lock = asyncio.Lock()
 
-    # ── lifecycle (§82 startup, §38/§83 disposal) ────────────────────────────
+    # ── lifecycle (§82 startup, §36 settings transitions, §38/§83 disposal) ──
 
     async def start(self) -> None:
         """Load settings, start status consumption, then the daemon (§82).
@@ -128,6 +147,10 @@ class Application:
             LOGGER.info("plugin disabled by settings; runtime not started")
             return
 
+        await self._start_daemon(settings)
+
+    async def _start_daemon(self, settings: Settings) -> None:
+        """§82 tail: ensure the model, then start the supervised daemon."""
         # §82/§36: the model is loaded once at startup by the persistent
         # daemon. A missing or corrupt model keeps the daemon down (§51/§53).
         try:
@@ -234,20 +257,93 @@ class Application:
         return settings.to_payload()
 
     async def update_settings(self, update: dict[str, object]) -> dict[str, object]:
-        """Merge a partial wire payload and persist atomically (§55)."""
-        current = await self.settings_repository.load()
-        merged = current.to_payload()
-        for key, value in update.items():
-            if key == "schemaVersion":
-                # §55: the version is backend-owned; clients never set it.
-                raise SettingsInvalidError("schemaVersion is managed by the backend")
-            merged[key] = value
-        validated = settings_from_payload(merged)
-        await self.settings_repository.save(validated)
-        return validated.to_payload()
+        """Merge a partial wire payload, persist atomically (§55), then drive
+        the runtime lifecycle per §36/§64/§65.
+
+        One lock spans read-modify-write and the lifecycle transition, so
+        concurrent updates are applied in order and never restart in parallel
+        (§70 storm guard). Lifecycle failures are surfaced as
+        `runtime_status` events, never as call failures: the settings
+        document itself was valid and persisted.
+        """
+        async with self._lifecycle_lock:
+            current = await self.settings_repository.load()
+            merged = current.to_payload()
+            for key, value in update.items():
+                if key == "schemaVersion":
+                    # §55: the version is backend-owned; clients never set it.
+                    raise SettingsInvalidError("schemaVersion is managed by the backend")
+                merged[key] = value
+            validated = settings_from_payload(merged)
+            await self.settings_repository.save(validated)
+            await self._apply_runtime_lifecycle(current, validated)
+            return validated.to_payload()
+
+    async def _apply_runtime_lifecycle(self, before: Settings, after: Settings) -> None:
+        """§36: the daemon lives exactly while dictation is enabled and its
+        start configuration is current; §64: it is absent while disabled."""
+        if before.enabled and not after.enabled:
+            await self._shutdown_runtime()
+        elif not before.enabled and after.enabled:
+            await self._startup_runtime(after)
+        elif (
+            after.enabled
+            and self.supervisor.is_running()
+            and _runtime_relevant_change(before, after)
+        ):
+            await self._restart_runtime(after)
+        # A runtime-relevant change while the daemon is down starts nothing:
+        # §70 leaves the runtime unavailable until an explicit restart, and
+        # the next start picks up the persisted settings.
+
+    async def _shutdown_runtime(self) -> None:
+        """Disable: stop the runtime in the §38 order (the plugin stays up)."""
+        # 1-2. stop accepting sessions; cancel any active recording.
+        await self.speech.shutdown()
+        try:
+            await self.client.cancel_recording()
+        except SpeechError as exc:
+            LOGGER.info("nothing to cancel at disable: %s", exc.code)
+        # 3-4. stop status monitor; SIGTERM daemon → bounded wait → SIGKILL.
+        await self.monitor.stop()
+        await self.supervisor.stop()
+        # 5. silence runtime deliveries.
+        await self.client.stop()
+
+    async def _startup_runtime(self, settings: Settings) -> None:
+        """Enable: (re-)start the runtime along the §82 startup path."""
+        self.speech.resume()
+        try:
+            await self.monitor.start()
+        except OSError as exc:
+            LOGGER.error("status monitor unavailable: %s", exc)
+            await self._publish_runtime_unavailable("status monitor unavailable")
+            return
+        await self._start_daemon(settings)
+
+    async def _restart_runtime(self, settings: Settings) -> None:
+        """§65 sequence: stop → unload old model → start with the new
+        settings → health check (daemon status consumption) → ready."""
+        try:
+            await self.models.ensure_model(settings.model_id)
+        except SpeechError as exc:
+            LOGGER.error("model unavailable at restart: %s", exc.message)
+            await self._publish_runtime_unavailable(exc.message)
+            return
+        try:
+            await self.supervisor.restart(settings)
+        except SpeechError as exc:
+            LOGGER.error("runtime restart failed: %s (%s)", exc.message, exc.detail)
+            await self._publish_runtime_unavailable(exc.message)
+            return
+        await self.client.start()
 
     async def start_recording(self, session_id: str) -> dict[str, object]:
         settings = await self.settings_repository.load()
+        if not settings.enabled:
+            # §36/§64: while dictation is disabled the runtime is absent and
+            # no session is accepted; stable §68 code for the frontend.
+            raise RuntimeUnavailableError("plugin is disabled by settings")
         if not self.supervisor.is_running():
             raise RuntimeUnavailableError("native runtime is not running")
         # §33 keeps model concerns out of the application service; the

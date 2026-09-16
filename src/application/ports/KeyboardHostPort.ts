@@ -28,6 +28,15 @@ export type KeyboardHostEvent =
 
 export type KeyboardHostListener = (event: KeyboardHostEvent) => void;
 
+/**
+ * Seam between the host adapter and the microphone UI (spec §18).
+ * Implementations render into the plugin-owned node the adapter created; the
+ * returned Disposable removes exactly that render.
+ */
+export interface MicrophoneControlRenderer {
+    render(host: HTMLElement, props: MicrophoneControlProps): Disposable;
+}
+
 export interface KeyboardHostPort {
     start(): Promise<void>;
 

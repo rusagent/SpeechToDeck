@@ -17,22 +17,7 @@ import type { SteamKeyboardProfile } from "./profiles/SteamKeyboardProfile";
 import { SteamKeyboardLocator, DEFAULT_LOCATOR_CONFIG } from "./SteamKeyboardLocator";
 import type { SteamClock, SteamLocatorConfig, SteamSleeper } from "./SteamKeyboardLocator";
 import { Logger } from "../../shared/Logger";
-
-export interface SteamCapabilityReport {
-    /** §58.1 */
-    readonly windowReachable: boolean;
-    /** §58.2 */
-    readonly managerRecognizable: boolean;
-    /** §58.3 */
-    readonly keyboardSignatureSupported: boolean;
-    /** §58.4 */
-    readonly clipboardUsable: boolean;
-    /** §58.5 */
-    readonly nativePasteRecognized: boolean;
-    /** Conjunction of the Steam-side checks (§58.1-§58.3). */
-    readonly supported: boolean;
-    readonly profileId: string | null;
-}
+import type { KeyboardCapabilityReport } from "../../domain/Capability";
 
 export interface SteamCapabilityProbeOptions {
     locator?: SteamKeyboardLocator;
@@ -74,7 +59,7 @@ export class SteamCapabilityProbe {
     }
 
     /** Read-only, synchronous snapshot of the current Steam session. */
-    probe(): SteamCapabilityReport {
+    probe(): KeyboardCapabilityReport {
         const windowHandle = this.locator.locateWindow();
         const windowReachable = windowHandle !== null;
         const manager =
@@ -97,7 +82,7 @@ export class SteamCapabilityProbe {
         const nativePasteRecognized =
             dom !== null && profile !== null && profile.locatePasteAction(dom) !== null;
 
-        const report: SteamCapabilityReport = {
+        const report: KeyboardCapabilityReport = {
             windowReachable,
             managerRecognizable,
             keyboardSignatureSupported: profile !== null,

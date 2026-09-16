@@ -21,6 +21,7 @@ import type {
     KeyboardHostListener,
     KeyboardHostPort,
     MicrophoneControlProps,
+    MicrophoneControlRenderer,
 } from "../../application/ports/KeyboardHostPort";
 import type { Disposable } from "../../shared/Disposable";
 import { Logger } from "../../shared/Logger";
@@ -41,15 +42,6 @@ import type {
     SteamWindowHandle,
 } from "./SteamInternalTypes";
 import { RandomIdGenerator } from "../system/RandomIdGenerator";
-
-/**
- * Seam between the host adapter and the microphone UI. Implementations render
- * into the plugin-owned node the adapter created; the returned Disposable
- * removes exactly that render (§18 cleanup).
- */
-export interface MicrophoneControlRenderer {
-    render(host: HTMLElement, props: MicrophoneControlProps): Disposable;
-}
 
 /** Discovery snapshot the paste mechanism discovery consumes (§26). */
 export interface SteamKeyboardDiscovery {
@@ -341,11 +333,21 @@ export class SteamKeyboardHostAdapter implements KeyboardHostPort, SteamKeyboard
         }
     }
 
-    /** Removes the previous appearance's owned node and discovery state. */
+    /**
+     * Removes the previous appearance's owned node and discovery state. When
+     * a repeat appearance arrives without an intervening hidden notification,
+     * the stale context is closed explicitly so consumers see the complete
+     * closed→opened context sequence (§7.2).
+     */
     private teardownPreviousAppearance(): void {
         this.unmountMicrophone();
+        const staleContextId = this.current?.id;
         this.current = null;
         this.discovery = null;
+        if (staleContextId !== undefined) {
+            this.emit({ type: "keyboard-closed", contextId: staleContextId });
+            this.logger.info("keyboard closed", { contextId: staleContextId });
+        }
     }
 
     // ── Microphone mount (spec §18) ──

@@ -41,6 +41,27 @@ export interface RuntimeCapabilities {
     directInsertAvailable: boolean;
 }
 
+/**
+ * Keyboard-side capability report of the per-session probe (spec §58.1-§58.5).
+ * The domain owns the shape; the infrastructure probe implements it, so
+ * consumers never import Steam internals (§3.1).
+ */
+export interface KeyboardCapabilityReport {
+    /** §58.1 */
+    readonly windowReachable: boolean;
+    /** §58.2 */
+    readonly managerRecognizable: boolean;
+    /** §58.3 */
+    readonly keyboardSignatureSupported: boolean;
+    /** §58.4 */
+    readonly clipboardUsable: boolean;
+    /** §58.5 */
+    readonly nativePasteRecognized: boolean;
+    /** Conjunction of the keyboard-side checks (§58.1-§58.3). */
+    readonly supported: boolean;
+    readonly profileId: string | null;
+}
+
 /** The `directInsertAvailable` conjunction, verbatim spec §57. */
 export function directInsertAvailable(
     input: Pick<

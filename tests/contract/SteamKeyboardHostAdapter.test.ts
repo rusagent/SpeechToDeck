@@ -128,6 +128,15 @@ describe("SteamKeyboardHostAdapter", () => {
             expect(firstId).toMatch(/^vk-/);
             expect(closedId).toBe(firstId);
             expect(secondId).not.toBe(firstId); // every appearance gets a new context (§7.2)
+
+            // Repeat appearance with no intervening hidden notification: the
+            // stale context is closed explicitly so the closed→opened
+            // sequence stays complete (§7.2, review note a).
+            await openKeyboard(stubs);
+            expect(events).toHaveLength(5);
+            expect(events[3]).toBe(`close:${secondId}`);
+            const thirdId = events[4]!.slice("open:".length);
+            expect(thirdId).not.toBe(secondId);
         } finally {
             await adapter.stop();
             fixture.detachTypingRecorder();

@@ -149,23 +149,31 @@ def write_fake_model(data_dir: Path, model_id: str, filename: str) -> bytes:
     return payload
 
 
+def compose_with_fixture_daemon(
+    tmp_path: Path,
+) -> tuple[Application, FakeEventPublisher, Path]:
+    """Composition over the real fixture daemon: pinned binary, installed
+    "base" (default) and "tiny" models so startup and the §65 model-change
+    restart both pass the §51/§53 integrity gate."""
+    root, data_dir = build_plugin_roots(tmp_path)
+    binary = build_fixture_binary(root)
+    write_pinned_runtime_manifest(root, binary)
+
+    manifest_payload = json.loads(REAL_MODELS_MANIFEST.read_text(encoding="utf-8"))
+    for entry in manifest_payload["models"]:
+        if entry["id"] in ("base", "tiny"):
+            payload = write_fake_model(data_dir, entry["id"], entry["filename"])
+            entry["sha256"] = hashlib.sha256(payload).hexdigest()
+    (root / "defaults" / "models.json").write_text(json.dumps(manifest_payload))
+
+    publisher = FakeEventPublisher()
+    app: Application = compose(plugin_root=root, data_dir=data_dir, event_publisher=publisher)
+    return app, publisher, data_dir
+
+
 def test_full_pipeline_with_real_fixture_daemon(tmp_path: Path) -> None:
     async def scenario() -> None:
-        root, data_dir = build_plugin_roots(tmp_path)
-        binary = build_fixture_binary(root)
-        write_pinned_runtime_manifest(root, binary)
-
-        # Install a fake "base" model whose digest matches the manifest entry
-        # we patch in, so startup passes the §51/§53 integrity gate.
-        fake_model = write_fake_model(data_dir, "base", "ggml-base.bin")
-        manifest_payload = json.loads(REAL_MODELS_MANIFEST.read_text(encoding="utf-8"))
-        for entry in manifest_payload["models"]:
-            if entry["id"] == "base":
-                entry["sha256"] = hashlib.sha256(fake_model).hexdigest()
-        (root / "defaults" / "models.json").write_text(json.dumps(manifest_payload))
-
-        publisher = FakeEventPublisher()
-        app: Application = compose(plugin_root=root, data_dir=data_dir, event_publisher=publisher)
+        app, publisher, data_dir = compose_with_fixture_daemon(tmp_path)
         try:
             await app.start()
             assert await wait_until(app.supervisor.is_running, timeout=5.0)
@@ -239,6 +247,68 @@ def test_start_recording_requires_running_runtime(tmp_path: Path) -> None:
         try:
             with pytest.raises(RuntimeUnavailableError):
                 await app.start_recording("session-1")  # never started
+        finally:
+            await app.dispose()
+
+    asyncio.run(scenario())
+
+
+def test_update_settings_drives_runtime_lifecycle(tmp_path: Path) -> None:
+    """§36/§64/§65: `enabled` off stops the §38 runtime and start_recording
+    rejects; enabling again follows the startup path; a runtime-relevant
+    change restarts the daemon exactly once with the new settings; an
+    irrelevant change restarts nothing (§70 storm guard)."""
+
+    def starting_events(publisher: FakeEventPublisher) -> list[dict[str, object]]:
+        return [p for p in publisher.payloads("runtime_status") if p.get("state") == "starting"]
+
+    async def scenario() -> None:
+        app, publisher, data_dir = compose_with_fixture_daemon(tmp_path)
+        try:
+            await app.start()
+            assert await wait_until(app.supervisor.is_running, timeout=5.0)
+
+            # enabled=false: the §36 runtime goes away in the §38 order and
+            # the facade rejects recording with a stable §68 code.
+            disabled = await app.update_settings({"enabled": False})
+            assert disabled["enabled"] is False
+            assert await wait_until(lambda: not app.supervisor.is_running(), timeout=5.0)
+            assert app.supervisor.last_exit_code == 0  # clean SIGTERM stop
+            persisted = json.loads((data_dir / "settings.json").read_text(encoding="utf-8"))
+            assert persisted["enabled"] is False
+            with pytest.raises(RuntimeUnavailableError):
+                await app.start_recording("sess-disabled")
+
+            # enabled=true: startup path again, sessions accepted.
+            enabled = await app.update_settings({"enabled": True})
+            assert enabled["enabled"] is True
+            assert await wait_until(app.supervisor.is_running, timeout=5.0)
+            started = await app.start_recording("sess-after-enable")
+            assert started == {"sessionId": "sess-after-enable"}
+            await app.cancel_recording("sess-after-enable")
+
+            # Runtime-relevant change: exactly one supervisor restart, and
+            # the new settings reach the daemon (§65 with the new model).
+            starting_before = len(starting_events(publisher))
+            updated = await app.update_settings({"modelId": "tiny"})
+            assert updated["modelId"] == "tiny"
+            assert await wait_until(app.supervisor.is_running, timeout=5.0)
+            assert len(starting_events(publisher)) == starting_before + 1
+            log_line = f"daemon starting model={updated['modelId']}"
+
+            async def new_model_in_daemon_log() -> bool:
+                try:
+                    return log_line in app.paths.daemon_log.read_text(encoding="utf-8")
+                except FileNotFoundError:
+                    return False
+
+            assert await wait_until(new_model_in_daemon_log, timeout=5.0)
+
+            # Irrelevant change (frontend-only field): no restart.
+            starting_before = len(starting_events(publisher))
+            await app.update_settings({"outputMode": "clipboard-only"})
+            assert len(starting_events(publisher)) == starting_before
+            assert app.supervisor.is_running()
         finally:
             await app.dispose()
 

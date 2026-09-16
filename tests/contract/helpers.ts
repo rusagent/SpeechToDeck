@@ -135,7 +135,7 @@ export class FakeDeckyTransport implements DeckyTransport {
 /** Adapter-free renderer double for host-adapter contract tests. */
 export function fakeRenderer(): {
     rendered: { host: HTMLElement; props: unknown }[];
-    renderer: import("../../src/infrastructure/steam/SteamKeyboardHostAdapter").MicrophoneControlRenderer;
+    renderer: import("../../src/application/ports/KeyboardHostPort").MicrophoneControlRenderer;
 } {
     const rendered: { host: HTMLElement; props: unknown }[] = [];
     return {

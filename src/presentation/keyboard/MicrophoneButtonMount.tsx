@@ -24,9 +24,9 @@ import type { StateStore } from "../../application/DictationController";
 import type {
     KeyboardHostPort,
     MicrophoneControlProps,
+    MicrophoneControlRenderer,
 } from "../../application/ports/KeyboardHostPort";
 import type { Disposable } from "../../shared/Disposable";
-import type { MicrophoneControlRenderer } from "../../infrastructure/steam/SteamKeyboardHostAdapter";
 import { MicrophoneButton } from "./MicrophoneButton";
 import { microphoneButtonModel } from "./MicrophoneButtonModel";
 import type { MicrophoneVisualState } from "./MicrophoneButtonModel";

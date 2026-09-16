@@ -34,8 +34,11 @@ export type LogSink = (entry: LogEntry) => void;
 /** Sink that drops every entry; the application default until a sink is wired. */
 export const nullSink: LogSink = () => undefined;
 
-/** Development sink rendering the spec §86 example format. */
-export const consoleSink: LogSink = (entry) => {
+/**
+ * Development sink rendering the spec §86 example format; the Logger default.
+ * Deliberately not exported: nothing outside this module references it.
+ */
+const consoleSink: LogSink = (entry) => {
     const fields = Object.entries(entry.fields)
         .map(([key, value]) => `${key}=${String(value)}`)
         .join(" ");

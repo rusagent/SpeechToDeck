@@ -13,13 +13,13 @@ import { ButtonItem, Field } from "@decky/ui";
 import { translate, translateError, translateRuntimeHealth } from "../i18n/messages";
 import type { Locale } from "../i18n/messages";
 import type { DictationState } from "../../domain/DictationState";
+import type { KeyboardCapabilityReport } from "../../domain/Capability";
 import type { SpeechCapabilities } from "../../application/ports/SpeechPort";
 import type { PluginSettings } from "../../application/ports/SettingsPort";
-import type { SteamCapabilityReport } from "../../infrastructure/steam/SteamCapabilityProbe";
 
 /** Data source seam wired by the composition root (no Decky/Steam imports). */
 export interface DiagnosticsSource {
-    loadCapabilityReport(): Promise<SteamCapabilityReport | null>;
+    loadCapabilityReport(): Promise<KeyboardCapabilityReport | null>;
 
     loadSpeechCapabilities(): Promise<SpeechCapabilities | null>;
 
@@ -46,7 +46,7 @@ export function DiagnosticsPanel({
     source,
     locale,
 }: DiagnosticsPanelProps): React.ReactElement {
-    const [report, setReport] = React.useState<SteamCapabilityReport | null>(null);
+    const [report, setReport] = React.useState<KeyboardCapabilityReport | null>(null);
     const [speech, setSpeech] = React.useState<SpeechCapabilities | null>(null);
     const [restarting, setRestarting] = React.useState(false);
 

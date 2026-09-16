@@ -289,13 +289,21 @@ class SpeechApplicationService:
         self._active_session_id = None
 
     async def shutdown(self) -> None:
-        """Idempotent teardown: drop the session, silence deliveries (§83)."""
+        """Stop accepting sessions: drop the session, silence deliveries.
+
+        Terminal at plugin teardown (§83); after a settings-driven disable
+        (§36) `resume` re-enables session acceptance.
+        """
         self._shutting_down = True
         pending = self._pending_delivery
         if pending is not None and not pending.done():
             pending.set_result(_CANCELLED)
         await self._sessions.clear()
         self._active_session_id = None
+
+    def resume(self) -> None:
+        """Re-accept sessions after `shutdown` (§36: dictation re-enabled)."""
+        self._shutting_down = False
 
     def has_pending_work(self) -> bool:
         """True while a session or a transcript delivery is outstanding."""

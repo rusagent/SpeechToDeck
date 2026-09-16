@@ -59,6 +59,49 @@ unavailable|unknown` → `starting|ready|crashed|unavailable`) and still
    (backend-owned field). The adapter now sends exactly the client-settable
    fields.
 
+## Review repair (cycle 1, on main @ c278945)
+
+Bounded repair of the three independent-review findings plus two notes; no
+scope beyond them. All gates were re-run green on the repaired tree
+(§97 gate list; counts below).
+
+1. **F1 — SettingsPanel dead on mount (§102)**: the panel passed the
+   controller's unbound `subscribe`/`getSnapshot` class methods to
+   `useSyncExternalStore`, so React invoked them with `this === undefined`
+   and the plugin panel threw on first mount. Fixed with the same
+   bound-closure accessors the microphone-button bridge uses; new render
+   test (`tests/contract/SettingsPanel.test.tsx`) proves mount, §80
+   sections and store-driven rerender (red against the defect, green after).
+2. **F2 — `update_settings` persisted only (§36/§64/§65)**: the §30 callable
+   now drives the runtime lifecycle: `enabled=false` stops the runtime in
+   the §38 order (stop accepting sessions → cancel recording → stop monitor
+   → SIGTERM daemon), `enabled=true` follows the §82 startup path, and a
+   runtime-relevant change (the fields the daemon consumes at start: model,
+   backend, language, max duration, VAD) triggers exactly one supervised
+   restart with the new settings plus health check. Updates are serialized
+   by a lifecycle lock and deduplicated (no restart when nothing
+   runtime-relevant changed); restart recovery stays inside the §70 policy.
+   `start_recording` rejects with the stable §68 `RUNTIME_UNAVAILABLE` code
+   while disabled. Backend test extended (fixture daemon; red against the
+   pre-repair code).
+3. **F3 — layering (§3.1)**: `MicrophoneControlRenderer` moved from the
+   Steam adapter into `src/application/ports/KeyboardHostPort.ts`; the §58
+   capability-report type now lives in the domain layer
+   (`KeyboardCapabilityReport` in `src/domain/Capability.ts`) with
+   `SteamCapabilityProbe` implementing it — presentation no longer imports
+   infrastructure.
+4. **Note a — repeat keyboard appearance**: `SteamKeyboardHostAdapter`
+   emits `keyboard-closed` for the stale context when a new appearance
+   arrives without an intervening hidden notification (§7.2 context
+   semantics; adapter contract test extended).
+5. **Note b — `consoleSink`**: the export was unreferenced outside
+   `src/shared/Logger.ts`; de-exported (kept as the module-private `Logger`
+   default sink, so behavior is unchanged).
+
+Review note (c) (`scripts/validate-package.mjs`) belongs to the release-CI
+lane and was intentionally not created here; note (d) (real hardware
+capability probes) stays documented under the unproven capabilities below.
+
 ## Gate policy: unpinned runtime manifest
 
 `node scripts/validate-manifests.mjs` (default, CI):

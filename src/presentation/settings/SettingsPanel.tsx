@@ -57,7 +57,15 @@ export function SettingsPanel({
 }: SettingsPanelProps): React.ReactElement {
     const [value, setValue] = React.useState<PluginSettings | null>(null);
     const [saveError, setSaveError] = React.useState(false);
-    const runtimeState = React.useSyncExternalStore(store.subscribe, store.getSnapshot);
+    // Bound, render-stable store accessors (§102): useSyncExternalStore calls
+    // these as plain functions, so unbound class methods would lose `this`.
+    // Same closure pattern as the microphone-button bridge (§66).
+    const subscribe = React.useMemo(
+        () => (onChange: () => void) => store.subscribe(onChange),
+        [store],
+    );
+    const getSnapshot = React.useMemo(() => () => store.getSnapshot(), [store]);
+    const runtimeState = React.useSyncExternalStore(subscribe, getSnapshot);
 
     React.useEffect(() => {
         let cancelled = false;
