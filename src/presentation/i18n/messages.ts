@@ -17,7 +17,7 @@ import type { UnavailableReason } from "../../domain/DictationState";
 export type Locale = "en" | "de";
 
 export const EN_MESSAGES = {
-    "panel.title": "Voice Keyboard",
+    "panel.title": "SpeechToDeck",
 
     "section.runtime": "Runtime",
     "section.speech": "Speech",
@@ -105,7 +105,8 @@ export const EN_MESSAGES = {
 export type MessageKey = keyof typeof EN_MESSAGES;
 
 export const DE_MESSAGES: Record<MessageKey, string> = {
-    "panel.title": "Spracheingabe",
+    // Brand name: identical across locales (EN/DE parity).
+    "panel.title": "SpeechToDeck",
 
     "section.runtime": "Laufzeit",
     "section.speech": "Spracherkennung",

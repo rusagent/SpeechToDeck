@@ -28,7 +28,7 @@ except ModuleNotFoundError:  # not running under the Decky loader
 
 LOGGER = logging.getLogger("plugin.lifecycle")
 
-_DATA_DIR_ENV = "DECKY_VOICE_KEYBOARD_DATA_DIR"
+_DATA_DIR_ENV = "SPEECHTODECK_DATA_DIR"
 
 
 def _resolve_data_dir() -> Path:
@@ -44,7 +44,7 @@ def _resolve_data_dir() -> Path:
     home = getattr(decky, "DECKY_PLUGIN_HOME", None) if decky is not None else None
     if isinstance(home, str) and home:
         return Path(home)
-    return Path.home() / ".local" / "share" / "decky-voice-keyboard"
+    return Path.home() / ".local" / "share" / "SpeechToDeck"
 
 
 class Plugin:

@@ -56,7 +56,8 @@ describe("visual harness smoke", () => {
                 expect(host.childElementCount).toBeGreaterThan(0);
                 if (params.caseId === "panel") {
                     // Panel title and §80 sections render as titled sections.
-                    const panelTitle = params.locale === "de" ? "Spracheingabe" : "Voice Keyboard";
+                    // The plugin name is the brand string in every locale.
+                    const panelTitle = "SpeechToDeck";
                     expect(host.querySelector(`[data-panel-title="${panelTitle}"]`)).not.toBeNull();
                     const speechTitle = params.locale === "de" ? "Spracherkennung" : "Speech";
                     expect(

@@ -47,7 +47,7 @@ def test_dev_layout_resolves_into_defaults_dir(tmp_path: Path) -> None:
 
 def test_installed_layout_resolves_flattened_files(tmp_path: Path) -> None:
     # The packaged top-level dir is named exactly plugin.json "name".
-    root = tmp_path / "Voice Keyboard"
+    root = tmp_path / "SpeechToDeck"
     _stage_flattened(root)
     paths = PluginPaths(plugin_root=root, data_dir=tmp_path / "data")
     assert paths.models_manifest == root / "models.json"
@@ -82,7 +82,7 @@ def test_resolver_rejects_paths_outside_plugin_root(tmp_path: Path) -> None:
 
 
 def test_composition_loads_manifest_from_installed_layout(tmp_path: Path) -> None:
-    root = tmp_path / "Voice Keyboard"
+    root = tmp_path / "SpeechToDeck"
     _stage_flattened(root)
     app = compose(plugin_root=root, data_dir=tmp_path / "data")
     assert {model.id for model in app.manifest.models} == {"tiny", "base", "small"}

@@ -24,7 +24,7 @@ export const VK_PASTE_ACTION_ATTRIBUTE = "data-vk-action";
 export const VK_KEY_ATTRIBUTE = "data-vk-key";
 
 /** Plugin-owned mount node marker (spec §18 example). */
-export const MIC_ROOT_ATTRIBUTE = "data-decky-voice-keyboard-root";
+export const MIC_ROOT_ATTRIBUTE = "data-speechtodeck-root";
 
 function hasAttributeTrue(element: HTMLElement, attribute: string): boolean {
     return element.getAttribute(attribute) === "true";

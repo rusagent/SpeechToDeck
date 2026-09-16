@@ -123,7 +123,7 @@ const SPINNER_ICON = (
         fill="none"
         aria-hidden="true"
         focusable="false"
-        className="decky-vk-spinner"
+        className="speechtodeck-spinner"
     >
         <circle cx="12" cy="12" r="9" stroke="rgba(255, 255, 255, 0.18)" strokeWidth="2.5" />
         <path
@@ -140,19 +140,19 @@ const SPINNER_ICON = (
  * (§20 recording/spinner) and switch off under `prefers-reduced-motion`.
  */
 const MOTION_STYLES = `
-@keyframes decky-vk-pulse {
+@keyframes speechtodeck-pulse {
     0% { box-shadow: 0 0 0 0 rgba(255, 92, 92, 0.55); }
     70% { box-shadow: 0 0 0 8px rgba(255, 92, 92, 0); }
     100% { box-shadow: 0 0 0 0 rgba(255, 92, 92, 0); }
 }
-@keyframes decky-vk-spin {
+@keyframes speechtodeck-spin {
     to { transform: rotate(360deg); }
 }
-.decky-vk-rec-ring { animation: decky-vk-pulse 1.6s ease-out infinite; }
-.decky-vk-spinner { animation: decky-vk-spin 1.1s linear infinite; }
+.speechtodeck-rec-ring { animation: speechtodeck-pulse 1.6s ease-out infinite; }
+.speechtodeck-spinner { animation: speechtodeck-spin 1.1s linear infinite; }
 @media (prefers-reduced-motion: reduce) {
-    .decky-vk-rec-ring { animation: none; box-shadow: 0 0 0 3px rgba(255, 92, 92, 0.4); }
-    .decky-vk-spinner { animation: none; }
+    .speechtodeck-rec-ring { animation: none; box-shadow: 0 0 0 3px rgba(255, 92, 92, 0.4); }
+    .speechtodeck-spinner { animation: none; }
 }
 `;
 
@@ -198,7 +198,7 @@ export function MicrophoneButton({
     return (
         <button
             type="button"
-            className={`decky-voice-keyboard-mic-button${recording ? " decky-vk-rec-ring" : ""}`}
+            className={`speechtodeck-mic-button${recording ? " speechtodeck-rec-ring" : ""}`}
             data-state={state}
             aria-label={label}
             title={label}

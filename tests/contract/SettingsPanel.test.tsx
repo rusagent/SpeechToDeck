@@ -78,7 +78,7 @@ describe("SettingsPanel", () => {
                 diagnostics={fakeDiagnostics()}
             />,
         );
-        expect(container.querySelector('[data-panel-title="Voice Keyboard"]')).not.toBeNull();
+        expect(container.querySelector('[data-panel-title="SpeechToDeck"]')).not.toBeNull();
         expect(screen.getByText("Loading settings…")).not.toBeNull();
 
         // §80 sections: runtime, speech, output, diagnostics.

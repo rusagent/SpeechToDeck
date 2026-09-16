@@ -194,7 +194,7 @@ jobs:
                   fi
                   VERSION="$(node -p "require('./package.json').version")"
                   cat > release-notes.md <<NOTES
-                  Automated release of Voice Keyboard v$VERSION (commit $GITHUB_SHA).
+                  Automated release of SpeechToDeck v$VERSION (commit $GITHUB_SHA).
 
                   Packages: the plugin zip (plus a `-dev` zip for preview builds)
                   and `SHA256SUMS.txt` with SHA-256 checksums of every archive.
@@ -205,7 +205,7 @@ jobs:
                   not store uploads.
                   NOTES
                   gh release create "$TAG" release-packages/* $FLAGS $TARGET_ARGS \
-                      --title "Voice Keyboard v$VERSION" \
+                      --title "SpeechToDeck v$VERSION" \
                       --notes-file release-notes.md
 
     # ── Store PR (OPTIONAL, owner-gated, honest content only) ────────────────
@@ -239,9 +239,9 @@ jobs:
                   REPO: ${{ github.repository }}
               run: |
                   set -euo pipefail
-                  # The plugin name contains a space ("Voice Keyboard"); read
-                  # name and description in two separate substitutions so no
-                  # word splitting can corrupt either value.
+                  # Name and description are read from plugin.json (single
+                  # source of truth); separate substitutions keep any future
+                  # value safe from word splitting.
                   PLUGIN_NAME="$(node -p 'JSON.parse(require("fs").readFileSync("plugin.json", "utf8")).name')"
                   DESCRIPTION="$(node -p 'JSON.parse(require("fs").readFileSync("plugin.json", "utf8")).publish.description')"
                   VERSION="$(node -p "require('./package.json').version")"
@@ -250,7 +250,7 @@ jobs:
                   BRANCH="release/$(echo "$PLUGIN_NAME" | tr '[:upper:] ' '[:lower:]-')-$VERSION"
 
                   git clone "https://x-access-token:${DB_PR_PAT}@github.com/${DB_FORK_REPO}.git" db
-                  git -C db config user.name "voice-keyboard-release-bot"
+                  git -C db config user.name "speechtodeck-release-bot"
                   git -C db config user.email "41898282+github-actions[bot]@users.noreply.github.com"
                   git -C db checkout -b "$BRANCH"
 

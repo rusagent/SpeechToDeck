@@ -124,7 +124,7 @@ export class PluginCompositionRoot implements Disposable {
     }
 }
 
-const PLUGIN_NAME = "Voice Keyboard";
+const PLUGIN_NAME = "SpeechToDeck";
 
 const PLUGIN_ICON: React.ReactElement = (
     <svg width="32" height="32" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">

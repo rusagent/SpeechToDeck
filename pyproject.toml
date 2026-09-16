@@ -1,7 +1,7 @@
 [project]
-name = "decky-voice-keyboard"
+name = "speechtodeck"
 version = "0.1.0"
-description = "Steam Deck plugin backend: local speech-to-text coordination for the Decky Voice Keyboard plugin."
+description = "Steam Deck plugin backend: local speech-to-text coordination for the SpeechToDeck plugin."
 readme = "README.md"
 requires-python = ">=3.11"
 license = { file = "LICENSE" }

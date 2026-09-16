@@ -1,5 +1,5 @@
 {
-    "name": "decky-voice-keyboard",
+    "name": "speechtodeck",
     "version": "0.1.0",
     "private": true,
     "description": "Steam Deck plugin: a microphone button for the Steam virtual keyboard that transcribes speech locally and inserts the final transcript as one complete payload.",

@@ -1,10 +1,10 @@
 {
-    "name": "Voice Keyboard",
-    "author": "Decky Voice Keyboard Contributors",
+    "name": "SpeechToDeck",
+    "author": "rusagent",
     "flags": [],
     "api_version": 1,
     "publish": {
-        "tags": ["utilities", "keyboard"],
+        "tags": ["utility", "keyboard", "speech", "voice"],
         "description": "Adds a microphone button to the Steam virtual keyboard that transcribes speech locally and inserts the final transcript as one complete payload — no cloud services, no live streaming.",
         "image": ""
     }

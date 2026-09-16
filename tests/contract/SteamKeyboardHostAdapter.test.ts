@@ -59,7 +59,7 @@ const MIC_PROPS: MicrophoneControlProps = {
 };
 
 function ownedNodes(): HTMLElement[] {
-    return [...document.body.querySelectorAll<HTMLElement>("[data-decky-voice-keyboard-root]")];
+    return [...document.body.querySelectorAll<HTMLElement>("[data-speechtodeck-root]")];
 }
 
 describe("SteamKeyboardHostAdapter", () => {

@@ -1,4 +1,4 @@
-# Decky Voice Keyboard
+# SpeechToDeck
 
 A Steam Deck plugin that adds a microphone button to the Steam virtual
 keyboard. Speech is transcribed **locally** and the final transcript is
