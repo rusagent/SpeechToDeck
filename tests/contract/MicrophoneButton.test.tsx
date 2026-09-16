@@ -4,7 +4,7 @@
  * disabled state, and per-state glyphs so state never relies on color only.
  */
 
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { MicrophoneButton } from "../../src/presentation/keyboard/MicrophoneButton";
 
@@ -27,24 +27,38 @@ describe("MicrophoneButton", () => {
         expect((button as HTMLButtonElement).disabled).toBe(expected.disabled);
     });
 
-    it("changes accessible name and glyph per state (not color-only, §107)", () => {
+    it("changes accessible name and state markers per state (not color-only, §107)", () => {
         const onPress = vi.fn();
         const { rerender } = render(
             <MicrophoneButton state="ready" disabled={false} onPress={onPress} />,
         );
         const readyName = screen.getByRole("button").getAttribute("aria-label");
-        const readyText = screen.getByRole("button").textContent;
+        expect(screen.getByRole("button").querySelector("[data-state-marker]")).toBeNull(); // ready carries no marker
 
-        rerender(<MicrophoneButton state="recording" disabled={false} onPress={onPress} />);
-        const recordingName = screen.getByRole("button").getAttribute("aria-label");
-        const recordingText = screen.getByRole("button").textContent;
+        rerender(
+            <MicrophoneButton
+                state="recording"
+                disabled={false}
+                onPress={onPress}
+                elapsedLabel="00:42"
+            />,
+        );
+        const recordingButton = screen.getByRole("button");
+        const recordingName = recordingButton.getAttribute("aria-label");
+        // Recording replaces the mic icon with the ticking timer (§20).
+        expect(recordingButton.textContent).toBe("00:42");
+        expect(recordingButton.querySelector('[data-state-marker="recording"]')).not.toBeNull();
+
+        rerender(<MicrophoneButton state="processing" disabled={true} onPress={onPress} />);
+        expect(
+            screen.getByRole("button").querySelector('[data-state-marker="recording"]'),
+        ).toBeNull();
 
         rerender(<MicrophoneButton state="error" disabled={true} onPress={onPress} />);
-        const errorText = screen.getByRole("button").textContent;
+        const errorButton = screen.getByRole("button");
+        expect(errorButton.querySelector('[data-state-marker="error"]')?.textContent).toBe("!");
 
         expect(recordingName).not.toBe(readyName);
-        expect(recordingText).not.toBe(readyText); // glyph changed
-        expect(errorText).not.toBe(readyText);
     });
 
     it("forwards presses only while enabled", () => {
@@ -67,5 +81,51 @@ describe("MicrophoneButton", () => {
             <MicrophoneButton state="recording" disabled={false} onPress={onPress} locale="de" />,
         );
         expect(screen.getByRole("button").getAttribute("aria-label")).toContain("Aufnahme");
+    });
+
+    it("shows the localized error flash briefly and cleans up its timer (§20)", () => {
+        vi.useFakeTimers();
+        try {
+            const onPress = vi.fn();
+            const { rerender } = render(
+                <MicrophoneButton
+                    state="error"
+                    disabled={true}
+                    onPress={onPress}
+                    errorMessage="Transcription failed."
+                />,
+            );
+            const status = screen.getByRole("status");
+            expect(status.textContent).toBe("Transcription failed.");
+
+            rerender(
+                <MicrophoneButton
+                    state="error"
+                    disabled={true}
+                    onPress={onPress}
+                    errorMessage="Transcription failed."
+                />,
+            );
+            expect(screen.getByRole("status").textContent).toBe("Transcription failed.");
+
+            rerender(<MicrophoneButton state="ready" disabled={false} onPress={onPress} />);
+            expect(screen.queryByRole("status")).toBeNull();
+
+            rerender(
+                <MicrophoneButton
+                    state="error"
+                    disabled={true}
+                    onPress={onPress}
+                    errorMessage="Transcription failed."
+                />,
+            );
+            expect(screen.getByRole("status")).not.toBeNull();
+            act(() => {
+                vi.advanceTimersByTime(4000);
+            });
+            expect(screen.queryByRole("status")).toBeNull(); // flash over
+        } finally {
+            vi.useRealTimers();
+        }
     });
 });

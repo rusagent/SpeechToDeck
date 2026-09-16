@@ -3,13 +3,15 @@
  *
  * `system` maps the Steam UI language on the backend and surfaces an
  * unavailability instead of inventing a language; `auto` lets the speech
- * engine detect; explicit picks use fixed language tags.
+ * engine detect; explicit picks use fixed language tags. A hint below the
+ * picker states what the selected mode does, in the UI language.
  */
 
 import * as React from "react";
 import { DropdownItem } from "@decky/ui";
 import { translate } from "../i18n/messages";
-import type { Locale } from "../i18n/messages";
+import type { Locale, MessageKey } from "../i18n/messages";
+import { FieldHint } from "./FieldHint";
 
 export const LANGUAGE_SENTINELS = {
     system: "system",
@@ -41,6 +43,16 @@ export interface LanguagePickerProps {
     readonly onChange: (language: string) => void;
 }
 
+function languageHintKey(value: string): MessageKey {
+    if (value === LANGUAGE_SENTINELS.system) {
+        return "hint.language.system";
+    }
+    if (value === LANGUAGE_SENTINELS.auto) {
+        return "hint.language.auto";
+    }
+    return "hint.language.explicit";
+}
+
 export function LanguagePicker({
     value,
     locale,
@@ -58,11 +70,14 @@ export function LanguagePicker({
     ];
     const explicitOptions = EXPLICIT_LANGUAGE_TAGS.map((tag) => ({ data: tag, label: tag }));
     return (
-        <DropdownItem
-            label={translate(locale, "setting.language")}
-            rgOptions={[...sentinelOptions, ...explicitOptions]}
-            selectedOption={value}
-            onChange={(option) => onChange(option.data as string)}
-        />
+        <div>
+            <DropdownItem
+                label={translate(locale, "setting.language")}
+                rgOptions={[...sentinelOptions, ...explicitOptions]}
+                selectedOption={value}
+                onChange={(option) => onChange(option.data as string)}
+            />
+            <FieldHint>{translate(locale, languageHintKey(value))}</FieldHint>
+        </div>
     );
 }
