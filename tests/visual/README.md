@@ -29,10 +29,16 @@ tests/visual/capture.mjs
 ```
 
 Requires a headless-capable Chromium and ImageMagick on the host (no
-project dependencies; override with `CHROME=...`). Writes JPEG screenshots
-(wave-visual-read limits: quality 42, 1x, ≤410x450 clip, ≤80KB) to
-`.tmp/ui-polish/visual/` and prints the numeric `data-overflow-x` probe for
-390px and 768px page widths.
+project dependencies; override with `CHROME=...`). The page renders
+unscrolled and reports its geometry (`data-geometry`, written by
+harness-entry); the driver screenshots the full window and crops the exact
+410px column region with ImageMagick — headless Chromium maps window
+pixels 1:1 onto the page from its origin, but does not reliably honor
+page-side scroll offsets. Section shots (`scroll=<Section>`) clip to the
+titled section so it fills the frame. Writes JPEG screenshots
+(wave-visual-read limits: quality 42, 1x, ≤410px column, height ≤450px,
+≤80KB) to `.tmp/ui-visual/` and prints the numeric `data-overflow-x`
+probe for 390px and 768px page widths.
 
 ## States
 

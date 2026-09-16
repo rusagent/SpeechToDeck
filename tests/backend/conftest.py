@@ -10,6 +10,7 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import hashlib
+import inspect
 import json
 import os
 import signal
@@ -42,13 +43,22 @@ REAL_RUNTIME_MANIFEST = REPO_ROOT / "defaults" / "runtime-manifest.json"
 
 
 async def wait_until(predicate: Any, timeout: float = 2.0, interval: float = 0.01) -> bool:
-    """Poll a test-side predicate; test-side polling is not production code."""
+    """Poll a test-side predicate; test-side polling is not production code.
+
+    Awaitable predicates are awaited (a bare `predicate()` on an async
+    predicate function would create a never-awaited truthy coroutine and
+    make the whole wait vacuous).
+    """
     deadline = time.monotonic() + timeout
-    while time.monotonic() < deadline:
-        if predicate():
+    while True:
+        result = predicate()
+        if inspect.isawaitable(result):
+            result = await result
+        if result:
             return True
+        if time.monotonic() >= deadline:
+            return False
         await asyncio.sleep(interval)
-    return bool(predicate())
 
 
 class FakeEventPublisher:

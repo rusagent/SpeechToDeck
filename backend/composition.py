@@ -115,8 +115,11 @@ class Application:
         self.manifest = manifest
         self._started = False
         self._disposed = False
-        # Serializes §36 lifecycle transitions: concurrent settings updates
-        # coalesce into one ordered sequence and never restart in parallel.
+        # Serializes every §36 lifecycle transition (§82 startup, settings
+        # transitions, §38/§83 disposal): concurrent updates coalesce into
+        # one ordered sequence, never restart in parallel, and a disable
+        # during startup or an update during unload cannot leave a daemon
+        # that contradicts the disposed/disabled state.
         self._lifecycle_lock = asyncio.Lock()
 
     # ── lifecycle (§82 startup, §36 settings transitions, §38/§83 disposal) ──
@@ -130,24 +133,27 @@ class Application:
         """
         if self._started:
             return
-        self._started = True
-        ensure_directories(self.paths)
-        settings = await self.settings_repository.load()
-        try:
-            await self.monitor.start()
-        except OSError as exc:
-            # §41 requires event-driven status consumption; without it the
-            # runtime cannot be supervised safely → fail closed, but keep the
-            # settings/models surface usable.
-            LOGGER.error("status monitor unavailable: %s", exc)
-            await self._publish_runtime_unavailable("status monitor unavailable")
-            return
+        async with self._lifecycle_lock:
+            if self._started or self._disposed:
+                return
+            self._started = True
+            ensure_directories(self.paths)
+            settings = await self.settings_repository.load()
+            try:
+                await self.monitor.start()
+            except OSError as exc:
+                # §41 requires event-driven status consumption; without it the
+                # runtime cannot be supervised safely → fail closed, but keep
+                # the settings/models surface usable.
+                LOGGER.error("status monitor unavailable: %s", exc)
+                await self._publish_runtime_unavailable("status monitor unavailable")
+                return
 
-        if not settings.enabled:
-            LOGGER.info("plugin disabled by settings; runtime not started")
-            return
+            if not settings.enabled:
+                LOGGER.info("plugin disabled by settings; runtime not started")
+                return
 
-        await self._start_daemon(settings)
+            await self._start_daemon(settings)
 
     async def _start_daemon(self, settings: Settings) -> None:
         """§82 tail: ensure the model, then start the supervised daemon."""
@@ -171,25 +177,34 @@ class Application:
         await self.client.start()
 
     async def dispose(self) -> None:
-        """§38/§83 disposal order; every step idempotent."""
+        """§38/§83 disposal order; every step idempotent.
+
+        Runs under `_lifecycle_lock`, so an `update_settings` transition in
+        flight during unload completes (or is fenced by `_disposed`) before
+        the daemon is torn down — `dispose()` never races a spawn into an
+        orphaned daemon.
+        """
         if self._disposed:
             return
-        self._disposed = True
-        # 1-2. stop accepting sessions; cancel any active recording (§38).
-        await self.speech.shutdown()
-        try:
-            await self.client.cancel_recording()
-        except SpeechError as exc:
-            LOGGER.info("nothing to cancel at dispose: %s", exc.code)
-        # 3. stop status monitor; 4. SIGTERM daemon → bounded wait → SIGKILL.
-        await self.monitor.stop()
-        await self.supervisor.stop()
-        # 5. silence runtime deliveries; close the watcher.
-        await self.client.stop()
-        self.watcher.close()
-        # 6. §110: transient transcript file removed on clean shutdown.
-        self.paths.output_file.unlink(missing_ok=True)
-        self._started = False
+        async with self._lifecycle_lock:
+            if self._disposed:
+                return
+            self._disposed = True
+            # 1-2. stop accepting sessions; cancel any active recording (§38).
+            await self.speech.shutdown()
+            try:
+                await self.client.cancel_recording()
+            except SpeechError as exc:
+                LOGGER.info("nothing to cancel at dispose: %s", exc.code)
+            # 3. stop status monitor; 4. SIGTERM daemon → bounded wait → SIGKILL.
+            await self.monitor.stop()
+            await self.supervisor.stop()
+            # 5. silence runtime deliveries; close the watcher.
+            await self.client.stop()
+            self.watcher.close()
+            # 6. §110: transient transcript file removed on clean shutdown.
+            self.paths.output_file.unlink(missing_ok=True)
+            self._started = False
 
     async def restart_runtime(self) -> None:
         """§69: fatal runtime errors recover only via explicit restart."""
@@ -260,9 +275,13 @@ class Application:
         """Merge a partial wire payload, persist atomically (§55), then drive
         the runtime lifecycle per §36/§64/§65.
 
-        One lock spans read-modify-write and the lifecycle transition, so
-        concurrent updates are applied in order and never restart in parallel
-        (§70 storm guard). Lifecycle failures are surfaced as
+        One lock spans read-modify-write and the lifecycle transition, and is
+        shared with `start()`/`dispose()`: startup, settings transitions and
+        disposal are strictly ordered, so a disable arriving during startup
+        still ends with the daemon down (§36/§64) and an update arriving
+        during unload never respawns the daemon after `dispose()` (§38/§83).
+        Concurrent updates are applied in order and never restart in
+        parallel (§70 storm guard). Lifecycle failures are surfaced as
         `runtime_status` events, never as call failures: the settings
         document itself was valid and persisted.
         """
@@ -281,7 +300,14 @@ class Application:
 
     async def _apply_runtime_lifecycle(self, before: Settings, after: Settings) -> None:
         """§36: the daemon lives exactly while dictation is enabled and its
-        start configuration is current; §64: it is absent while disabled."""
+        start configuration is current; §64: it is absent while disabled.
+
+        Runs with `_lifecycle_lock` held (from `update_settings`), so the
+        `_disposed` fence is race-free: once disposal completed, a late
+        settings update persists but performs no lifecycle transition.
+        """
+        if self._disposed:
+            return
         if before.enabled and not after.enabled:
             await self._shutdown_runtime()
         elif not before.enabled and after.enabled:

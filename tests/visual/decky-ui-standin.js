@@ -178,7 +178,11 @@
         display: flex;
         align-items: flex-start;
         justify-content: center;
-        gap: 18px;
+        /* Gap keeps the error flash bubble (shrink-to-fit ≈104px wide,
+           centered under its 44px button) clear of the neighboring
+           figcaption: measured DE overlap of 12px at 18px → 6px clearance
+           at 36px, row still fits the 410px column. */
+        gap: 36px;
         padding: 26px 10px 40px;
     }
     .mic-row figure { margin: 0; display: flex; flex-direction: column; align-items: center; gap: 10px; }

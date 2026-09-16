@@ -87,7 +87,10 @@ function listFilesRecursive(root, relative = "") {
             files.push(relPosix);
         }
     }
-    return files;
+    // Reproducibility (§111): readdirSync order is filesystem-dependent, so
+    // sort the accumulated relPosix paths before selection — the zip entry
+    // order and the SHA256SUMS.txt digest stay machine-independent.
+    return files.sort();
 }
 
 // ── selection: the verified layout, from the source tree ────────────────────

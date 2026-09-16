@@ -12,7 +12,9 @@ from __future__ import annotations
 import shutil
 from pathlib import Path
 
+import pytest
 from backend.composition import compose
+from backend.domain.errors import ManifestInvalidError
 from backend.infrastructure.process.process_environment import (
     PluginPaths,
     resolve_defaults_file,
@@ -59,6 +61,24 @@ def test_packaged_layout_wins_when_both_exist(tmp_path: Path) -> None:
     _stage_dev(root)
     (root / "models.json").write_text('{"marker": "packaged"}\n', encoding="utf-8")
     assert resolve_defaults_file(root, "models.json") == root / "models.json"
+
+
+def test_resolver_rejects_paths_outside_plugin_root(tmp_path: Path) -> None:
+    """§109 traversal hardening: a filename that resolves outside the plugin
+    root is never returned — the resolver fails closed with the stable §68
+    `MANIFEST_INVALID` code, in both layouts and for existing targets."""
+    root = tmp_path / "checkout"
+    _stage_dev(root)
+    # An existing file OUTSIDE the root that a traversal filename resolves to.
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    (outside / "models.json").write_text("{}", encoding="utf-8")
+    # Existing traversal target (flattened candidate exists, outside root).
+    with pytest.raises(ManifestInvalidError):
+        resolve_defaults_file(root, "../outside/models.json")
+    # Missing traversal target (neither candidate exists, path escapes).
+    with pytest.raises(ManifestInvalidError):
+        resolve_defaults_file(root, "../../etc/models.json")
 
 
 def test_composition_loads_manifest_from_installed_layout(tmp_path: Path) -> None:

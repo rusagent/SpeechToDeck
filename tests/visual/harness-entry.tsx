@@ -194,15 +194,29 @@ if (
     const params = paramsFromLocation();
     mountVisualHarness(visualRoot, params);
     const settle = (): void => {
-        // Numeric overflow probe (no extra bitmap needed): the capture
-        // driver greps data-overflow-x from the serialized DOM.
+        // Numeric capture geometry for the driver: the page stays
+        // unscrolled and the capture driver screenshots the full window and
+        // crops the target region — headless Chromium maps window pixels
+        // 1:1 onto the page from its origin, but does not reliably honor
+        // page-side scroll offsets (the old scrollIntoView targeting
+        // captured the wrong region for section shots).
         const doc = document.documentElement;
         visualRoot.dataset.overflowX = doc.scrollWidth > doc.clientWidth ? "true" : "false";
-        if (params.scroll !== null) {
-            const target = document.querySelector(`[data-panel-title="${params.scroll}"]`);
-            target?.scrollIntoView(true);
-            visualRoot.dataset.scrollTop = String(Math.round(window.scrollY));
-        }
+        const sections = Array.from(
+            document.querySelectorAll<HTMLElement>(".decky-panel-section"),
+        ).map((section) => {
+            const rect = section.getBoundingClientRect();
+            return {
+                title: section.dataset.panelTitle ?? "",
+                top: Math.round(rect.top + window.scrollY),
+                height: Math.round(rect.height),
+            };
+        });
+        visualRoot.dataset.geometry = JSON.stringify({
+            docH: doc.scrollHeight,
+            rootX: Math.round(visualRoot.getBoundingClientRect().left + window.scrollX),
+            sections,
+        });
     };
     window.requestAnimationFrame(settle);
     // Fallback for capture drivers whose virtual clock does not run rAF.

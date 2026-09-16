@@ -12,6 +12,8 @@ import contextlib
 import os
 from pathlib import Path
 
+from backend.domain.errors import ManifestInvalidError
+
 DIR_MODE = 0o700
 PRIVATE_FILE_MODE = 0o600
 
@@ -40,14 +42,28 @@ def resolve_defaults_file(plugin_root: Path, filename: str) -> Path:
     shipped artifact is what users run. When neither exists, the flattened
     path is returned so fail-closed loaders report a stable location.
     Read-only existence probes only; no filesystem effects.
+
+    §109 traversal hardening: after resolution the candidate must stay
+    inside the plugin root (both sanctioned layouts live there); any
+    resolved path that escapes it is rejected with the stable §68
+    `MANIFEST_INVALID` code instead of being returned.
     """
+    root = plugin_root.resolve()
     flattened = plugin_root / filename
-    if flattened.is_file():
-        return flattened
     nested = plugin_root / DEFAULTS_DIRNAME / filename
-    if nested.is_file():
-        return nested
-    return flattened
+    if flattened.is_file():
+        candidate = flattened
+    elif nested.is_file():
+        candidate = nested
+    else:
+        candidate = flattened
+    resolved = candidate.resolve()
+    if not resolved.is_relative_to(root):
+        raise ManifestInvalidError(
+            "defaults file resolves outside the plugin root",
+            detail=f"filename={filename!r}",
+        )
+    return candidate
 
 
 class PluginPaths:

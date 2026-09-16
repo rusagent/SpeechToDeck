@@ -102,6 +102,50 @@ Review note (c) (`scripts/validate-package.mjs`) belongs to the release-CI
 lane and was intentionally not created here; note (d) (real hardware
 capability probes) stays documented under the unproven capabilities below.
 
+## Review repair (cycle 2, on main @ 3146009)
+
+Bounded repair of four reviewer findings; no scope beyond them. All gates
+re-run green on the repaired tree (counts in the validation section).
+
+1. **LF1 — lifecycle race fences (§36/§38/§83)**: `Application.start()` and
+   `dispose()` now run under the existing `_lifecycle_lock` (previously only
+   `update_settings` held it), and `_apply_runtime_lifecycle` checks a
+   `_disposed` fence inside the lock. A disable issued during an in-flight
+   startup can no longer end with a running daemon against disabled
+   settings, and an update in flight during unload can no longer respawn a
+   daemon after `dispose()` (no orphan). Two deterministic race tests
+   (`tests/backend/test_composition.py`, fixture daemon; both red against
+   the pre-fix composition, green after). `restart_runtime` (§69) was left
+   as-is per the bounded scope.
+2. **LF2 — reproducible packaging (§111)**: `listFilesRecursive`
+   (`scripts/build-package.mjs`) sorts the accumulated relPosix paths, so
+   zip entry order and the SHA256SUMS.txt digest are filesystem-independent.
+   Proven by two full builds into separate `.tmp` dirs: byte-identical zips,
+   both `sha256 b04d2e6cd4a0a99b06f79bd90996eb433d957737b283229ed9a946b4738446f0`.
+3. **Traversal hardening (§109)**: `resolve_defaults_file` verifies the
+   resolved absolute candidate stays inside the plugin root
+   (`pathlib.is_relative_to`) and raises the stable §68 `MANIFEST_INVALID`
+   error instead of returning an escaping path; both shipped layouts and the
+   fail-closed missing-file location are unchanged. Test added
+   (`tests/backend/test_defaults_layout.py`).
+4. **Visual capture fix (§80/§107)**: the harness page now renders
+   unscrolled and reports its section geometry (`data-geometry`);
+   `tests/visual/capture.mjs` screenshots the full window and crops the
+   exact 410px column with ImageMagick (headless Chromium does not reliably
+   honor page-side scroll offsets — the old `scrollIntoView` targeting
+   captured the wrong region). `panel-en-diag` clips to the Diagnostics
+   section (410x240, all §80 rows visible); the mic-states strip gap widened
+   18→36px so the error flash bubble clears the neighboring figcaption
+   (measured 12px overlap → 6px clearance). Fresh set in `.tmp/ui-visual/`:
+   `panel-en-top` 410x450/13911B, `panel-en-diag` 410x240/8505B,
+   `panel-de-top` 410x450/14642B, `mic-states-en` 410x160/3513B,
+   `mic-states-de` 410x160/3814B (JPEG q42, 1x, within capture limits).
+5. **`wait_until` async predicates (tests/backend/conftest.py)**: an
+   awaitable predicate is now awaited — the previously truthy
+   never-awaited coroutine made one lifecycle-test wait vacuous and raised
+   the benign `RuntimeWarning`. No test semantics weakened (the affected
+   assertion now actually polls).
+
 ## Gate policy: unpinned runtime manifest
 
 `node scripts/validate-manifests.mjs` (default, CI):

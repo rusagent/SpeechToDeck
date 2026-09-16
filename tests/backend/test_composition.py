@@ -9,6 +9,7 @@ CLI, event-driven transcription delivery — no STT hardware.
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import hashlib
 import json
 from pathlib import Path
@@ -309,6 +310,133 @@ def test_update_settings_drives_runtime_lifecycle(tmp_path: Path) -> None:
             await app.update_settings({"outputMode": "clipboard-only"})
             assert len(starting_events(publisher)) == starting_before
             assert app.supervisor.is_running()
+        finally:
+            await app.dispose()
+
+    asyncio.run(scenario())
+
+
+def _gate_daemon_spawn(app: Application) -> tuple[asyncio.Event, asyncio.Event]:
+    """Deterministic await point at the daemon spawn, plus an instant
+    cancel-recording stub.
+
+    Parking `supervisor.start` behind a gate lets a test hold the §82
+    startup (or a settings-driven enable) immediately before the daemon
+    spawns. The §71 cancel-ack wait against a not-yet-running daemon takes
+    its full 2s timeout and would mask the lifecycle ordering under test,
+    so the cancel seam is stubbed to return immediately (the §38 order
+    itself is covered by the lifecycle test with the real client)."""
+    entered = asyncio.Event()
+    gate = asyncio.Event()
+    original_start = app.supervisor.start
+
+    async def gated_start(settings: object) -> None:
+        entered.set()
+        await gate.wait()
+        await original_start(settings)  # type: ignore[arg-type]
+
+    app.supervisor.start = gated_start  # type: ignore[method-assign]
+
+    async def instant_cancel() -> None:
+        return None
+
+    app.client.cancel_recording = instant_cancel  # type: ignore[method-assign]
+    return entered, gate
+
+
+def test_disable_during_startup_leaves_no_running_daemon(tmp_path: Path) -> None:
+    """Race 1 (§36/§38): `update_settings(enabled=false)` is issued while the
+    §82 startup is parked immediately before the daemon spawn. Without the
+    shared lifecycle lock the disable completes first and startup then
+    spawns a daemon that contradicts the disabled settings; with the lock
+    the disable cannot run to completion while startup holds it, so the
+    disable lands after startup and tears the daemon down again — the run
+    ends daemon-down and settings-consistent either way."""
+
+    def starting_events(publisher: FakeEventPublisher) -> list[dict[str, object]]:
+        return [p for p in publisher.payloads("runtime_status") if p.get("state") == "starting"]
+
+    async def scenario() -> None:
+        app, publisher, data_dir = compose_with_fixture_daemon(tmp_path)
+        entered, gate = _gate_daemon_spawn(app)
+        try:
+            startup = asyncio.create_task(app.start())
+            assert await wait_until(entered.is_set, timeout=5.0)
+            # Startup is parked at the daemon spawn; issue the disable now.
+            disable = asyncio.create_task(app.update_settings({"enabled": False}))
+
+            async def open_gate_after_disable() -> None:
+                # Pre-fix, the disable finishes while startup is parked and
+                # the gate opens immediately; post-fix the lock makes that
+                # ordering impossible, so a short grace period opens it.
+                # shield: a timeout must not cancel the disable task.
+                with contextlib.suppress(TimeoutError):
+                    await asyncio.wait_for(asyncio.shield(disable), timeout=0.5)
+                gate.set()
+
+            await asyncio.wait_for(open_gate_after_disable(), timeout=10.0)
+            await asyncio.wait_for(startup, timeout=10.0)
+            await asyncio.wait_for(disable, timeout=10.0)
+            # The daemon was started exactly once, then taken down again.
+            assert len(starting_events(publisher)) == 1
+            assert await wait_until(lambda: not app.supervisor.is_running(), timeout=5.0)
+            # No exit-code assertion: the fixture daemon is stopped within
+            # its own startup window here, so the exit status is not stable
+            # (clean §38 stops are covered by the lifecycle test).
+            persisted = json.loads((data_dir / "settings.json").read_text(encoding="utf-8"))
+            assert persisted["enabled"] is False
+        finally:
+            await app.dispose()
+
+    asyncio.run(scenario())
+
+
+def test_dispose_during_update_leaves_no_daemon_after_unload(tmp_path: Path) -> None:
+    """Race 2 (§38/§83): `update_settings(enabled=true)` is parked mid-startup
+    when `dispose()` runs. Disposal shares the lifecycle lock and fences
+    transitions with `_disposed`, so no daemon outlives the plugin unload —
+    and a late update after disposal respawns nothing."""
+
+    async def scenario() -> None:
+        app, _publisher, data_dir = compose_with_fixture_daemon(tmp_path)
+        try:
+            # Realistic prior lifecycle: §82 startup, then disable. (Without
+            # start(), the runtime dir does not exist and the monitor's
+            # inotify watch would legitimately fail closed on enable.)
+            await app.start()
+            assert await wait_until(app.supervisor.is_running, timeout=5.0)
+            await app.update_settings({"enabled": False})
+            assert await wait_until(lambda: not app.supervisor.is_running(), timeout=5.0)
+
+            entered, gate = _gate_daemon_spawn(app)
+            update = asyncio.create_task(app.update_settings({"enabled": True}))
+            assert await wait_until(entered.is_set, timeout=5.0)
+            unload = asyncio.create_task(app.dispose())
+
+            async def open_gate_after_unload() -> None:
+                # Pre-fix, dispose finishes while the update is parked and
+                # the gate opens immediately; post-fix the lock makes that
+                # ordering impossible, so a short grace period opens it.
+                # shield: a timeout must not cancel the dispose task.
+                with contextlib.suppress(TimeoutError):
+                    await asyncio.wait_for(asyncio.shield(unload), timeout=0.5)
+                gate.set()
+
+            await asyncio.wait_for(open_gate_after_unload(), timeout=10.0)
+            await asyncio.wait_for(update, timeout=10.0)
+            await asyncio.wait_for(unload, timeout=10.0)
+            # Either ordering converges: the daemon spawned by the update (if
+            # it won the lock) is torn down by dispose, never orphaned.
+            assert not app.supervisor.is_running()
+            # The supervisor observed the teardown (exit status itself is not
+            # stable for a daemon stopped within its startup window).
+            assert app.supervisor.last_exit_code is not None
+
+            # After disposal, a late update persists but must not respawn.
+            await app.update_settings({"enabled": True})
+            assert not app.supervisor.is_running()
+            persisted = json.loads((data_dir / "settings.json").read_text(encoding="utf-8"))
+            assert persisted["enabled"] is True
         finally:
             await app.dispose()
 
