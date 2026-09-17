@@ -223,7 +223,8 @@ and acquisition procedure: bin/README.md.
 | `node scripts/validate-licenses.mjs`           | 0    | 4 runtime dependencies covered by THIRD_PARTY_NOTICES.md                       |
 
 Backend environment note: the venv is created with uv (`ruff` + `mypy`) and
-needs `uv pip install --python .venv/bin/python pytest aiohttp` for the suite.
+needs `uv pip install --python .venv/bin/python pytest` for the suite (the
+backend itself is stdlib-only; the SteamOS Decky runtime ships no aiohttp).
 On desktop sessions that leak AppImage `LD_LIBRARY_PATH` into child processes,
 run the venv python through `env -u LD_LIBRARY_PATH`.
 

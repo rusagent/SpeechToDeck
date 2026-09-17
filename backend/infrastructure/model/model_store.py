@@ -4,19 +4,25 @@ Download algorithm per §51: validate model id → download to `*.part` →
 stream SHA-256 → validate digest → fsync → atomic rename. A partially
 downloaded model is never considered valid.
 
-HTTP transport is isolated behind `ModelHttpFetcher`; the aiohttp
-implementation imports aiohttp lazily inside its method so every other path
-(and the unit suite) runs without aiohttp present.
+HTTP transport is isolated behind `ModelHttpFetcher`; the stdlib urllib
+implementation runs the blocking request and every chunk read on a worker
+thread (asyncio.to_thread, §100), and a threading.Event checked per chunk
+carries cancellation across that thread boundary.
 """
 
 from __future__ import annotations
 
 import asyncio
 import hashlib
+import http.client
 import os
+import threading
+import time
+import urllib.error
+import urllib.request
 from collections.abc import AsyncIterator, Callable
 from pathlib import Path
-from typing import TYPE_CHECKING, Protocol
+from typing import Protocol
 
 from backend.domain.contracts import ModelInfo
 from backend.domain.errors import (
@@ -26,12 +32,14 @@ from backend.domain.errors import (
 )
 from backend.infrastructure.model.model_manifest import MODEL_ID_RE, ModelManifest
 
-if TYPE_CHECKING:  # pragma: no cover - import used for typing only
-    import aiohttp
-
 CHUNK_SIZE = 64 * 1024
-# Progress callback throttle: emit at most one event per this many bytes.
-PROGRESS_EVERY_BYTES = 256 * 1024
+# Progress callback throttle (§52): emit when the percent delta reaches 1 or
+# when this much time elapsed since the last emission, whichever first.
+PROGRESS_MIN_PERCENT_DELTA = 1
+PROGRESS_MIN_INTERVAL_S = 0.25
+
+# Blocking request timeout; one chunk read is bounded by the same budget.
+_URLOPEN_TIMEOUT_S = 30.0
 
 _PART_SUFFIX = ".part"
 
@@ -56,67 +64,120 @@ class DownloadStream(Protocol):
 
 
 class ModelHttpFetcher(Protocol):
-    """HTTP GET port so tests never need network or aiohttp."""
+    """HTTP GET port so tests never need network or threads."""
 
     async def open(self, url: str) -> DownloadStream: ...
 
 
-class AiohttpModelFetcher:
-    """aiohttp transport (§100/§101): the one sanctioned runtime dependency.
+def _urlopen(url: str) -> http.client.HTTPResponse:
+    """Blocking GET on a worker thread; non-2xx and transport errors map to
+    the stable §68 MODEL_DOWNLOAD_FAILED code (detail is a code, §73)."""
+    request = urllib.request.Request(url, headers={"Accept": "*/*"}, method="GET")
+    try:
+        response: http.client.HTTPResponse = urllib.request.urlopen(
+            request, timeout=_URLOPEN_TIMEOUT_S
+        )
+    except urllib.error.HTTPError as exc:
+        exc.close()  # the error body is never read
+        raise ModelDownloadFailedError(
+            "model download request failed", detail=f"HTTP {exc.code}"
+        ) from exc
+    except (OSError, ValueError) as exc:  # URLError/socket errors, unknown scheme
+        raise ModelDownloadFailedError(
+            "model download request failed", detail=type(exc).__name__
+        ) from exc
+    if not 200 <= response.status < 300:
+        response.close()
+        raise ModelDownloadFailedError(
+            "model download request failed", detail=f"HTTP {response.status}"
+        )
+    return response
 
-    aiohttp is imported lazily inside `open()`; Decky's runtime provides it.
+
+def _content_length(response: http.client.HTTPResponse) -> int | None:
+    """Advertised body size; None when the header is absent or malformed."""
+    header = response.headers.get("Content-Length")
+    if header is None:
+        return None
+    try:
+        return int(header)
+    except ValueError:
+        return None
+
+
+class UrllibModelFetcher:
+    """stdlib urllib transport (§100/§101: stdlib only on the Deck runtime).
+
+    The SteamOS Decky Loader runtime provides no aiohttp. The blocking
+    request and every body read run on a worker thread via asyncio.to_thread,
+    chunk-wise at CHUNK_SIZE; a threading.Event checked per chunk carries
+    cancellation across the thread boundary (a read already in flight is
+    bounded by one chunk).
     """
 
     async def open(self, url: str) -> DownloadStream:
-        import aiohttp  # lazy: only the download path needs it
-
-        session: aiohttp.ClientSession | None = None
-        try:
-            session = aiohttp.ClientSession()
-            response = await session.get(url)
-            response.raise_for_status()
-        except Exception as exc:
-            if session is not None:
-                await session.close()
-            if isinstance(exc, asyncio.CancelledError):
-                raise
-            raise ModelDownloadFailedError(
-                "model download request failed", detail=type(exc).__name__
-            ) from exc
-
-        content_length = response.headers.get("Content-Length")
-        total: int | None
-        try:
-            total = int(content_length) if content_length is not None else None
-        except ValueError:
-            total = None
-
-        return _AiohttpDownloadStream(session=session, response=response, total_bytes=total)
+        response = await asyncio.to_thread(_urlopen, url)
+        return _UrllibDownloadStream(response=response, total_bytes=_content_length(response))
 
 
-class _AiohttpDownloadStream:
-    def __init__(
-        self,
-        *,
-        session: aiohttp.ClientSession,
-        response: aiohttp.ClientResponse,
-        total_bytes: int | None,
-    ) -> None:
-        self._session = session
+class _UrllibDownloadStream:
+    """DownloadStream over a urllib response, read chunk-wise off the loop."""
+
+    def __init__(self, *, response: http.client.HTTPResponse, total_bytes: int | None) -> None:
         self._response = response
         self._total_bytes = total_bytes
+        self._cancel = threading.Event()
 
     @property
     def total_bytes(self) -> int | None:
         return self._total_bytes
 
     async def chunks(self) -> AsyncIterator[bytes]:
-        async for chunk in self._response.content.iter_chunked(CHUNK_SIZE):
-            yield chunk
+        try:
+            while True:
+                if self._cancel.is_set():
+                    raise ModelDownloadCancelled()
+                try:
+                    chunk = await asyncio.to_thread(self._read_chunk)
+                except ModelDownloadCancelled:
+                    raise
+                except (http.client.HTTPException, OSError, TimeoutError) as exc:
+                    raise ModelDownloadFailedError(
+                        "model download interrupted while streaming",
+                        detail=type(exc).__name__,
+                    ) from exc
+                if not chunk:
+                    return
+                yield chunk
+        finally:
+            self._cancel.set()
+
+    def _read_chunk(self) -> bytes:
+        """One blocking 64 KiB read on a worker thread (§100).
+
+        The cancel event is checked before reading so a cancellation requested
+        on the event loop stops the pump at the next chunk; a read already in
+        flight is bounded by one chunk and its result is discarded.
+        """
+        if self._cancel.is_set():
+            return b""
+        return self._response.read(CHUNK_SIZE)
 
     async def close(self) -> None:
-        self._response.release()
-        await self._session.close()
+        """Stop the pump and release the connection (idempotent, §51)."""
+        self._cancel.set()
+        await asyncio.to_thread(self._response.close)
+
+
+def _progress_due(received: int, total: int | None, last_percent: int, last_emit: float) -> bool:
+    """Progress-callback throttle: percent delta ≥ 1 or ≥250 ms elapsed."""
+    if (
+        total is not None
+        and total > 0
+        and received * 100 // total - last_percent >= PROGRESS_MIN_PERCENT_DELTA
+    ):
+        return True
+    return time.monotonic() - last_emit >= PROGRESS_MIN_INTERVAL_S
 
 
 class ModelStore:
@@ -205,24 +266,26 @@ class ModelStore:
 
         digest = hashlib.sha256()
         received = 0
-        last_reported = 0
-        reported_total: int | None = None
+        last_percent = 0
+        last_emit = 0.0
         try:
             stream = await self._fetcher.open(info.download_url)
             try:
                 reported_total = (
                     stream.total_bytes if stream.total_bytes is not None else info.size_bytes
                 )
+                last_emit = time.monotonic()
                 with part_path.open("wb") as handle:
                     async for chunk in stream.chunks():
                         handle.write(chunk)
                         digest.update(chunk)
                         received += len(chunk)
-                        if (
-                            self._on_progress is not None
-                            and received - last_reported >= PROGRESS_EVERY_BYTES
+                        if self._on_progress is not None and _progress_due(
+                            received, reported_total, last_percent, last_emit
                         ):
-                            last_reported = received
+                            if reported_total is not None:
+                                last_percent = received * 100 // reported_total
+                            last_emit = time.monotonic()
                             await _maybe_await(self._on_progress(info.id, received, reported_total))
                     handle.flush()
                     os.fsync(handle.fileno())  # §51: fsync before rename

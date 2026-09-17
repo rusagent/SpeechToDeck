@@ -14,6 +14,14 @@ from collections.abc import Awaitable, Callable
 from pathlib import Path
 
 from backend.application.model_service import ModelService
+from backend.application.setup_progress import (
+    DETAIL_CHECKSUM,
+    DETAIL_DOWNLOADING,
+    DETAIL_SPAWNING,
+    DETAIL_VERIFYING,
+    DETAIL_WARMUP,
+    SetupProgressReporter,
+)
 from backend.application.speech_service import SpeechApplicationService
 from backend.domain.contracts import (
     EVENT_RUNTIME_STATUS,
@@ -23,13 +31,14 @@ from backend.domain.contracts import (
 )
 from backend.domain.errors import (
     ModelNotInstalledError,
+    RuntimeStartError,
     RuntimeUnavailableError,
     SettingsInvalidError,
     SpeechError,
 )
 from backend.domain.session import SpeechSessionCoordinator
 from backend.infrastructure.model.model_manifest import ModelManifest, load_model_manifest
-from backend.infrastructure.model.model_store import AiohttpModelFetcher, ModelHttpFetcher
+from backend.infrastructure.model.model_store import ModelHttpFetcher, UrllibModelFetcher
 from backend.infrastructure.process.daemon_supervisor import SpeechDaemonSupervisor
 from backend.infrastructure.process.process_environment import (
     PluginPaths,
@@ -39,6 +48,7 @@ from backend.infrastructure.process.runtime_variant import RuntimeVariantResolve
 from backend.infrastructure.process.status_monitor import (
     RuntimeStatusMonitor,
     StatusFileWatcher,
+    WatchEvent,
 )
 from backend.infrastructure.process.voxtype_client import VoxtypeClient
 from backend.infrastructure.settings.json_settings_repository import (
@@ -47,6 +57,12 @@ from backend.infrastructure.settings.json_settings_repository import (
 )
 
 LOGGER = logging.getLogger("plugin.lifecycle")
+
+# §82 model.warmup budget (§71: no wait is unbounded): long enough to span
+# the §70 restart ladder (bounded delays ≤ 8 s + spawns) so a daemon brought
+# back by the restart policy can still report idle, short enough to fail
+# closed with a stable code instead of hanging the startup path.
+MODEL_WARMUP_TIMEOUT_S = 60.0
 
 # §36/§65: settings the native daemon consumes at start (see
 # SpeechDaemonSupervisor._spawn). While the daemon is up, a change to any of
@@ -62,6 +78,12 @@ _RUNTIME_FIELDS = (
 
 def _runtime_relevant_change(before: Settings, after: Settings) -> bool:
     return any(getattr(before, field) != getattr(after, field) for field in _RUNTIME_FIELDS)
+
+
+def _daemon_idle(event: WatchEvent) -> bool:
+    """Warmup predicate: the daemon state file reports idle (§41 watcher)."""
+    snapshot = event.snapshot
+    return event.kind == "status" and snapshot is not None and snapshot.state == "idle"
 
 
 class LoggingEventPublisher:
@@ -104,6 +126,7 @@ class Application:
         watcher: StatusFileWatcher,
         manifest: ModelManifest,
         resolver: RuntimeVariantResolver,
+        setup_progress: SetupProgressReporter,
     ) -> None:
         self.paths = paths
         self.publisher = publisher
@@ -116,6 +139,7 @@ class Application:
         self.watcher = watcher
         self.manifest = manifest
         self.resolver = resolver
+        self.setup_progress = setup_progress
         self._started = False
         self._disposed = False
         # Serializes every §36 lifecycle transition (§82 startup, settings
@@ -159,25 +183,86 @@ class Application:
             await self._start_daemon(settings)
 
     async def _start_daemon(self, settings: Settings) -> None:
-        """§82 tail: ensure the model, then start the supervised daemon."""
-        # §82/§36: the model is loaded once at startup by the persistent
-        # daemon. A missing or corrupt model keeps the daemon down (§51/§53).
+        """§82 tail: verify the runtime, ensure the model, start the
+        supervised daemon, wait for warmup — emitting the `setup_progress`
+        stream along the way (frozen contract: backend/application/
+        setup_progress.py).
+
+        A failure at any step is surfaced (the terminal `failed` setup event
+        plus `runtime_status` unavailable) but never crashes the plugin: the
+        runtime stays in the existing fail-closed down state (§69), recovery
+        is the explicit restart action. Settings/models callables keep
+        working.
+        """
+        setup = self.setup_progress
+        await setup.begin_run()
+        # Step 0 — runtime.verify: pinned binary presence + digest (§53).
+        await setup.step(0, percent=0, detail_key=DETAIL_CHECKSUM)
         try:
-            await self.models.ensure_model(settings.model_id)
+            await self.supervisor.verify(settings)
+        except SpeechError as exc:
+            LOGGER.error("runtime verification failed: %s (%s)", exc.message, exc.detail)
+            await self._fail_startup(setup, exc)
+            return
+        await setup.step(0, percent=100)
+
+        # Step 1 — model.ensure: digest-verify the installed model, or
+        # download it with real percent from the throttled download feed
+        # (§51; the §52 cancel path stays live during startup).
+        installed = await self.models.store.is_installed(settings.model_id)
+        await setup.step(
+            1,
+            percent=0,
+            detail_key=DETAIL_VERIFYING if installed else DETAIL_DOWNLOADING,
+        )
+        try:
+            if installed:
+                await self.models.ensure_model(settings.model_id)
+            else:
+                # First-run setup: the download validates the digest and
+                # installs atomically (§51), so no second ensure is needed.
+                await self.models.download_model(settings.model_id)
         except SpeechError as exc:
             LOGGER.error("model unavailable at startup: %s", exc.message)
-            await self._publish_runtime_unavailable(exc.message)
+            await self._fail_startup(setup, exc)
             return
+        await setup.step(1, percent=100)
 
+        # Step 2 — daemon.start: config generation, spawn, alive wait.
+        await setup.step(2, percent=0, indeterminate=True, detail_key=DETAIL_SPAWNING)
         try:
             await self.supervisor.start(settings)
         except SpeechError as exc:
             LOGGER.error("runtime start failed: %s (%s)", exc.message, exc.detail)
-            await self._publish_runtime_unavailable(exc.message)
+            await self._fail_startup(setup, exc)
+            return
+        if not self.supervisor.is_running():
+            LOGGER.error("runtime start failed: daemon process exited immediately")
+            await self._fail_startup(setup, RuntimeStartError("daemon process exited immediately"))
             return
         # §32 SpeechRuntime.start: initialize the runtime surface (status
-        # watch). The daemon itself is up; recording can begin.
+        # watch) so warmup is observed through the live monitor path.
         await self.client.start()
+
+        # Step 3 — model.warmup: bounded wait for the daemon state file to
+        # report idle through the §41 status watcher.
+        await setup.step(3, percent=0, indeterminate=True, detail_key=DETAIL_WARMUP)
+        if await self.watcher.wait_until(_daemon_idle, MODEL_WARMUP_TIMEOUT_S) is None:
+            LOGGER.error(
+                "runtime warmup failed: daemon did not report idle within %gs",
+                MODEL_WARMUP_TIMEOUT_S,
+            )
+            await self._fail_startup(
+                setup,
+                RuntimeStartError("daemon did not report idle within the warmup budget"),
+            )
+            return
+        await setup.ready()
+
+    async def _fail_startup(self, setup: SetupProgressReporter, exc: SpeechError) -> None:
+        """Terminal `failed` setup event + the existing fail-closed surface."""
+        await setup.fail(str(exc.code))
+        await self._publish_runtime_unavailable(exc.message)
 
     async def dispose(self) -> None:
         """§38/§83 disposal order; every step idempotent.
@@ -433,12 +518,19 @@ def compose(
     `model_fetcher` is overridable so tests never touch the network (§90).
     """
     publisher = event_publisher if event_publisher is not None else LoggingEventPublisher()
-    fetcher = model_fetcher if model_fetcher is not None else AiohttpModelFetcher()
+    fetcher = model_fetcher if model_fetcher is not None else UrllibModelFetcher()
     paths = PluginPaths(plugin_root=plugin_root, data_dir=data_dir)
 
     manifest = load_model_manifest(paths.models_manifest)
     settings_repository = JsonSettingsRepository(paths.settings_file)
-    models = ModelService(manifest, paths.models_dir, fetcher, publisher)
+    setup_progress = SetupProgressReporter(publisher)
+    models = ModelService(
+        manifest,
+        paths.models_dir,
+        fetcher,
+        publisher,
+        setup_progress=setup_progress.download_progress,
+    )
 
     def model_path_for(model_id: str) -> Path:
         """Absolute .bin path of a curated model (§48/§51/§109).
@@ -486,4 +578,5 @@ def compose(
         watcher=watcher,
         manifest=manifest,
         resolver=resolver,
+        setup_progress=setup_progress,
     )

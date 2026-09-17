@@ -79,7 +79,7 @@ jobs:
             - name: ruff / mypy / pytest (plain venv)
               run: |
                   python -m venv .venv
-                  .venv/bin/pip install ruff==0.16.8 mypy==2.3.1 pytest aiohttp
+                  .venv/bin/pip install ruff==0.16.8 mypy==2.3.1 pytest
                   .venv/bin/ruff format --check backend main.py
                   .venv/bin/ruff check .
                   .venv/bin/mypy
