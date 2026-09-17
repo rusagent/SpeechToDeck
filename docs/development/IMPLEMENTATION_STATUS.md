@@ -309,7 +309,7 @@ under `.tmp/audit/repos/`):
 1. **Download TLS context (the on-device CERTIFICATE_VERIFY_FAILED blocker)**:
    `UrllibModelFetcher` now resolves one TLS context — the Decky loader's
    certifi context via the loader's bare-name module aliasing (`from helpers
-   import get_ssl_context`; decky-loader helpers.py:23, sandboxed_plugin.py:93-96,
+import get_ssl_context`; decky-loader helpers.py:23, sandboxed_plugin.py:93-96,
    the shipped decky-steamgriddb main.py:12/50 shape), else the explicit system
    CA chain (`/etc/ssl/certs/ca-certificates.crt` → `/etc/ssl/cert.pem` →
    `/etc/pki/tls/certs/ca-bundle.crt` → default verify paths) outside the
