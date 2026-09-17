@@ -4,17 +4,31 @@
  * multi-evidence locators — semantic attributes as primary evidence, roles
  * and structure as confirmation, minified classes only as decoration.
  *
- * The fixtures model the structure the profile matches; live Steam behavior
- * is validated separately on hardware (Phase-0 spikes) and intentionally not
- * claimed here.
+ * v0.1.6: the window stubs model the LIVE-VERIFIED SharedJSContext registry —
+ * `SteamUIStore.m_WindowStore.m_mapAppWindows` holds per-window instances
+ * exposing `m_VirtualKeyboardManager` + `m_BrowserWindow.document` (the dead
+ * `window.VirtualKeyboardManager` global from the first adapter attempt is
+ * gone: live probes proved it does not exist). A second fixture models the
+ * verified real keyboard signature (`[class*="virtualkeyboard"]` token +
+ * "VirtualKeyboardVisible" class + role=button key controls). Live Steam
+ * behavior is validated separately on hardware and intentionally not claimed
+ * here.
  */
 
 import { vi } from "vitest";
 
 export type SteamManagerStub = ReturnType<typeof createManagerStub>;
 
+/** One registry window instance: the live-verified object shape. */
+export interface SteamUiWindowInstanceStub {
+    readonly WindowName: string;
+    readonly m_VirtualKeyboardManager: SteamManagerStub;
+    readonly m_BrowserWindow: { document: Document };
+}
+
 interface SteamGlobalsWindow {
     SteamUIStore?: unknown;
+    SteamUIWindows?: unknown;
     VirtualKeyboardManager?: unknown;
 }
 
@@ -33,23 +47,44 @@ export function createManagerStub(): {
     };
 }
 
-/** Installs the stable Steam window signature + lifecycle manager stub. */
+/**
+ * Installs the verified registry signature: `SteamUIStore.m_WindowStore.
+ * m_mapAppWindows` holds one window instance ("SP") whose
+ * `m_BrowserWindow.document` is the test document, so the production
+ * document-accessor chain resolves and mounts land in `document.body`.
+ */
 export function installSteamWindowStubs(): {
     manager: ReturnType<typeof createManagerStub>;
+    instance: SteamUiWindowInstanceStub;
     restore: () => void;
 } {
     const manager = createManagerStub();
     const globals = steamGlobals();
     const previous = {
         SteamUIStore: globals.SteamUIStore,
+        SteamUIWindows: globals.SteamUIWindows,
         VirtualKeyboardManager: globals.VirtualKeyboardManager,
     };
-    globals.SteamUIStore = {};
-    globals.VirtualKeyboardManager = manager;
+    const instance: SteamUiWindowInstanceStub = {
+        WindowName: "SP",
+        m_VirtualKeyboardManager: manager,
+        m_BrowserWindow: { document },
+    };
+    globals.SteamUIStore = {
+        m_WindowStore: {
+            m_mapAppWindows: new Map([[1, instance]]),
+            m_mapDesiredWindows: new Map(),
+            m_mapDesiredWindowInstances: new Map(),
+            m_mapOverlayPopupByPID: new Map(),
+            m_setSuppressedWindowTypes: new Set(),
+        },
+    };
     return {
         manager,
+        instance,
         restore: () => {
             globals.SteamUIStore = previous.SteamUIStore;
+            globals.SteamUIWindows = previous.SteamUIWindows;
             globals.VirtualKeyboardManager = previous.VirtualKeyboardManager;
         },
     };
@@ -57,6 +92,7 @@ export function installSteamWindowStubs(): {
 
 export function removeSteamWindowSignature(): void {
     delete steamGlobals().SteamUIStore;
+    delete steamGlobals().SteamUIWindows;
 }
 
 export interface KeyboardFixture {
@@ -84,6 +120,27 @@ function attachTypingRecorder(): { typedEvents: string[]; detach: () => void } {
             document.removeEventListener("keydown", recordKeyDown, true);
             document.removeEventListener("input", recordInput, true);
         },
+    };
+}
+
+function buildKeyboardFixture(
+    root: HTMLElement,
+    steamChildren: Element[],
+    pasteButton: HTMLButtonElement | null,
+): KeyboardFixture {
+    const pasteCalls: Element[] = [];
+    if (pasteButton !== null) {
+        pasteButton.addEventListener("click", () => {
+            pasteCalls.push(pasteButton);
+        });
+    }
+    const typing = attachTypingRecorder();
+    return {
+        root,
+        steamChildren,
+        pasteCalls,
+        typedEvents: typing.typedEvents,
+        detachTypingRecorder: typing.detach,
     };
 }
 
@@ -121,19 +178,30 @@ export function mountSupportedKeyboard(): KeyboardFixture {
     root.appendChild(actions);
     document.body.appendChild(root);
 
-    const pasteCalls: Element[] = [];
-    pasteButton.addEventListener("click", () => {
-        pasteCalls.push(pasteButton);
-    });
+    return buildKeyboardFixture(root, [keyA, keyB, actions], pasteButton);
+}
 
-    const typing = attachTypingRecorder();
-    return {
-        root,
-        steamChildren: [keyA, keyB, actions],
-        pasteCalls,
-        typedEvents: typing.typedEvents,
-        detachTypingRecorder: typing.detach,
-    };
+/**
+ * The v0.1.6 live-verified real keyboard signature: hash-prefixed CSS-module
+ * class token + literal "VirtualKeyboardVisible" visibility class, structural
+ * key controls, no semantic attributes, no recognized paste control (matching
+ * the on-device scan, where the paste mechanism is still unidentified).
+ */
+export function mountRealSignatureKeyboard(): KeyboardFixture {
+    const root = document.createElement("div");
+    root.className = "_2Ze6bsh7IKjSyQRmkzuxO3 VirtualKeyboardVisible Panel";
+
+    const container = document.createElement("div");
+    container.className = "_3Xy Panel virtualkeyboard_KeyRow_1a2b";
+    const keyA = document.createElement("div");
+    keyA.className = "virtualkeyboard_KeyboardKey_2KhPX";
+    keyA.setAttribute("role", "button");
+    keyA.setAttribute("aria-label", "a");
+    container.appendChild(keyA);
+
+    root.appendChild(container);
+    document.body.appendChild(root);
+    return buildKeyboardFixture(root, [container, keyA], null);
 }
 
 /** Keyboard root with keys but no paste control: direct insert unavailable. */
@@ -146,14 +214,7 @@ export function mountKeyboardWithoutPaste(): KeyboardFixture {
     root.appendChild(keyA);
     document.body.appendChild(root);
 
-    const typing = attachTypingRecorder();
-    return {
-        root,
-        steamChildren: [keyA],
-        pasteCalls: [],
-        typedEvents: typing.typedEvents,
-        detachTypingRecorder: typing.detach,
-    };
+    return buildKeyboardFixture(root, [keyA], null);
 }
 
 /** Unrelated markup: no keyboard signature at all. */

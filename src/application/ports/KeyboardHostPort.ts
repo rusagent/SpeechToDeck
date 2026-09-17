@@ -37,6 +37,25 @@ export interface MicrophoneControlRenderer {
     render(host: HTMLElement, props: MicrophoneControlProps): Disposable;
 }
 
+/**
+ * §58-shaped keyboard hook facts (v0.1.6, additive optional port surface):
+ * drives the `keyboardHookAvailable` capability derivation (§57) and the
+ * diagnostics panel. `reason` is a stable lowercase degrade code
+ * ("registry-not-found" | "manager-not-found" | "signature-not-found") or
+ * null when the hook is fully available (§105).
+ */
+export interface KeyboardHostDiagnostics {
+    /** A window-store registry access chain resolved at least once. */
+    readonly registryFound: boolean;
+    /** Manager instances currently wrapped with §15 lifecycle hooks. */
+    readonly managersHooked: number;
+    /** The verified keyboard DOM signature was located at least once. */
+    readonly keyboardSignatureSeen: boolean;
+    /** At least one registry window instance resolved a document. */
+    readonly documentResolved: boolean;
+    readonly reason: string | null;
+}
+
 export interface KeyboardHostPort {
     start(): Promise<void>;
 
@@ -47,4 +66,11 @@ export interface KeyboardHostPort {
     mountMicrophoneControl(props: MicrophoneControlProps): Disposable;
 
     stop(): Promise<void>;
+
+    /**
+     * Optional since v0.1.6: implementations that cannot report hook facts
+     * omit it, and consumers keep their pre-0.1.6 behavior (§99: additive
+     * optional boundary fields).
+     */
+    getDiagnostics?(): KeyboardHostDiagnostics;
 }

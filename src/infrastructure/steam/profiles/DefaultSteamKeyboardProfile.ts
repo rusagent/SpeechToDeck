@@ -38,6 +38,19 @@ function isActivatableControl(element: HTMLElement): boolean {
     return element.tagName === "BUTTON" || element.getAttribute("role") === "button";
 }
 
+/**
+ * The stable CSS-module token (§60.5 known-signature corroboration): the
+ * live-verified keyboard container and key classes carry the literal
+ * `virtualkeyboard` / `VirtualKeyboard` tokens with hash prefixes.
+ */
+const VK_CLASS_TOKEN_PATTERN = /virtualkeyboard/i;
+
+function hasStructuralKeyControl(keyboard: HTMLElement): boolean {
+    // Evidence (§60.4): the root actually contains interactive key controls,
+    // so it is a keyboard and not an unrelated node with a matching class.
+    return queryOne(keyboard, `[${VK_KEY_ATTRIBUTE}], [role="button"], button`) !== null;
+}
+
 export const DefaultSteamKeyboardProfile: SteamKeyboardProfile = {
     id: "steam-vk-semantic-v1",
 
@@ -46,26 +59,27 @@ export const DefaultSteamKeyboardProfile: SteamKeyboardProfile = {
         if (keyboard === null) {
             return false;
         }
-        // Evidence 1 (§60.1): stable semantic attribute on the root.
-        if (!hasAttributeTrue(keyboard, VK_ROOT_ATTRIBUTE)) {
+        if (!hasStructuralKeyControl(keyboard)) {
             return false;
         }
-        // Evidence 2 (§60.4): structural relationship — the root actually
-        // contains interactive key controls, so it is a keyboard and not an
-        // unrelated node carrying the same attribute.
-        const keyControl = queryOne(keyboard, `[${VK_KEY_ATTRIBUTE}], [role="button"], button`);
-        if (keyControl === null) {
-            return false;
+        // Signature A (§60.1): stable semantic attribute on the root.
+        if (hasAttributeTrue(keyboard, VK_ROOT_ATTRIBUTE)) {
+            return true;
         }
-        return true;
+        // Signature B (v0.1.6, live-verified on deck hardware): the CSS-module
+        // class token — accepted only together with the structural key-control
+        // evidence above AND a registry manager hook on the same client, which
+        // discovery guarantees before this profile runs (§60: classes are
+        // corroborating evidence, never the sole locator).
+        return VK_CLASS_TOKEN_PATTERN.test(keyboard.className);
     },
 
     locateMountPoint(keyboard: HTMLElement): HTMLElement | null {
-        if (!hasAttributeTrue(keyboard, VK_ROOT_ATTRIBUTE)) {
-            return null;
-        }
         // The keyboard root itself: appending keeps every Steam-owned child
-        // untouched (§18); cleanup removes only the plugin-owned node.
+        // untouched (§18); cleanup removes only the plugin-owned node. The
+        // root was validated by `matches` (either signature), so no attribute
+        // re-check here — the verified real keyboard carries no semantic
+        // attributes, only the CSS-module token.
         return keyboard;
     },
 

@@ -19,6 +19,7 @@ import {
     installSteamWindowStubs,
     mountSupportedKeyboard,
     mountKeyboardWithoutPaste,
+    mountRealSignatureKeyboard,
     mountUnsupportedMarkup,
     type KeyboardFixture,
     type SteamManagerStub,
@@ -92,7 +93,9 @@ describe("SteamKeyboardHostAdapter", () => {
             expect(fixture.steamChildren.map((child) => child.outerHTML)).toEqual(childrenBefore);
             expect(adapter.currentContext()).toMatchObject({
                 visible: true,
-                windowToken: "steam-ui-window",
+                // v0.1.6: the context token comes from the registry window
+                // entry (WindowName "SP"), not the plugin's own window.
+                windowToken: "SP",
             });
         } finally {
             await adapter.stop();
@@ -275,6 +278,145 @@ describe("SteamKeyboardHostAdapter", () => {
         } finally {
             await adapter.stop();
             fixture.detachTypingRecorder();
+            clearKeyboardFixtures();
+            stubs.restore();
+        }
+    });
+
+    // ── v0.1.6: registry-based mount (live-probe-driven redirect) ──
+
+    it("mounts the live-verified real-signature keyboard via catch-up at start", async () => {
+        const stubs = installSteamWindowStubs();
+        const adapter = makeAdapter();
+        // No manager call at all: the container is permanent in its document
+        // and carries the "VirtualKeyboardVisible" class (verified signature),
+        // so the start-time catch-up scan mounts without a show event.
+        const fixture = mountRealSignatureKeyboard();
+        try {
+            await adapter.start();
+            adapter.mountMicrophoneControl(MIC_PROPS);
+
+            const nodes = ownedNodes();
+            expect(nodes).toHaveLength(1);
+            expect(nodes[0]!.parentElement).toBe(fixture.root);
+            expect(adapter.currentContext()).toMatchObject({
+                visible: true,
+                windowToken: "SP",
+            });
+            expect(adapter.getDiagnostics()).toMatchObject({
+                registryFound: true,
+                managersHooked: 1,
+                keyboardSignatureSeen: true,
+                documentResolved: true,
+                reason: null,
+            });
+        } finally {
+            await adapter.stop();
+            fixture.detachTypingRecorder();
+            clearKeyboardFixtures();
+            stubs.restore();
+        }
+    });
+
+    it("catch-up heals a transient instance that appeared after start (missed show event)", async () => {
+        const stubs = installSteamWindowStubs();
+        // Model the live probe: with the keyboard closed the maps exist but
+        // the transient window instance is gone.
+        (window as unknown as { SteamUIStore: unknown }).SteamUIStore = {
+            m_WindowStore: {
+                m_mapAppWindows: new Map(),
+                m_mapDesiredWindows: new Map(),
+                m_mapDesiredWindowInstances: new Map(),
+                m_mapOverlayPopupByPID: new Map(),
+                m_setSuppressedWindowTypes: new Set(),
+            },
+        };
+        const adapter = makeAdapter();
+        let fixture: KeyboardFixture | null = null;
+        try {
+            await adapter.start();
+            adapter.mountMicrophoneControl(MIC_PROPS);
+            expect(adapter.currentContext()).toBeNull();
+            expect(adapter.getDiagnostics()).toMatchObject({
+                registryFound: true,
+                managersHooked: 0,
+                reason: "manager-not-found",
+            });
+
+            // The user opens the keyboard: the transient instance appears and
+            // the visible keyboard DOM mounts into the document; the poll /
+            // refresh catches up and hooks the late instance.
+            fixture = mountRealSignatureKeyboard();
+            const store = (
+                window as unknown as {
+                    SteamUIStore: { m_WindowStore: { m_mapAppWindows: Map<number, unknown> } };
+                }
+            ).SteamUIStore.m_WindowStore;
+            store.m_mapAppWindows.set(1, stubs.instance);
+            adapter.refreshRegistry();
+            await flushMicrotasks();
+
+            expect(ownedNodes()).toHaveLength(1);
+            expect(adapter.currentContext()).not.toBeNull();
+            expect(adapter.getDiagnostics()).toMatchObject({
+                managersHooked: 1,
+                keyboardSignatureSeen: true,
+                reason: null,
+            });
+        } finally {
+            await adapter.stop();
+            fixture?.detachTypingRecorder();
+            clearKeyboardFixtures();
+            stubs.restore();
+        }
+    });
+
+    it("catch-up closes a context whose keyboard went hidden without a hide event (§7.2/§12)", async () => {
+        const stubs = installSteamWindowStubs();
+        const adapter = makeAdapter();
+        const fixture = mountRealSignatureKeyboard();
+        const events: string[] = [];
+        adapter.subscribe((event) =>
+            events.push(event.type === "keyboard-opened" ? "open" : "close"),
+        );
+        try {
+            await adapter.start();
+            adapter.mountMicrophoneControl(MIC_PROPS);
+            expect(adapter.currentContext()).not.toBeNull();
+
+            // The keyboard hides without the adapter observing a hide call
+            // (e.g. the instance appeared after the show): the verified
+            // visibility class is the ground truth.
+            fixture.root.classList.remove("VirtualKeyboardVisible");
+            adapter.refreshRegistry();
+            await flushMicrotasks();
+
+            expect(events).toEqual(["open", "close"]);
+            expect(adapter.currentContext()).toBeNull();
+            expect(ownedNodes()).toHaveLength(0);
+        } finally {
+            await adapter.stop();
+            fixture.detachTypingRecorder();
+            clearKeyboardFixtures();
+            stubs.restore();
+        }
+    });
+
+    it("reports signature-not-found while the registry and manager are usable but no keyboard DOM exists", async () => {
+        const stubs = installSteamWindowStubs();
+        const adapter = makeAdapter();
+        try {
+            await adapter.start();
+            expect(adapter.currentContext()).toBeNull();
+            expect(adapter.getDiagnostics()).toMatchObject({
+                registryFound: true,
+                managersHooked: 1,
+                keyboardSignatureSeen: false,
+                documentResolved: true,
+                reason: "signature-not-found",
+            });
+        } finally {
+            await adapter.stop();
             clearKeyboardFixtures();
             stubs.restore();
         }

@@ -1,7 +1,8 @@
 /**
  * SteamKeyboardLocator (spec §17).
  *
- * Locates the active Steam window, the virtual keyboard manager and the
+ * Locates the active Steam window, the per-window virtual keyboard manager
+ * (v0.1.6: through the SharedJSContext window-store registry) and the
  * keyboard DOM. Discovery is strictly bounded: attempt immediately after a
  * keyboard-open notification, retry with a short capped backoff, and stop
  * after the configured deadline (recommended maximum 1000 ms). There is no
@@ -10,6 +11,7 @@
  */
 
 import type { SteamDiscoveryContext } from "./profiles/SteamKeyboardProfile";
+import { SteamWindowRegistry } from "./SteamWindowRegistry";
 import type {
     SteamKeyboardComponent,
     SteamVirtualKeyboardManager,
@@ -54,12 +56,22 @@ const timerSleeper: SteamSleeper = {
 
 /**
  * Root selectors in §60 preference order: stable semantic attributes first,
- * accessible label as fallback. Minified class names are never primary.
+ * then the v0.1.6 live-verified structural class token. The keyboard's
+ * CSS-module classes carry the stable literal token `virtualkeyboard_` (the
+ * mappings database lists 106 stable ids with that prefix) and the container
+ * gains the literal "VirtualKeyboardVisible" class while shown — the on-device
+ * scan located the container with exactly this case-insensitive match
+ * (`.tmp/cdp/kb-deep.out`). Opaque hashes are only ever corroborated by the
+ * registry manager hook, never the sole locator.
  */
 const KEYBOARD_ROOT_SELECTORS: readonly string[] = [
     '[data-virtualkeyboard="true"]',
     '[role="region"][aria-label="Virtual Keyboard"]',
+    '[class*="virtualkeyboard" i]',
 ];
+
+/** The literal visibility token driven by Valve's own show/hide calls. */
+export const VK_VISIBLE_CLASS = "VirtualKeyboardVisible";
 
 /** React 17/18 attach `__reactFiber$…` / `__reactContainer$…` own keys. */
 const REACT_FIBER_KEY_PATTERN = /^__react(?:Fiber|Container)\$/;
@@ -69,16 +81,22 @@ function isObject(value: unknown): value is Record<string, unknown> {
 }
 
 export class SteamKeyboardLocator {
+    private readonly registry: SteamWindowRegistry;
+
     constructor(
         private readonly config: SteamLocatorConfig = DEFAULT_LOCATOR_CONFIG,
         private readonly clock: SteamClock = monotonicClock,
         private readonly sleeper: SteamSleeper = timerSleeper,
-    ) {}
+        registry?: SteamWindowRegistry,
+    ) {
+        this.registry = registry ?? new SteamWindowRegistry();
+    }
 
     /**
-     * The Steam UI window the plugin runs in. A window qualifies only when it
-     * exposes the stable `SteamUIStore` global signature; anything else is
-     * reported as unreachable instead of assumed (§57/§58.1).
+     * The Steam UI window the plugin runs in. A window qualifies when it
+     * exposes one of the verified registry signatures (the `SteamUIStore`
+     * global, or a plain `SteamUIWindows` array); anything else is reported
+     * as unreachable instead of assumed (§57/§58.1).
      */
     locateWindow(): SteamWindowHandle | null {
         const document = (globalThis as { document?: Document }).document;
@@ -89,40 +107,51 @@ export class SteamKeyboardLocator {
         if (win === undefined || win === null) {
             return null;
         }
-        const signature = (win as unknown as { SteamUIStore?: unknown }).SteamUIStore;
-        if (!isObject(signature)) {
+        const candidate = win as unknown as { SteamUIStore?: unknown; SteamUIWindows?: unknown };
+        const hasStore = isObject(candidate.SteamUIStore);
+        const hasWindowsArray = Array.isArray(candidate.SteamUIWindows);
+        if (!hasStore && !hasWindowsArray) {
             return null;
         }
         return { token: "steam-ui-window", window: win, document };
     }
 
     /**
-     * The virtual keyboard manager, only after every consumed member passed a
-     * capability check (§103/§104): object present, both lifecycle methods
-     * exist and are callable.
+     * The first capability-checked per-window keyboard manager from the
+     * registry (v0.1.6). The old `window.VirtualKeyboardManager` global does
+     * not exist on real Steam clients (live-probed); managers are per-window
+     * objects inside the window store (§103/§104 checks apply in the
+     * registry).
      */
     locateKeyboardManager(windowHandle: SteamWindowHandle): SteamVirtualKeyboardManager | null {
-        const candidate = (windowHandle.window as unknown as { VirtualKeyboardManager?: unknown })
-            .VirtualKeyboardManager;
-        if (!isObject(candidate)) {
-            return null;
-        }
-        const visible = candidate["SetVirtualKeyboardVisible"];
-        const hidden = candidate["SetVirtualKeyboardHidden"];
-        if (typeof visible !== "function" || typeof hidden !== "function") {
-            return null;
-        }
-        return candidate as unknown as SteamVirtualKeyboardManager;
+        void windowHandle;
+        return this.registry.enumerate().entries[0]?.manager ?? null;
     }
 
     locateKeyboardDom(windowHandle: SteamWindowHandle): HTMLElement | null {
+        return this.locateKeyboardDomIn(windowHandle.document);
+    }
+
+    /**
+     * Keyboard DOM location in ANY window document (v0.1.6): the keyboard
+     * container is permanent in its host document and toggles visibility via
+     * the verified "VirtualKeyboardVisible" class, so a document reference
+     * resolved from a registry window instance is scanned the same way as
+     * the plugin's own document.
+     */
+    locateKeyboardDomIn(document: Document): HTMLElement | null {
         for (const selector of KEYBOARD_ROOT_SELECTORS) {
-            const element = windowHandle.document.querySelector<HTMLElement>(selector);
+            const element = document.querySelector<HTMLElement>(selector);
             if (element !== null) {
                 return element;
             }
         }
         return null;
+    }
+
+    /** The live-verified visibility signature (literal class token). */
+    isKeyboardVisible(keyboardDom: HTMLElement): boolean {
+        return keyboardDom.classList.contains(VK_VISIBLE_CLASS);
     }
 
     /**

@@ -12,6 +12,7 @@ export type LogLevel = "debug" | "info" | "warn" | "error";
 export type LogCategory =
     | "plugin.lifecycle"
     | "steam.keyboard"
+    | "steam.registry"
     | "steam.capability"
     | "dictation.session"
     | "speech.runtime"
