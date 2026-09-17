@@ -68,6 +68,39 @@ describe("startup (§82)", () => {
         expect(rig.trace).not.toContain("speech.initialize");
     });
 
+    it("derives keyboardHookAvailable from the host §58 diagnostics when reported (v0.1.6)", async () => {
+        // A degrade reason on the optional diagnostics surface degrades the
+        // capability honestly (§57) even though start() itself resolved.
+        const degraded = createTestRig();
+        degraded.keyboard.diagnostics = {
+            registryFound: true,
+            managersHooked: 0,
+            keyboardSignatureSeen: false,
+            documentResolved: false,
+            reason: "manager-not-found",
+        };
+        degraded.keyboard.open();
+        await degraded.controller.start();
+
+        expect(degraded.controller.getSnapshot()).toEqual({
+            kind: "unavailable",
+            reason: "KEYBOARD_HOOK_UNAVAILABLE",
+        });
+
+        // A fully available hook report keeps the plugin ready.
+        const healthy = createTestRig();
+        healthy.keyboard.diagnostics = {
+            registryFound: true,
+            managersHooked: 1,
+            keyboardSignatureSeen: true,
+            documentResolved: true,
+            reason: null,
+        };
+        healthy.keyboard.open();
+        await healthy.controller.start();
+        expect(healthy.controller.getSnapshot().kind).toBe("ready");
+    });
+
     it("reports SPEECH_RUNTIME_UNAVAILABLE when initialize fails", async () => {
         const rig = createTestRig();
         rig.speech.initializeError = new Error("daemon down");

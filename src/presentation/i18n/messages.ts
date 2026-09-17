@@ -90,11 +90,23 @@ export const EN_MESSAGES = {
     "diagnostics.keyboardDetected": "Steam keyboard detected",
     "diagnostics.pasteCapability": "Paste capability",
     "diagnostics.clipboardCapability": "Clipboard capability",
+    "diagnostics.cdpDiagnostics": "CDP cross-view diagnostics",
     "diagnostics.runtimeStatus": "Runtime status",
     "diagnostics.model": "Model",
     "diagnostics.computeBackend": "Compute backend",
     "diagnostics.lastError": "Last runtime error",
     "diagnostics.restartRuntime": "Restart runtime",
+
+    "degrade.not-probed": "Diagnostics have not run yet.",
+    "degrade.remote-cdp-disabled":
+        "Optional: enable “Allow Remote CEF Debugging” in the Decky settings for cross-view diagnostics.",
+    "degrade.sp-target-not-found": "The main Steam UI view was not found.",
+    "degrade.probe-failed": "The diagnostics probe failed.",
+    "degrade.registry-not-found": "The Steam window registry was not found.",
+    "degrade.manager-not-found":
+        "No keyboard manager is registered right now; it appears while the keyboard is in use.",
+    "degrade.signature-not-found": "The keyboard signature was not found in any reachable view.",
+    "degrade.unknown": "Currently unavailable.",
 
     "setup.title": "Setup in progress…",
     "setup.step.runtimeVerify": "Verify runtime",
@@ -196,11 +208,24 @@ export const DE_MESSAGES: Record<MessageKey, string> = {
     "diagnostics.keyboardDetected": "Steam-Tastatur erkannt",
     "diagnostics.pasteCapability": "Einfügen-Fähigkeit",
     "diagnostics.clipboardCapability": "Zwischenablage-Fähigkeit",
+    "diagnostics.cdpDiagnostics": "CDP-übergreifende Diagnose",
     "diagnostics.runtimeStatus": "Laufzeitstatus",
     "diagnostics.model": "Modell",
     "diagnostics.computeBackend": "Recheneinheit",
     "diagnostics.lastError": "Letzter Laufzeitfehler",
     "diagnostics.restartRuntime": "Laufzeit neu starten",
+
+    "degrade.not-probed": "Diagnose wurde noch nicht ausgeführt.",
+    "degrade.remote-cdp-disabled":
+        "Optional: Aktiviere „Allow Remote CEF Debugging“ in den Decky-Einstellungen für übergreifende Diagnose.",
+    "degrade.sp-target-not-found": "Die Steam-Hauptansicht wurde nicht gefunden.",
+    "degrade.probe-failed": "Die Diagnoseabfrage ist fehlgeschlagen.",
+    "degrade.registry-not-found": "Die Steam-Fensterregistrierung wurde nicht gefunden.",
+    "degrade.manager-not-found":
+        "Derzeit ist kein Tastatur-Manager registriert; er erscheint bei Benutzung der Tastatur.",
+    "degrade.signature-not-found":
+        "Das Tastatur-Signaturmerkmal wurde in keiner erreichbaren Ansicht gefunden.",
+    "degrade.unknown": "Derzeit nicht verfügbar.",
 
     "setup.title": "Setup läuft…",
     "setup.step.runtimeVerify": "Runtime verifizieren",
@@ -318,6 +343,20 @@ export function translateRuntimeHealth(locale: Locale, state: DictationState): s
 
 export function translateError(locale: Locale, code: DictationErrorCode): string {
     return ERROR_MESSAGES[locale][code];
+}
+
+/**
+ * Stable degrade reason code → UI text (§68 analog for the v0.1.6 keyboard
+ * hook and CDP diagnostics reasons). Unknown codes fall back to a generic
+ * line instead of leaking raw internals into the UI.
+ */
+export function translateDegradeReason(locale: Locale, reason: string | null): string {
+    if (reason === null) {
+        return translate(locale, "degrade.unknown");
+    }
+    const key = `degrade.${reason}` as MessageKey;
+    const message = MESSAGES[locale][key];
+    return key in MESSAGES[locale] ? message : translate(locale, "degrade.unknown");
 }
 
 /** Accessible names for the microphone visual states (§107). */

@@ -33,7 +33,7 @@ import { SettingsPanel } from "./presentation/settings/SettingsPanel";
 import type { DiagnosticsSource } from "./presentation/settings/DiagnosticsPanel";
 import type { Disposable } from "./shared/Disposable";
 import { Logger } from "./shared/Logger";
-import { isSpeechCapabilities } from "./application/ports/SpeechPort";
+import { isRuntimeStatusReport, isSpeechCapabilities } from "./application/ports/SpeechPort";
 import type { SettingsPort } from "./application/ports/SettingsPort";
 import type { DictationState } from "./domain/DictationState";
 
@@ -90,6 +90,16 @@ class PluginCompositionRoot implements Disposable {
                 const payload = await backendClient.call("get_capabilities");
                 return isSpeechCapabilities(payload) ? payload : null;
             },
+            loadCdpDiagnostics: async () => {
+                const payload = await backendClient.call("get_status");
+                return isRuntimeStatusReport(payload) && payload.cdpDiagnostics !== undefined
+                    ? payload.cdpDiagnostics
+                    : null;
+            },
+            loadKeyboardHookDiagnostics: async () =>
+                typeof keyboardHost.getDiagnostics === "function"
+                    ? keyboardHost.getDiagnostics()
+                    : null,
             hydrateSetupProgress: () => speechPort.hydrateSetupFromStatus(),
             restartRuntime: async () => {
                 await backendClient.call("restart_runtime");

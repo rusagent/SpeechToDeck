@@ -200,6 +200,46 @@ describe("SettingsPanel", () => {
         expect(container.querySelector("[data-setup-progress]")).toBeNull();
     });
 
+    it("renders the v0.1.6 CDP diagnostics row with localized degrade reasons", async () => {
+        const diagnostics: DiagnosticsSource = {
+            ...fakeDiagnostics(),
+            loadCdpDiagnostics: async () => ({
+                cdpAvailable: false,
+                spTargetSeen: false,
+                keyboardSeen: true,
+                keyboardVisible: false,
+                reason: "remote-cdp-disabled",
+            }),
+            loadKeyboardHookDiagnostics: async () => ({
+                registryFound: true,
+                managersHooked: 1,
+                keyboardSignatureSeen: false,
+                documentResolved: false,
+                reason: "signature-not-found",
+            }),
+        };
+        render(
+            <SettingsPanel
+                settings={new FakeSettingsPort()}
+                store={new FakeStateStore({ kind: "ready" })}
+                setupProgress={fakeSetupStore(null)}
+                diagnostics={diagnostics}
+            />,
+        );
+
+        // Both additive rows render; unavailable states carry the localized
+        // stable-reason text (§68 analog: codes map to text, never raw strings).
+        expect(await screen.findByText("CDP cross-view diagnostics")).not.toBeNull();
+        expect(
+            await screen.findByText(
+                "Optional: enable “Allow Remote CEF Debugging” in the Decky settings for cross-view diagnostics.",
+            ),
+        ).not.toBeNull();
+        expect(
+            await screen.findByText("The keyboard signature was not found in any reachable view."),
+        ).not.toBeNull();
+    });
+
     it("wires the failed-state retry button to the restart_runtime callable", async () => {
         const transport = new FakeDeckyTransport();
         const backend = new DeckyBackendClient(transport);

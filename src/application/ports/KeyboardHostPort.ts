@@ -69,8 +69,8 @@ export interface KeyboardHostPort {
 
     /**
      * Optional since v0.1.6: implementations that cannot report hook facts
-     * omit it, and consumers keep their pre-0.1.6 behavior (§99: additive
-     * optional boundary fields).
+     * omit it (or report null), and consumers keep their pre-0.1.6 behavior
+     * (§99: additive optional boundary fields).
      */
-    getDiagnostics?(): KeyboardHostDiagnostics;
+    getDiagnostics?(): KeyboardHostDiagnostics | null;
 }

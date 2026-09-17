@@ -15,11 +15,17 @@
 
 import * as React from "react";
 import { ButtonItem, Field } from "@decky/ui";
-import { translate, translateError, translateRuntimeHealth } from "../i18n/messages";
+import {
+    translate,
+    translateDegradeReason,
+    translateError,
+    translateRuntimeHealth,
+} from "../i18n/messages";
 import type { Locale } from "../i18n/messages";
 import type { DictationState } from "../../domain/DictationState";
 import type { KeyboardCapabilityReport } from "../../domain/Capability";
-import type { SpeechCapabilities } from "../../application/ports/SpeechPort";
+import type { CdpDiagnosticsReport, SpeechCapabilities } from "../../application/ports/SpeechPort";
+import type { KeyboardHostDiagnostics } from "../../application/ports/KeyboardHostPort";
 import type { PluginSettings } from "../../application/ports/SettingsPort";
 import { CapabilityChip, capabilityState } from "./CapabilityChip";
 import type { CapabilityState } from "./CapabilityChip";
@@ -28,10 +34,18 @@ import type { CapabilityState } from "./CapabilityChip";
  * Data source seam wired by the composition root (no Decky/Steam imports).
  * `loadSpeechCapabilities` is consumed by the settings panel (model install
  * state, microphone availability) and passed down here as `speech`.
+ * `loadCdpDiagnostics`/`loadKeyboardHookDiagnostics` are the additive v0.1.6
+ * cross-view facts; both degrade to null when unavailable.
  */
 export interface DiagnosticsSource {
     loadCapabilityReport(): Promise<KeyboardCapabilityReport | null>;
     loadSpeechCapabilities(): Promise<SpeechCapabilities | null>;
+    /**
+     * Optional since v0.1.6: the cross-view diagnostics rows render unknown
+     * when the composition does not provide them (§99 additive surface).
+     */
+    loadCdpDiagnostics?(): Promise<CdpDiagnosticsReport | null>;
+    loadKeyboardHookDiagnostics?(): Promise<KeyboardHostDiagnostics | null>;
     /**
      * Hydrates the setup store from the §30 status report so a startup
      * failure that fired before the panel subscribed still renders (live
@@ -94,6 +108,8 @@ export function DiagnosticsPanel({
     locale,
 }: DiagnosticsPanelProps): React.ReactElement {
     const [report, setReport] = React.useState<KeyboardCapabilityReport | null>(null);
+    const [cdp, setCdp] = React.useState<CdpDiagnosticsReport | null>(null);
+    const [hook, setHook] = React.useState<KeyboardHostDiagnostics | null>(null);
     const [restarting, setRestarting] = React.useState(false);
 
     React.useEffect(() => {
@@ -103,6 +119,16 @@ export function DiagnosticsPanel({
                 setReport(value);
             }
         });
+        void Promise.resolve(source.loadCdpDiagnostics?.()).then((value) => {
+            if (!cancelled && value !== undefined) {
+                setCdp(value);
+            }
+        });
+        void Promise.resolve(source.loadKeyboardHookDiagnostics?.()).then((value) => {
+            if (!cancelled && value !== undefined) {
+                setHook(value);
+            }
+        });
         return () => {
             cancelled = true;
         };
@@ -110,11 +136,17 @@ export function DiagnosticsPanel({
 
     return (
         <>
-            <CapabilityRow
-                label={translate(locale, "diagnostics.keyboardDetected")}
-                value={report?.keyboardSignatureSupported}
-                locale={locale}
-            />
+            <Field label={translate(locale, "diagnostics.keyboardDetected")}>
+                <CapabilityChip
+                    state={capabilityState(report?.keyboardSignatureSupported)}
+                    locale={locale}
+                />
+                {hook !== null && hook.reason !== null && (
+                    <div style={{ marginTop: 3, opacity: 0.75, fontSize: 11 }}>
+                        {translateDegradeReason(locale, hook.reason)}
+                    </div>
+                )}
+            </Field>
             <CapabilityRow
                 label={translate(locale, "diagnostics.pasteCapability")}
                 value={report?.nativePasteRecognized}
@@ -125,6 +157,17 @@ export function DiagnosticsPanel({
                 value={report?.clipboardUsable}
                 locale={locale}
             />
+            <Field label={translate(locale, "diagnostics.cdpDiagnostics")}>
+                <CapabilityChip
+                    state={capabilityState(cdp === null ? undefined : cdp.cdpAvailable)}
+                    locale={locale}
+                />
+                {cdp !== null && !cdp.cdpAvailable && (
+                    <div style={{ marginTop: 3, opacity: 0.75, fontSize: 11 }}>
+                        {translateDegradeReason(locale, cdp.reason)}
+                    </div>
+                )}
+            </Field>
             <Field label={translate(locale, "diagnostics.runtimeStatus")}>
                 {translateRuntimeHealth(locale, state)}
             </Field>

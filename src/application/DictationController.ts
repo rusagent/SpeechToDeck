@@ -436,8 +436,17 @@ export class DictationController implements Disposable, StateStore<DictationStat
     private async buildRuntimeCapabilities(
         speech: SpeechCapabilities,
     ): Promise<RuntimeCapabilities> {
-        // keyboard.start() resolved above, so the hook is installed.
-        const keyboardHookAvailable = true;
+        // v0.1.6: derive keyboardHookAvailable from the host's §58-shaped
+        // diagnostics when the implementation reports them — a registry or
+        // signature miss degrades the capability honestly (§57: no optimistic
+        // assumption, §105). Hosts without the optional surface (older or
+        // simpler doubles) keep the pre-0.1.6 behavior: start() resolved, so
+        // the hook is installed.
+        const diagnostics =
+            typeof this.keyboard.getDiagnostics === "function"
+                ? this.keyboard.getDiagnostics()
+                : null;
+        const keyboardHookAvailable = diagnostics === null ? true : diagnostics.reason === null;
         let clipboardAvailable = false;
         let nativePasteAvailable = false;
         const context = this.keyboard.currentContext();

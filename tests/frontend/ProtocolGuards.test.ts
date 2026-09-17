@@ -8,6 +8,10 @@ import { describe, expect, it } from "vitest";
 import { DICTATION_ERROR_CODES, isDictationErrorCode } from "../../src/domain/DictationError";
 import { isRuntimeCapabilities } from "../../src/domain/Capability";
 import {
+    isCdpDiagnosticsReport,
+    isRuntimeStatusReport,
+} from "../../src/application/ports/SpeechPort";
+import {
     isSpeechCapabilities,
     isSpeechRuntimeStatus,
     isTranscriptReadyPayload,
@@ -106,6 +110,50 @@ describe("isSpeechCapabilities and status (§57/§30)", () => {
             expect(isSpeechRuntimeStatus(status)).toBe(true);
         }
         expect(isSpeechRuntimeStatus("exploded")).toBe(false);
+    });
+});
+
+describe("isRuntimeStatusReport + isCdpDiagnosticsReport (v0.1.6, §67/§99)", () => {
+    const base = {
+        protocolVersion: 1,
+        runtime: {
+            running: false,
+            state: "stopped",
+            restartAttempts: 0,
+            enabled: true,
+            lastFailure: null,
+        },
+        modelDownloadInProgress: false,
+    };
+
+    it("accepts the report without the optional cdpDiagnostics field (older backend)", () => {
+        expect(isRuntimeStatusReport(base)).toBe(true);
+    });
+
+    it("accepts and preserves a valid cdpDiagnostics report", () => {
+        const payload = {
+            ...base,
+            cdpDiagnostics: {
+                cdpAvailable: false,
+                spTargetSeen: true,
+                keyboardSeen: true,
+                keyboardVisible: false,
+                reason: "remote-cdp-disabled",
+            },
+        };
+        expect(isRuntimeStatusReport(payload)).toBe(true);
+        expect(payload.cdpDiagnostics.reason).toBe("remote-cdp-disabled");
+        expect(isCdpDiagnosticsReport(payload.cdpDiagnostics)).toBe(true);
+    });
+
+    it("rejects a malformed cdpDiagnostics field (§99)", () => {
+        expect(
+            isRuntimeStatusReport({
+                ...base,
+                cdpDiagnostics: { cdpAvailable: "yes", reason: null },
+            }),
+        ).toBe(false);
+        expect(isCdpDiagnosticsReport({ cdpAvailable: true, reason: 42 })).toBe(false);
     });
 });
 

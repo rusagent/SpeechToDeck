@@ -1,6 +1,7 @@
 import type { Disposable } from "../../../src/shared/Disposable";
 import type { KeyboardContext } from "../../../src/domain/DictationSession";
 import type {
+    KeyboardHostDiagnostics,
     KeyboardHostListener,
     KeyboardHostPort,
 } from "../../../src/application/ports/KeyboardHostPort";
@@ -13,6 +14,9 @@ export class FakeKeyboardHost implements KeyboardHostPort {
     readonly trace: string[];
 
     startError: Error | null = null;
+
+    /** When set, reported through the optional v0.1.6 diagnostics surface. */
+    diagnostics: KeyboardHostDiagnostics | null = null;
 
     private listener: KeyboardHostListener | null = null;
     private context: KeyboardContext | null = null;
@@ -50,6 +54,10 @@ export class FakeKeyboardHost implements KeyboardHostPort {
         return {
             dispose: () => undefined,
         };
+    }
+
+    getDiagnostics(): KeyboardHostDiagnostics | null {
+        return this.diagnostics;
     }
 
     /** Opens a keyboard context and emits keyboard-opened. */

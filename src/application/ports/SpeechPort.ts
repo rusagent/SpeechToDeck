@@ -44,9 +44,37 @@ export interface RuntimeFailureRecord {
 }
 
 /**
+ * Optional v0.1.6 cross-view diagnostics report (additive `get_status` field,
+ * §67): read-only CDP facts behind the user's "Allow Remote CEF Debugging"
+ * toggle. `reason` is a stable lowercase code (never UI text).
+ */
+export interface CdpDiagnosticsReport {
+    readonly cdpAvailable: boolean;
+    readonly spTargetSeen: boolean;
+    readonly keyboardSeen: boolean;
+    readonly keyboardVisible: boolean;
+    readonly reason: string | null;
+}
+
+export function isCdpDiagnosticsReport(value: unknown): value is CdpDiagnosticsReport {
+    if (!isRecord(value)) {
+        return false;
+    }
+    return (
+        typeof value["cdpAvailable"] === "boolean" &&
+        typeof value["spTargetSeen"] === "boolean" &&
+        typeof value["keyboardSeen"] === "boolean" &&
+        typeof value["keyboardVisible"] === "boolean" &&
+        (value["reason"] === null || typeof value["reason"] === "string")
+    );
+}
+
+/**
  * Versioned `get_status` response (spec §30/§67), fields the frontend
  * consumes. `runtime.lastFailure` is the backend's stored §82 startup
  * failure (or null) and drives the setup panel's failure hydration.
+ * `cdpDiagnostics` is additive since v0.1.6 and validated only when present
+ * (§99: older backends omit it).
  */
 export interface RuntimeStatusReport {
     readonly protocolVersion: 1;
@@ -58,6 +86,7 @@ export interface RuntimeStatusReport {
         readonly lastFailure: RuntimeFailureRecord | null;
     };
     readonly modelDownloadInProgress: boolean;
+    readonly cdpDiagnostics?: CdpDiagnosticsReport;
 }
 
 export function isRuntimeStatusReport(value: unknown): value is RuntimeStatusReport {
@@ -84,6 +113,10 @@ export function isRuntimeStatusReport(value: unknown): value is RuntimeStatusRep
             failure["code"].length === 0 ||
             typeof failure["stepIndex"] !== "number")
     ) {
+        return false;
+    }
+    const cdp = value["cdpDiagnostics"];
+    if (cdp !== undefined && !isCdpDiagnosticsReport(cdp)) {
         return false;
     }
     return typeof value["modelDownloadInProgress"] === "boolean";
