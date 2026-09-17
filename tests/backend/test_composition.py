@@ -13,12 +13,13 @@ import asyncio
 import contextlib
 import hashlib
 import json
+from collections.abc import AsyncIterator
 from pathlib import Path
 
 import main
 import pytest
 from backend.composition import Application, compose
-from backend.domain.errors import RuntimeUnavailableError, SpeechError
+from backend.domain.errors import RuntimeStartError, RuntimeUnavailableError, SpeechError
 from conftest import (
     REAL_MODELS_MANIFEST,
     FakeEventPublisher,
@@ -446,6 +447,167 @@ def test_dispose_during_update_leaves_no_daemon_after_unload(tmp_path: Path) -> 
             assert not app.supervisor.is_running()
             persisted = json.loads((data_dir / "settings.json").read_text(encoding="utf-8"))
             assert persisted["enabled"] is True
+        finally:
+            await app.dispose()
+
+    asyncio.run(scenario())
+
+
+# ── setup_progress startup stream (frozen frontend contract) ────────────────
+
+
+def test_setup_progress_fresh_path_with_model_present(tmp_path: Path) -> None:
+    """Startup with the model installed emits the frozen step sequence
+    verify → ensure → daemon → warmup → ready with the frozen payload shape."""
+
+    async def scenario() -> None:
+        app, publisher, _data_dir = compose_with_fixture_daemon(tmp_path)
+        try:
+            await app.start()
+            assert await wait_until(app.supervisor.is_running, timeout=5.0)
+
+            events = publisher.payloads("setup_progress")
+            assert [str(p["step"]) for p in events] == [
+                "runtime.verify",
+                "runtime.verify",
+                "model.ensure",
+                "model.ensure",
+                "daemon.start",
+                "model.warmup",
+                "ready",
+            ]
+            first = events[0]
+            assert first["protocolVersion"] == 1
+            assert first["labelKey"] == "setup.step.runtimeVerify"
+            assert first["stepIndex"] == 0
+            assert first["totalSteps"] == 4
+            assert first["percent"] == 0
+            assert first["indeterminate"] is False
+            assert first["detailKey"] == "setup.detail.checksum"
+            assert events[1]["percent"] == 100  # verification is fast: 0 → 100
+            ensure = events[2]
+            assert ensure["labelKey"] == "setup.step.modelEnsure"
+            assert ensure["detailKey"] == "setup.detail.verifying"
+            daemon = events[4]
+            assert daemon["stepIndex"] == 2
+            assert daemon["percent"] == 0
+            assert daemon["indeterminate"] is True
+            assert daemon["detailKey"] == "setup.detail.spawning"
+            warmup = events[5]
+            assert warmup["stepIndex"] == 3
+            assert warmup["indeterminate"] is True
+            assert warmup["detailKey"] == "setup.detail.warmup"
+            ready = events[-1]
+            assert ready["step"] == "ready"
+            assert ready["labelKey"] == "setup.state.ready"
+            assert ready["stepIndex"] == 4
+            assert ready["totalSteps"] == 4
+            assert ready["percent"] == 100
+            assert ready["indeterminate"] is False
+            assert "error" not in ready
+        finally:
+            await app.dispose()
+
+    asyncio.run(scenario())
+
+
+def test_setup_progress_download_path_percent_monotonic(tmp_path: Path) -> None:
+    """A missing model downloads during startup: model.ensure carries the
+    downloading detail and a monotonic real percent from the throttled
+    download feed, ending at 100 when the daemon path proceeds."""
+
+    async def scenario() -> None:
+        root, data_dir = build_plugin_roots(tmp_path)
+        binary = build_fixture_binary(root)
+        write_pinned_runtime_manifest(root, binary)
+
+        payload = b"download-path-model-payload-" * 6144  # ~165 KiB → 3 chunks
+        digest = hashlib.sha256(payload).hexdigest()
+        manifest_payload = json.loads(REAL_MODELS_MANIFEST.read_text(encoding="utf-8"))
+        download_url = ""
+        for entry in manifest_payload["models"]:
+            if entry["id"] == "base":
+                entry["sha256"] = digest
+                download_url = str(entry["downloadUrl"])
+        (root / "defaults" / "models.json").write_text(json.dumps(manifest_payload))
+
+        class LocalStream:
+            total_bytes = len(payload)
+
+            async def chunks(self) -> AsyncIterator[bytes]:
+                for index in range(0, len(payload), 64 * 1024):
+                    yield payload[index : index + 64 * 1024]
+
+            async def close(self) -> None:
+                return None
+
+        opened_urls: list[str] = []
+
+        class LocalFetcher:
+            async def open(self, url: str) -> LocalStream:
+                opened_urls.append(url)
+                return LocalStream()
+
+        publisher = FakeEventPublisher()
+        app = compose(
+            plugin_root=root,
+            data_dir=data_dir,
+            event_publisher=publisher,
+            model_fetcher=LocalFetcher(),  # type: ignore[arg-type]
+        )
+        try:
+            assert not await app.models.store.is_installed("base")
+            await app.start()
+            assert await wait_until(app.supervisor.is_running, timeout=5.0)
+
+            assert opened_urls == [download_url]
+            assert await app.models.store.is_installed("base")  # §51 atomic install
+            ensure = [
+                p for p in publisher.payloads("setup_progress") if p["step"] == "model.ensure"
+            ]
+            assert ensure[0]["detailKey"] == "setup.detail.downloading"
+            percents = [int(p["percent"]) for p in ensure]
+            assert percents[0] == 0
+            assert percents[-1] == 100
+            assert percents == sorted(percents)  # monotonic (§52-style feed)
+            assert len(percents) >= 3  # real intermediate ticks, not just 0 → 100
+        finally:
+            await app.dispose()
+
+    asyncio.run(scenario())
+
+
+def test_setup_progress_failure_at_daemon_start(tmp_path: Path) -> None:
+    """A daemon.start failure emits the terminal `failed` event at stepIndex 2
+    with the stable §68 code and never emits ready; the existing fail-closed
+    surface (runtime down, `runtime_status` unavailable) is unchanged."""
+
+    async def scenario() -> None:
+        app, publisher, _data_dir = compose_with_fixture_daemon(tmp_path)
+        try:
+
+            async def failing_start(settings: object) -> None:
+                raise RuntimeStartError("spawn refused", detail="test seam")
+
+            app.supervisor.start = failing_start  # type: ignore[method-assign]
+
+            await app.start()  # surfaced, never fatal (§82/§69)
+
+            events = publisher.payloads("setup_progress")
+            failed = events[-1]
+            assert failed["step"] == "failed"
+            assert failed["labelKey"] == "setup.state.failed"
+            assert failed["stepIndex"] == 2  # failed at daemon.start
+            assert failed["percent"] == 0  # percent = current at the failing step
+            assert failed["indeterminate"] is False
+            assert failed["error"] == {"code": "RUNTIME_START_FAILED"}
+            assert not any(p["step"] == "ready" for p in events)
+            # Fail-closed semantics unchanged.
+            assert not app.supervisor.is_running()
+            unavailable = [
+                p for p in publisher.payloads("runtime_status") if p.get("state") == "unavailable"
+            ]
+            assert unavailable
         finally:
             await app.dispose()
 

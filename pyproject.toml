@@ -7,8 +7,9 @@ requires-python = ">=3.11"
 license = { file = "LICENSE" }
 
 # Runtime dependencies are intentionally empty. The backend runs inside the
-# Decky Loader Python runtime (spec §100/§101): stdlib plus the aiohttp that
-# Decky already provides. No additional runtime framework is permitted.
+# Decky Loader Python runtime on SteamOS (spec §100/§101): stdlib only (no
+# third-party package is provided there; downloads use urllib). No additional
+# runtime framework is permitted.
 dependencies = []
 
 [tool.ruff]

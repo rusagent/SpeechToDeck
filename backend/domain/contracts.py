@@ -24,6 +24,9 @@ EVENT_SPEECH_ERROR = "speech_error"
 EVENT_MODEL_DOWNLOAD_PROGRESS = "model_download_progress"
 EVENT_MODEL_DOWNLOAD_COMPLETE = "model_download_complete"
 EVENT_RUNTIME_STATUS = "runtime_status"
+# §82 startup path progress (frozen frontend contract, see
+# backend/application/setup_progress.py).
+EVENT_SETUP_PROGRESS = "setup_progress"
 
 # §44/§54 defaults.
 DEFAULT_MAX_RECORDING_SECONDS = 60

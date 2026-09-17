@@ -13,11 +13,17 @@ from __future__ import annotations
 
 import logging
 import os
+import sys
 from collections.abc import Awaitable, Callable
 from pathlib import Path
 
-from backend.composition import Application, compose
-from backend.domain.errors import InternalError, SpeechError
+_PLUGIN_DIR = Path(__file__).resolve().parent
+if str(_PLUGIN_DIR) not in sys.path:
+    # Decky loader sandbox (api_version>=1) puts no plugin dir on sys.path (verified on device).
+    sys.path.insert(0, str(_PLUGIN_DIR))
+
+from backend.composition import Application, compose  # noqa: E402
+from backend.domain.errors import InternalError, SpeechError  # noqa: E402
 
 try:  # Decky loader injects this module into the plugin process.
     import decky_plugin  # type: ignore[import-not-found]

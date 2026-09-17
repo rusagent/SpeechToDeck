@@ -116,9 +116,9 @@ jobs:
             - uses: actions/setup-python@v5
               with:
                   python-version: "3.11"
-            # aiohttp is needed for mypy to resolve the lazily-imported aiohttp
-            # module's types (matches the local dev venv).
-            - run: pip install mypy==2.3.1 aiohttp
+            # The backend is stdlib-only (the SteamOS Decky runtime ships no
+            # third-party packages); mypy needs no extra stubs.
+            - run: pip install mypy==2.3.1
             - run: mypy
 
     backend-unit-tests:
@@ -129,8 +129,8 @@ jobs:
               with:
                   python-version: "3.11"
             # The suite runs under plain pytest (asyncio.run scenarios, no
-            # pytest-asyncio) and imports aiohttp for the model fetcher.
-            - run: pip install pytest aiohttp
+            # pytest-asyncio); the model fetcher uses the stdlib only.
+            - run: pip install pytest
             - run: pytest tests/backend
 
     contract-tests:

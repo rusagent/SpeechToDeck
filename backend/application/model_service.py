@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+from collections.abc import Awaitable, Callable
 from pathlib import Path
 
 from backend.domain.contracts import (
@@ -39,9 +40,14 @@ class ModelService:
         models_dir: Path,
         fetcher: ModelHttpFetcher,
         publisher: EventPublisher,
+        setup_progress: Callable[[str, int, int | None], Awaitable[None]] | None = None,
     ) -> None:
         self._manifest = manifest
         self._publisher = publisher
+        # §82 startup progress consumes the same throttled download feed as
+        # the `model_download_progress` events (setup_progress.py); it is
+        # inert outside the startup path.
+        self._setup_progress = setup_progress
         self._store = ModelStore(
             manifest,
             models_dir,
@@ -104,6 +110,8 @@ class ModelService:
         return self._download_task is not None and not self._download_task.done()
 
     async def _handle_progress(self, model_id: str, received: int, total: int | None) -> None:
+        if self._setup_progress is not None:
+            await self._setup_progress(model_id, received, total)
         await self._publisher.publish(
             EVENT_MODEL_DOWNLOAD_PROGRESS,
             {

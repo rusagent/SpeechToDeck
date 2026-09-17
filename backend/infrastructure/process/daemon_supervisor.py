@@ -240,6 +240,7 @@ class SpeechDaemonSupervisor:
         self._proc: asyncio.subprocess.Process | None = None
         self._watch_task: asyncio.Task[None] | None = None
         self._drain_task: asyncio.Task[None] | None = None
+        self._verified: tuple[Settings, ResolvedRuntime, Path] | None = None
         self._stopping = False
         self._restarts_used = 0
         self._spawned_at = 0.0
@@ -248,11 +249,35 @@ class SpeechDaemonSupervisor:
 
     # ── §37 supervisor surface ───────────────────────────────────────────────
 
+    async def verify(self, settings: Settings) -> None:
+        """§82 verification phase without spawning: config generation, variant
+        selection, binary presence and pinned-digest check (§35, §53).
+
+        Split from `start()` so the startup orchestration can emit its
+        `runtime.verify` setup step around the real verification. The verified
+        spawn inputs are cached for an immediately following `start()` with
+        equal settings; `start()` verifies by itself when called standalone.
+        """
+        self._verified = await self._verify(settings)
+
     async def start(self, settings: Settings) -> None:
-        """Start the pinned variant binary; idempotent while running (§35, §53)."""
+        """Start the pinned variant binary; idempotent while running (§35, §53).
+
+        Reuses inputs from a preceding `verify()` with equal settings (§82:
+        verify → ensure → start) instead of hashing the binary twice.
+        """
         if self.is_running():
             return
         self._stopping = False
+        verified = self._verified
+        if verified is None or verified[0] != settings:
+            verified = await self._verify(settings)
+        self._verified = None
+        self._settings = settings
+        await self._spawn(settings, verified[1], verified[2])
+
+    async def _verify(self, settings: Settings) -> tuple[Settings, ResolvedRuntime, Path]:
+        """Config generation, variant resolution, presence + digest check."""
         # The config exists before resolution: the §47 auto probe runs the
         # candidate binary against exactly this configuration.
         config_path = await asyncio.to_thread(
@@ -270,8 +295,7 @@ class SpeechDaemonSupervisor:
                 "runtime binary does not match the pinned digest (§53)",
                 detail=f"expected {resolved.artifact.sha256[:12]}… got {digest[:12]}…",
             )
-        self._settings = settings
-        await self._spawn(settings, resolved, config_path)
+        return (settings, resolved, config_path)
 
     async def stop(self) -> None:
         """§38 stop order: SIGTERM → bounded wait → SIGKILL, group-wide."""
