@@ -14,10 +14,17 @@ import hashlib
 import http.server
 import threading
 import time
+from itertools import pairwise
 from pathlib import Path
 
 import pytest
-from backend.domain.contracts import ModelInfo
+from backend.application.model_service import ModelService
+from backend.application.setup_progress import (
+    DETAIL_DOWNLOADING,
+    STEP_MODEL_ENSURE,
+    SetupProgressReporter,
+)
+from backend.domain.contracts import EVENT_MODEL_DOWNLOAD_COMPLETE, EVENT_SETUP_PROGRESS, ModelInfo
 from backend.domain.errors import ModelDownloadFailedError
 from backend.infrastructure.model.model_manifest import ModelManifest
 from backend.infrastructure.model.model_store import (
@@ -25,11 +32,21 @@ from backend.infrastructure.model.model_store import (
     ModelStore,
     UrllibModelFetcher,
 )
-from conftest import wait_until
+from conftest import FakeEventPublisher, wait_until
 
 PAYLOAD = b"stdlib-transport-payload|" * 4096  # ~102 KiB
 SLOW_CHUNK = 4096
 SLOW_DELAY_S = 0.03  # ~0.78 s total: a cancelled download must beat the EOF
+
+# Burst pacing for the setup-progress steady-feed test: one 64 KiB segment
+# (one client CHUNK_SIZE read) per burst, then a >500 ms server pause. Each
+# segment is 20% of the payload, so pump frames strictly increase while only
+# heartbeat frames can repeat a percent during the pauses.
+BURST_SEGMENTS = 5
+BURST_SEGMENT = 64 * 1024
+BURST_PAUSE_S = 1.0
+BURST_PAYLOAD = bytes(range(256)) * ((BURST_SEGMENT * BURST_SEGMENTS) // 256)
+BURST_DIGEST = hashlib.sha256(BURST_PAYLOAD).hexdigest()
 
 
 class _Handler(http.server.BaseHTTPRequestHandler):
@@ -38,6 +55,8 @@ class _Handler(http.server.BaseHTTPRequestHandler):
             self._serve(PAYLOAD, delay=0.0)
         elif self.path == "/slow":
             self._serve(PAYLOAD, delay=SLOW_DELAY_S)
+        elif self.path == "/burst":
+            self._serve_burst()
         else:
             self.send_error(404)
 
@@ -54,6 +73,20 @@ class _Handler(http.server.BaseHTTPRequestHandler):
                     time.sleep(delay)
         except (BrokenPipeError, ConnectionResetError):
             # The consumer went away (e.g. cancellation closed the socket).
+            pass
+
+    def _serve_burst(self) -> None:
+        self.send_response(200)
+        self.send_header("Content-Type", "application/octet-stream")
+        self.send_header("Content-Length", str(len(BURST_PAYLOAD)))
+        self.end_headers()
+        try:
+            for index in range(0, len(BURST_PAYLOAD), BURST_SEGMENT):
+                if index:
+                    time.sleep(BURST_PAUSE_S)  # pause before every segment but the first
+                self.wfile.write(BURST_PAYLOAD[index : index + BURST_SEGMENT])
+                self.wfile.flush()
+        except (BrokenPipeError, ConnectionResetError):
             pass
 
     def log_message(self, format: str, *args: object) -> None:
@@ -183,6 +216,132 @@ def test_cancel_survives_thread_boundary(tmp_path: Path) -> None:
             with pytest.raises(ModelDownloadCancelled):
                 await asyncio.wait_for(task, 2.0)  # bounded: no thread leak
             assert not (models_dir / "ggml-base.bin").exists()  # §51
+            assert not (models_dir / "ggml-base.bin.part").exists()
+        finally:
+            server.stop()
+
+    asyncio.run(scenario())
+
+
+# ── setup_progress steady feed through the F1/F2 chain (§82 step 1) ─────────
+
+
+class _TimedPublisher(FakeEventPublisher):
+    """FakeEventPublisher plus a monotonic receive timestamp per event."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.times: list[float] = []
+
+    async def publish(self, event_name: str, payload: dict[str, object]) -> None:
+        self.times.append(time.monotonic())
+        await super().publish(event_name, payload)
+
+
+def make_download_chain(
+    models_dir: Path, url: str
+) -> tuple[_TimedPublisher, SetupProgressReporter, ModelService]:
+    """The production setup-progress chain over the real stdlib transport:
+    ModelStore pump → ModelService feed → SetupProgressReporter (step 1)."""
+    publisher = _TimedPublisher()
+    reporter = SetupProgressReporter(publisher)
+    service = ModelService(
+        ModelManifest(models=(make_info(url, sha256=BURST_DIGEST, size_bytes=len(BURST_PAYLOAD)),)),
+        models_dir,
+        UrllibModelFetcher(),
+        publisher,
+        setup_progress=reporter.download_progress,
+    )
+    return publisher, reporter, service
+
+
+def ensure_frames(publisher: _TimedPublisher) -> list[tuple[float, dict[str, object]]]:
+    """Receive-timestamped `setup_progress` model.ensure frames."""
+    return [
+        (stamp, payload)
+        for stamp, (name, payload) in zip(publisher.times, publisher.events, strict=True)
+        if name == EVENT_SETUP_PROGRESS and payload["step"] == STEP_MODEL_ENSURE
+    ]
+
+
+def test_setup_progress_emits_steadily_through_slow_download(tmp_path: Path) -> None:
+    """Slow local-HTTP download (real wall-clock pacing; the steady-feed
+    guarantee is a timing property and cannot be proven with fake streams):
+    model.ensure emits multiple frames with a monotonic percent that strictly
+    increases across the bursts, equal-percent frames only where the
+    heartbeat fired during the >500 ms server pauses, no inter-frame gap
+    anywhere near the pause length (heartbeat: ≤ ~0.4 s; pre-heartbeat the
+    gap equals the 1 s pause), final 100 then the download-complete event
+    with an installed, .part-free artifact."""
+
+    async def scenario() -> None:
+        server = _FixtureServer()
+        try:
+            models_dir = tmp_path / "models"
+            models_dir.mkdir(parents=True)
+            publisher, reporter, service = make_download_chain(
+                models_dir, f"{server.base_url}/burst"
+            )
+            # The §82 startup path activates the reporter at step 1 before
+            # the download starts (composition.py `_start_daemon`).
+            await reporter.begin_run()
+            await reporter.step(1, percent=0, detail_key=DETAIL_DOWNLOADING)
+
+            await service.download_model("base")
+
+            frames = ensure_frames(publisher)
+            percents = [int(payload["percent"]) for _, payload in frames]
+            assert percents[0] == 0
+            assert percents[-1] == 100  # final 100 before completion
+            assert percents == sorted(percents)  # monotonic non-decreasing
+            increases = [b for a, b in pairwise(percents) if b > a]
+            assert len(increases) >= 4  # strictly increasing across the bursts
+            equal = [b for a, b in pairwise(percents) if b == a]
+            assert len(equal) >= 4  # equal frames only from heartbeat ticks
+            assert all(payload["detailKey"] == "setup.detail.downloading" for _, payload in frames)
+            gaps = [(t2 - t1) for (t1, _), (t2, _) in pairwise(frames)]
+            assert len(gaps) >= 10
+            # The server pauses 1 s between bursts: without the heartbeat the
+            # max gap equals a pause; with it, emissions stay well under 500 ms.
+            assert max(gaps) < 0.75
+            assert any(name == EVENT_MODEL_DOWNLOAD_COMPLETE for name, _ in publisher.events)
+            assert (models_dir / "ggml-base.bin").is_file()  # §51 atomic install
+            assert not (models_dir / "ggml-base.bin.part").exists()
+        finally:
+            server.stop()
+
+    asyncio.run(scenario())
+
+
+def test_cancel_mid_download_stops_frames_and_cleans_part(tmp_path: Path) -> None:
+    """Cancelling mid-download stops the model.ensure feed for good (a
+    leaked heartbeat would keep emitting after the pump died) and cleans the
+    .part artifact (§51: never valid)."""
+
+    async def scenario() -> None:
+        server = _FixtureServer()
+        try:
+            models_dir = tmp_path / "models"
+            models_dir.mkdir(parents=True)
+            publisher, reporter, service = make_download_chain(
+                models_dir, f"{server.base_url}/burst"
+            )
+            await reporter.begin_run()
+            await reporter.step(1, percent=0, detail_key=DETAIL_DOWNLOADING)
+
+            task = asyncio.get_running_loop().create_task(service.download_model("base"))
+            assert await wait_until(
+                lambda: (models_dir / "ggml-base.bin.part").exists(), timeout=3.0
+            )
+            assert await wait_until(lambda: len(ensure_frames(publisher)) >= 2, timeout=3.0)
+
+            with pytest.raises(ModelDownloadFailedError):
+                await asyncio.wait_for(task, 3.0)
+
+            frames_at_cancel = len(ensure_frames(publisher))
+            await asyncio.sleep(1.1)  # several heartbeat periods: silence must hold
+            assert len(ensure_frames(publisher)) == frames_at_cancel
+            assert not (models_dir / "ggml-base.bin").exists()
             assert not (models_dir / "ggml-base.bin.part").exists()
         finally:
             server.stop()

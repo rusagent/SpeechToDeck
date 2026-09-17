@@ -2,7 +2,9 @@
 
 Download algorithm per §51: validate model id → download to `*.part` →
 stream SHA-256 → validate digest → fsync → atomic rename. A partially
-downloaded model is never considered valid.
+downloaded model is never considered valid. While a download runs, a
+time-based heartbeat re-checks the §52 progress throttle so the feed (and
+the setup bar fed from it) keeps moving on slow connections.
 
 HTTP transport is isolated behind `ModelHttpFetcher`; the stdlib urllib
 implementation runs the blocking request and every chunk read on a worker
@@ -13,6 +15,7 @@ carries cancellation across that thread boundary.
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import hashlib
 import http.client
 import os
@@ -37,6 +40,13 @@ CHUNK_SIZE = 64 * 1024
 # when this much time elapsed since the last emission, whichever first.
 PROGRESS_MIN_PERCENT_DELTA = 1
 PROGRESS_MIN_INTERVAL_S = 0.25
+# The chunk pump only emits when a chunk arrives, so on a slow or stalled
+# connection nothing re-checks that throttle. While the pump runs, a
+# background heartbeat re-checks it at this interval (well under the 250 ms
+# gate), keeping consecutive emissions comfortably below 500 ms apart so the
+# setup bar moves steadily on slow connections. Equal-percent frames are
+# expected heartbeat frames.
+PROGRESS_HEARTBEAT_S = 0.1
 
 # Blocking request timeout; one chunk read is bounded by the same budget.
 _URLOPEN_TIMEOUT_S = 30.0
@@ -274,21 +284,53 @@ class ModelStore:
                 reported_total = (
                     stream.total_bytes if stream.total_bytes is not None else info.size_bytes
                 )
+                on_progress = self._on_progress
                 last_emit = time.monotonic()
-                with part_path.open("wb") as handle:
-                    async for chunk in stream.chunks():
-                        handle.write(chunk)
-                        digest.update(chunk)
-                        received += len(chunk)
-                        if self._on_progress is not None and _progress_due(
-                            received, reported_total, last_percent, last_emit
-                        ):
-                            if reported_total is not None:
-                                last_percent = received * 100 // reported_total
-                            last_emit = time.monotonic()
-                            await _maybe_await(self._on_progress(info.id, received, reported_total))
-                    handle.flush()
-                    os.fsync(handle.fileno())  # §51: fsync before rename
+
+                async def emit_progress() -> None:
+                    """One throttled progress emission; the chunk pump and the
+                    heartbeat share it (same loop, so check-then-emit is
+                    atomic between awaits)."""
+                    nonlocal last_percent, last_emit
+                    if on_progress is None:
+                        return
+                    if reported_total is not None and reported_total > 0:
+                        last_percent = received * 100 // reported_total
+                    last_emit = time.monotonic()
+                    await _maybe_await(on_progress(info.id, received, reported_total))
+
+                async def heartbeat() -> None:
+                    """Time-based progress feed while the pump runs.
+
+                    Re-checks the §52 throttle every PROGRESS_HEARTBEAT_S and
+                    emits when due, so the feed keeps emitting (equal-percent
+                    heartbeat frames) even when no chunk arrives for a while.
+                    """
+                    while True:
+                        await asyncio.sleep(PROGRESS_HEARTBEAT_S)
+                        if _progress_due(received, reported_total, last_percent, last_emit):
+                            await emit_progress()
+
+                heartbeat_task = (
+                    asyncio.create_task(heartbeat()) if on_progress is not None else None
+                )
+                try:
+                    with part_path.open("wb") as handle:
+                        async for chunk in stream.chunks():
+                            handle.write(chunk)
+                            digest.update(chunk)
+                            received += len(chunk)
+                            if on_progress is not None and _progress_due(
+                                received, reported_total, last_percent, last_emit
+                            ):
+                                await emit_progress()
+                        handle.flush()
+                        os.fsync(handle.fileno())  # §51: fsync before rename
+                finally:
+                    if heartbeat_task is not None:
+                        heartbeat_task.cancel()
+                        with contextlib.suppress(asyncio.CancelledError):
+                            await heartbeat_task
             finally:
                 await stream.close()
 
