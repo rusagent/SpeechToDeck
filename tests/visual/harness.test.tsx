@@ -67,7 +67,9 @@ describe("visual harness smoke", () => {
                     ).not.toBeNull();
                 } else if (params.caseId === "setup") {
                     // The real setup-progress surface: present while running
-                    // or failed, hidden on the terminal ready snapshot.
+                    // or failed, hidden on the terminal ready snapshot. The
+                    // hydrated-failed case renders the failed state from the
+                    // §30 status report alone (no live event).
                     const setupBlock = host.querySelector("[data-setup-progress]");
                     if (params.setup === "ready") {
                         expect(setupBlock).toBeNull();
@@ -82,8 +84,13 @@ describe("visual harness smoke", () => {
                         );
                         expect(host.querySelectorAll("li")).toHaveLength(4);
                         expect(setupBlock?.querySelector('[role="progressbar"]')).not.toBeNull();
-                        const failed = params.setup === "failed";
+                        const failed =
+                            params.setup === "failed" || params.setup === "hydrated-failed";
                         expect(setupBlock?.querySelector("button") !== null).toBe(failed);
+                        if (params.setup === "hydrated-failed") {
+                            // The hydrated failure carries the stored §68 code.
+                            expect(setupBlock?.textContent).toContain("MODEL_DOWNLOAD_FAILED");
+                        }
                         if (failed && params.locale === "de") {
                             expect(setupBlock?.textContent).toContain("Fehlgeschlagen");
                         }

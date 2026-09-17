@@ -279,6 +279,28 @@ implemented:
    `$DECKY_HOME/data/<plugin>`; no `DECKY_PLUGIN_DATA_DIR` global exists).
    The optional `DECKY_PLUGIN_SETTINGS_DIR` settings relocation stays open.
 
+## On-device v0.1.3 fix pass (main, 2026-09-17)
+
+Two defects proven on Deck (journal 20:43 "model unavailable at startup: model
+download request failed"; the production download itself succeeded minutes
+later) are fixed:
+
+1. Startup retry + diagnosability: transient transport download failures
+   (URLError/timeout/connection-reset class, `TransientModelDownloadError`,
+   same §68 code) now get 2 automatic retries with a 2 s/5 s backoff in the
+   §82 model.ensure step; each attempt re-emits `model.ensure` from percent 0
+   (frozen payload shape, existing detail keys). Checksum mismatch,
+   cancellation and HTTP status failures still fail immediately. Download
+   failure logs carry reason class + HTTP status/errno + host (§73-safe).
+   `restart_runtime` now re-runs the FULL §82 path (verify → ensure → daemon
+   → warmup, with the setup stream) under the lifecycle lock.
+2. Failure visibility: `get_status` gained `runtime.lastFailure`
+   {code, stepIndex} (cleared by any successful startup/restart), and the
+   setup panel hydrates from it through `DiagnosticsSource.hydrateSetupProgress`
+   → `DeckySpeechAdapter.hydrateSetupFromStatus` when no live snapshot exists;
+   live `setup_progress` events always win. Visual harness: new
+   `setup-hydrated-failed-en` capture (real adapter hydration, no live event).
+
 ## Next actions
 
 1. Phase-0 hardware spikes (§115 A-D) on Deck hardware; evaluate the §116 exit

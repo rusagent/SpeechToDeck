@@ -12,6 +12,7 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import http.server
+import socket
 import threading
 import time
 from itertools import pairwise
@@ -25,7 +26,7 @@ from backend.application.setup_progress import (
     SetupProgressReporter,
 )
 from backend.domain.contracts import EVENT_MODEL_DOWNLOAD_COMPLETE, EVENT_SETUP_PROGRESS, ModelInfo
-from backend.domain.errors import ModelDownloadFailedError
+from backend.domain.errors import ModelDownloadFailedError, TransientModelDownloadError
 from backend.infrastructure.model.model_manifest import ModelManifest
 from backend.infrastructure.model.model_store import (
     ModelDownloadCancelled,
@@ -177,7 +178,11 @@ def test_http_error_maps_to_stable_download_failure(tmp_path: Path) -> None:
             with pytest.raises(ModelDownloadFailedError) as excinfo:
                 await fetcher.open(f"{server.base_url}/missing")
             assert excinfo.value.code == "MODEL_DOWNLOAD_FAILED"
+            # Diagnosability: HTTP status + host in the detail (§73-safe).
             assert "404" in str(excinfo.value.detail)
+            assert "host=127.0.0.1" in str(excinfo.value.detail)
+            # HTTP status failures are not the transient retry class.
+            assert not isinstance(excinfo.value, TransientModelDownloadError)
 
             models_dir = tmp_path / "models"
             models_dir.mkdir(parents=True)
@@ -192,6 +197,33 @@ def test_http_error_maps_to_stable_download_failure(tmp_path: Path) -> None:
             assert not (models_dir / "ggml-base.bin.part").exists()
         finally:
             server.stop()
+
+    asyncio.run(scenario())
+
+
+def test_transport_failure_is_transient_with_reason_and_host() -> None:
+    """On-device v0.1.3 finding: the failure log carried only the generic
+    message. A URLError-class transport failure surfaces as the transient
+    subclass with the OS reason class, errno and host in the detail, so the
+    startup retry ladder can classify it and the journal can be diagnosed."""
+
+    async def scenario() -> None:
+        # Bind, then close: the port is guaranteed closed → connection refused.
+        probe = socket.socket()
+        probe.bind(("127.0.0.1", 0))
+        dead_port = probe.getsockname()[1]
+        probe.close()
+
+        with pytest.raises(TransientModelDownloadError) as excinfo:
+            await UrllibModelFetcher().open(f"http://127.0.0.1:{dead_port}/ok")
+        assert excinfo.value.code == "MODEL_DOWNLOAD_FAILED"  # stable §68 code
+        detail = str(excinfo.value.detail)
+        assert "host=127.0.0.1" in detail  # model hosts are not sensitive
+        assert "errno=" in detail or "refused" in detail.lower()
+        # The wrapped OS reason class travels into the detail (not just the
+        # generic wrapper name): connection refused on Linux is
+        # ConnectionRefusedError.
+        assert "ConnectionRefusedError" in detail
 
     asyncio.run(scenario())
 

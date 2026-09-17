@@ -25,14 +25,25 @@ import type { DictationState } from "../../src/domain/DictationState";
 import type { DiagnosticsSource } from "../../src/presentation/settings/DiagnosticsPanel";
 import type { KeyboardCapabilityReport } from "../../src/domain/Capability";
 import type { SpeechCapabilities } from "../../src/application/ports/SpeechPort";
-import type { SetupProgressSnapshot } from "../../src/application/ports/SetupProgressPort";
+import type {
+    SetupProgressSnapshot,
+    SetupProgressStore,
+} from "../../src/application/ports/SetupProgressPort";
+import { DeckyBackendClient } from "../../src/infrastructure/decky/DeckyBackendClient";
+import { DeckySpeechAdapter } from "../../src/infrastructure/decky/DeckySpeechAdapter";
 import { FakeSettingsPort } from "../../tests/frontend/fakes/FakeSettingsPort";
-import { SETUP_SNAPSHOTS, FakeSnapshotStore, FakeStateStore } from "../../tests/contract/helpers";
+import {
+    FAILED_GET_STATUS_REPORT,
+    SETUP_SNAPSHOTS,
+    FakeDeckyTransport,
+    FakeSnapshotStore,
+    FakeStateStore,
+} from "../../tests/contract/helpers";
 
 export type HarnessCaseId = "panel" | "mic" | "setup";
 
 /** Which `setup_progress` snapshot the setup case mounts (REAL component). */
-export type HarnessSetupVariant = keyof typeof SETUP_SNAPSHOTS | "none";
+export type HarnessSetupVariant = keyof typeof SETUP_SNAPSHOTS | "hydrated-failed" | "none";
 
 export interface HarnessParams {
     readonly caseId: HarnessCaseId;
@@ -58,6 +69,9 @@ export const CAPTURED_CASES: readonly HarnessParams[] = [
     { caseId: "setup", locale: "en", stateKind: "ready", setup: "failed", scroll: null },
     { caseId: "setup", locale: "de", stateKind: "ready", setup: "failed", scroll: null },
     { caseId: "setup", locale: "en", stateKind: "ready", setup: "ready", scroll: null },
+    // Hydrated failure: no live event at all — the panel shows the failed
+    // state because the real adapter rebuilt it from the §30 status report.
+    { caseId: "setup", locale: "en", stateKind: "ready", setup: "hydrated-failed", scroll: null },
 ];
 
 const REPORT: KeyboardCapabilityReport = {
@@ -82,7 +96,33 @@ function fakeDiagnostics(): DiagnosticsSource {
     return {
         loadCapabilityReport: async () => REPORT,
         loadSpeechCapabilities: async () => SPEECH,
+        hydrateSetupProgress: async () => undefined,
         restartRuntime: async () => undefined,
+    };
+}
+
+/**
+ * The real hydration chain for the `hydrated-failed` case: a REAL adapter
+ * over a transport seeded with the failed §30 status report. The panel
+ * mounts with an empty setup store and reconstructs the failed state through
+ * the production `hydrateSetupFromStatus` path — no live event involved.
+ */
+function hydratedFailureCase(): {
+    store: SetupProgressStore;
+    diagnostics: DiagnosticsSource;
+} {
+    const transport = new FakeDeckyTransport();
+    transport.callResponses.set("get_status", FAILED_GET_STATUS_REPORT);
+    const adapter = new DeckySpeechAdapter(new DeckyBackendClient(transport));
+    adapter.subscribe(() => undefined); // arm the backend event subscriptions
+    return {
+        store: adapter.setupProgress,
+        diagnostics: {
+            loadCapabilityReport: async () => REPORT,
+            loadSpeechCapabilities: async () => SPEECH,
+            hydrateSetupProgress: () => adapter.hydrateSetupFromStatus(),
+            restartRuntime: async () => undefined,
+        },
     };
 }
 
@@ -117,14 +157,19 @@ function PanelCase({
     stateKind: HarnessParams["stateKind"];
     setup: HarnessSetupVariant;
 }) {
+    const hydration = setup === "hydrated-failed" ? hydratedFailureCase() : null;
     const setupSnapshot: SetupProgressSnapshot | null =
-        setup === "none" ? null : SETUP_SNAPSHOTS[setup];
+        setup === "none" || setup === "hydrated-failed" ? null : SETUP_SNAPSHOTS[setup];
     return (
         <SettingsPanel
             settings={new FakeSettingsPort()}
             store={new FakeStateStore(fakeState(stateKind))}
-            setupProgress={new FakeSnapshotStore<SetupProgressSnapshot | null>(setupSnapshot)}
-            diagnostics={fakeDiagnostics()}
+            setupProgress={
+                hydration
+                    ? hydration.store
+                    : new FakeSnapshotStore<SetupProgressSnapshot | null>(setupSnapshot)
+            }
+            diagnostics={hydration ? hydration.diagnostics : fakeDiagnostics()}
             locale={locale}
         />
     );
@@ -192,6 +237,7 @@ const SETUP_VARIANTS: readonly HarnessSetupVariant[] = [
     "indeterminate",
     "failed",
     "ready",
+    "hydrated-failed",
 ];
 
 function paramsFromLocation(): HarnessParams {

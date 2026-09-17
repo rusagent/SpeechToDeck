@@ -14,8 +14,15 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { SettingsPanel } from "../../src/presentation/settings/SettingsPanel";
 import type { DiagnosticsSource } from "../../src/presentation/settings/DiagnosticsPanel";
 import { DeckyBackendClient } from "../../src/infrastructure/decky/DeckyBackendClient";
+import { DeckySpeechAdapter } from "../../src/infrastructure/decky/DeckySpeechAdapter";
 import type { SetupProgressSnapshot } from "../../src/application/ports/SetupProgressPort";
-import { SETUP_SNAPSHOTS, FakeDeckyTransport, FakeSnapshotStore, FakeStateStore } from "./helpers";
+import {
+    FAILED_GET_STATUS_REPORT,
+    SETUP_SNAPSHOTS,
+    FakeDeckyTransport,
+    FakeSnapshotStore,
+    FakeStateStore,
+} from "./helpers";
 import { FakeSettingsPort } from "../frontend/fakes/FakeSettingsPort";
 import type { DictationState } from "../../src/domain/DictationState";
 
@@ -69,6 +76,7 @@ function fakeDiagnostics(): DiagnosticsSource {
     return {
         loadCapabilityReport: async () => null,
         loadSpeechCapabilities: async () => null,
+        hydrateSetupProgress: async () => undefined,
         restartRuntime: async () => undefined,
     };
 }
@@ -198,6 +206,7 @@ describe("SettingsPanel", () => {
         const diagnostics: DiagnosticsSource = {
             loadCapabilityReport: async () => null,
             loadSpeechCapabilities: async () => null,
+            hydrateSetupProgress: async () => undefined,
             // Same callable path the composition root wires for diagnostics.
             restartRuntime: async () => {
                 await backend.call("restart_runtime");
@@ -215,5 +224,49 @@ describe("SettingsPanel", () => {
         fireEvent.click(await screen.findByRole("button", { name: "Retry" }));
 
         expect(transport.calls.map((call) => call.route)).toEqual(["restart_runtime"]);
+    });
+
+    it("renders the hydrated failure from the status report without live events", async () => {
+        // On-device v0.1.3 finding: the setup failure fired before the panel
+        // mounted and the plain settings UI showed nothing. Hydration through
+        // the real adapter chain reconstructs the failed view, the retry
+        // button drives restart_runtime, and a live event later replaces the
+        // synthesized snapshot.
+        const transport = new FakeDeckyTransport();
+        transport.callResponses.set("get_status", FAILED_GET_STATUS_REPORT);
+        transport.callResponses.set("restart_runtime", { ok: true, restarted: true });
+        const backend = new DeckyBackendClient(transport);
+        const adapter = new DeckySpeechAdapter(backend);
+        adapter.subscribe(() => undefined); // live events reach the store
+        const { container } = render(
+            <SettingsPanel
+                settings={new FakeSettingsPort()}
+                store={new FakeStateStore({ kind: "booting" })}
+                setupProgress={adapter.setupProgress}
+                diagnostics={{
+                    loadCapabilityReport: async () => null,
+                    loadSpeechCapabilities: async () => null,
+                    hydrateSetupProgress: () => adapter.hydrateSetupFromStatus(),
+                    restartRuntime: async () => {
+                        await backend.call("restart_runtime");
+                    },
+                }}
+            />,
+        );
+
+        // Hydrated failed view (no live setup_progress ever emitted).
+        expect(await screen.findByText("MODEL_DOWNLOAD_FAILED")).not.toBeNull();
+        expect(container.querySelector('[data-setup-progress="failed"]')).not.toBeNull();
+
+        fireEvent.click(await screen.findByRole("button", { name: "Retry" }));
+        expect(transport.calls.map((call) => call.route)).toContain("restart_runtime");
+
+        // A live setup_progress event replaces the synthesized snapshot.
+        await act(async () => {
+            transport.emit("setup_progress", SETUP_SNAPSHOTS.download);
+        });
+        expect(container.querySelector('[data-setup-progress="model.ensure"]')).not.toBeNull();
+        expect(container.querySelector('[data-setup-progress="failed"]')).toBeNull();
+        expect(screen.queryByRole("button", { name: "Retry" })).toBeNull();
     });
 });

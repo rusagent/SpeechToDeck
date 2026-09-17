@@ -35,6 +35,7 @@ from backend.domain.errors import (
     RuntimeUnavailableError,
     SettingsInvalidError,
     SpeechError,
+    TransientModelDownloadError,
 )
 from backend.domain.session import SpeechSessionCoordinator
 from backend.infrastructure.model.model_manifest import ModelManifest, load_model_manifest
@@ -74,6 +75,14 @@ _RUNTIME_FIELDS = (
     "max_recording_seconds",
     "vad_enabled",
 )
+
+# §82 step 1 resilience (on-device v0.1.3 finding: one transient network
+# error killed startup permanently): bounded automatic retries for the
+# transient transport class only (URLError/timeout/connection reset — never
+# checksum mismatch, cancellation, HTTP status failures or unknown ids,
+# which fail immediately). §70-style bounded ladder: 2 automatic retries
+# with a 2 s then 5 s backoff.
+MODEL_DOWNLOAD_RETRY_DELAYS_S = (2.0, 5.0)
 
 
 def _runtime_relevant_change(before: Settings, after: Settings) -> bool:
@@ -142,6 +151,12 @@ class Application:
         self.setup_progress = setup_progress
         self._started = False
         self._disposed = False
+        # Last §82 startup failure for the `get_status` report: stable §68
+        # code plus the failing step index, cleared by any successful startup
+        # path. The frontend setup panel hydrates from it when the terminal
+        # `failed` event fired before the panel subscribed (§73-safe: no
+        # transcript or audio content).
+        self._last_setup_failure: dict[str, object] | None = None
         # Serializes every §36 lifecycle transition (§82 startup, settings
         # transitions, §38/§83 disposal): concurrent updates coalesce into
         # one ordered sequence, never restart in parallel, and a disable
@@ -208,7 +223,8 @@ class Application:
 
         # Step 1 — model.ensure: digest-verify the installed model, or
         # download it with real percent from the throttled download feed
-        # (§51; the §52 cancel path stays live during startup).
+        # (§51; the §52 cancel path stays live during startup). Transient
+        # transport failures get the bounded automatic retry ladder.
         installed = await self.models.store.is_installed(settings.model_id)
         await setup.step(
             1,
@@ -221,9 +237,11 @@ class Application:
             else:
                 # First-run setup: the download validates the digest and
                 # installs atomically (§51), so no second ensure is needed.
-                await self.models.download_model(settings.model_id)
+                await self._download_model_with_retry(setup, settings.model_id)
         except SpeechError as exc:
-            LOGGER.error("model unavailable at startup: %s", exc.message)
+            # Diagnosability: the detail carries the reason class + HTTP
+            # status/errno + host (§73-safe), not just the generic message.
+            LOGGER.error("model unavailable at startup: %s (%s)", exc.message, exc.detail)
             await self._fail_startup(setup, exc)
             return
         await setup.step(1, percent=100)
@@ -257,10 +275,46 @@ class Application:
                 RuntimeStartError("daemon did not report idle within the warmup budget"),
             )
             return
+        self._last_setup_failure = None
         await setup.ready()
+
+    async def _download_model_with_retry(self, setup: SetupProgressReporter, model_id: str) -> None:
+        """§82 step 1 download with the bounded automatic retry ladder.
+
+        Only the transient transport class (URLError/timeout/connection
+        reset) is retried — `MODEL_DOWNLOAD_RETRY_DELAYS_S` attempts with
+        backoff; checksum mismatch, cancellation, HTTP status failures and
+        unknown ids fail immediately. Every retry re-emits the model.ensure
+        step from percent 0 (frozen payload shape, existing detail key).
+        """
+        retries = len(MODEL_DOWNLOAD_RETRY_DELAYS_S)
+        for attempt in range(1, retries + 2):  # 1 initial + `retries` retries
+            try:
+                await self.models.download_model(model_id)
+                return
+            except SpeechError as exc:
+                if not isinstance(exc, TransientModelDownloadError) or attempt > retries:
+                    raise
+                delay = MODEL_DOWNLOAD_RETRY_DELAYS_S[attempt - 1]
+                LOGGER.warning(
+                    "transient model download failure (attempt %d/%d): %s (%s); retrying in %gs",
+                    attempt,
+                    retries + 1,
+                    exc.message,
+                    exc.detail,
+                    delay,
+                )
+                # Fresh attempt signal: model.ensure from percent 0 (frozen
+                # payload shape; existing detail key), emitted before the
+                # bounded backoff wait.
+                await setup.step(1, percent=0, detail_key=DETAIL_DOWNLOADING)
+                await asyncio.sleep(delay)
 
     async def _fail_startup(self, setup: SetupProgressReporter, exc: SpeechError) -> None:
         """Terminal `failed` setup event + the existing fail-closed surface."""
+        # Stored for the §30 `get_status` report so the frontend setup panel
+        # can reconstruct the failure after the fact (hydration).
+        self._last_setup_failure = {"code": str(exc.code), "stepIndex": setup.failing_step_index}
         await setup.fail(str(exc.code))
         await self._publish_runtime_unavailable(exc.message)
 
@@ -295,12 +349,24 @@ class Application:
             self._started = False
 
     async def restart_runtime(self) -> None:
-        """§69: fatal runtime errors recover only via explicit restart."""
-        settings = await self.settings_repository.load()
-        if not settings.enabled:
-            raise RuntimeUnavailableError("plugin is disabled by settings")
-        await self.models.ensure_model(settings.model_id)
-        await self.supervisor.restart(settings)
+        """§69: fatal runtime errors recover only via explicit restart.
+
+        Re-runs the full §82 startup path — runtime verify → model
+        ensure/download → daemon start → warmup, with the `setup_progress`
+        stream — so recovery after a failed startup is identical to a fresh
+        start. The existing runtime (if any) is torn down in the §38 order
+        first, then `_startup_runtime` drives the sequence. Runs under the
+        lifecycle lock like every other §36 transition; a failure is
+        fail-closed surfaced through the setup/runtime events, never fatal.
+        """
+        async with self._lifecycle_lock:
+            if self._disposed:
+                return
+            settings = await self.settings_repository.load()
+            if not settings.enabled:
+                raise RuntimeUnavailableError("plugin is disabled by settings")
+            await self._shutdown_runtime()
+            await self._startup_runtime(settings)
 
     async def migrate_settings(self) -> Settings:
         """§31 `_migration`: run the settings migration chain forward once."""
@@ -350,6 +416,9 @@ class Application:
                 "state": "running" if running else "stopped",
                 "restartAttempts": self.supervisor.restart_attempts,
                 "enabled": settings.enabled,
+                # Hydration record for the frontend setup panel: the stored
+                # last §82 startup failure (§68 code + failing step) or None.
+                "lastFailure": self._last_setup_failure,
             },
             "speech": self.speech.get_status(),
             "modelDownloadInProgress": self.models.download_in_progress(),
@@ -441,7 +510,7 @@ class Application:
         try:
             await self.models.ensure_model(settings.model_id)
         except SpeechError as exc:
-            LOGGER.error("model unavailable at restart: %s", exc.message)
+            LOGGER.error("model unavailable at restart: %s (%s)", exc.message, exc.detail)
             await self._publish_runtime_unavailable(exc.message)
             return
         try:
@@ -451,6 +520,9 @@ class Application:
             await self._publish_runtime_unavailable(exc.message)
             return
         await self.client.start()
+        # A successful settings-driven restart proves the runtime healthy:
+        # the stored startup failure record must not outlive it.
+        self._last_setup_failure = None
 
     async def start_recording(self, session_id: str) -> dict[str, object]:
         settings = await self.settings_repository.load()

@@ -143,6 +143,16 @@ class ModelDownloadFailedError(CodedSpeechError):
         return ErrorCode.MODEL_DOWNLOAD_FAILED
 
 
+class TransientModelDownloadError(ModelDownloadFailedError):
+    """Transport-class download failure (URLError/timeout/connection reset).
+
+    Same stable §68 code (``MODEL_DOWNLOAD_FAILED``); the subclass marks the
+    failure class the §82 startup path may retry with its bounded automatic
+    ladder. Checksum mismatches, cancellations and HTTP status failures stay
+    plain ``ModelDownloadFailedError`` and are never retried.
+    """
+
+
 class ModelChecksumFailedError(CodedSpeechError):
     def _code(self) -> ErrorCode:
         return ErrorCode.MODEL_CHECKSUM_FAILED

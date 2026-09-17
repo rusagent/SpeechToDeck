@@ -219,6 +219,9 @@ shot("setup-download-en", "case=setup&variant=download&locale=en", { height: 320
 shot("setup-failed-en", "case=setup&variant=failed&locale=en", { height: 400 });
 shot("setup-failed-de", "case=setup&variant=failed&locale=de", { height: 400 });
 shot("setup-ready-hidden-en", "case=setup&variant=ready&locale=en", { height: 320 });
+// Hydrated failure: the panel shows the failed state from the §30 status
+// report alone (real adapter hydration, no live setup_progress event).
+shot("setup-hydrated-failed-en", "case=setup&variant=hydrated-failed&locale=en", { height: 400 });
 // Microphone button, all four §20 states in one clip (EN + DE error text).
 shot("mic-states-en", "case=mic&locale=en", { height: 160 });
 shot("mic-states-de", "case=mic&locale=de", { height: 160 });

@@ -16,10 +16,16 @@ import json
 from collections.abc import AsyncIterator
 from pathlib import Path
 
+import backend.composition
 import main
 import pytest
-from backend.composition import Application, compose
-from backend.domain.errors import RuntimeStartError, RuntimeUnavailableError, SpeechError
+from backend.composition import MODEL_DOWNLOAD_RETRY_DELAYS_S, Application, compose
+from backend.domain.errors import (
+    RuntimeStartError,
+    RuntimeUnavailableError,
+    SpeechError,
+    TransientModelDownloadError,
+)
 from conftest import (
     REAL_MODELS_MANIFEST,
     FakeEventPublisher,
@@ -35,6 +41,11 @@ UNPINNED_MANIFEST_JSON = (
     '{"id": "voxtype-vulkan", "engine": "whisper", "arch": "x86_64", "variant": "vulkan",'
     ' "version": "", "source": "", "sha256": "", "license": ""}]}'
 )
+
+# Download-path payloads: RETRY_PAYLOAD matches the patched manifest digest
+# (installable); CORRUPT_PAYLOAD deliberately does not (§51 digest gate).
+RETRY_PAYLOAD = b"transient-retry-model-payload-" * 6144
+CORRUPT_PAYLOAD = b"corrupt-download-not-matching-the-manifest-digest"
 
 SPEC_CALLABLES = {
     "get_capabilities",
@@ -137,10 +148,20 @@ def test_facade_fails_closed_against_unpinned_runtime(tmp_path: Path) -> None:
             cancelled = await plugin.cancel_model_download()
             assert cancelled == {"ok": True, "cancelled": False}
 
-            # §69: explicit restart against the unpinned manifest fails closed.
+            # §69: explicit restart re-runs the FULL §82 startup path; against
+            # the unpinned manifest it fails closed at runtime.verify — the
+            # failure is event-surfaced (never a call failure) and recorded
+            # for the frontend status hydration.
             restarted = await plugin.restart_runtime()
-            assert restarted["ok"] is False
-            assert restarted["code"] == "RUNTIME_START_FAILED"
+            assert restarted == {"ok": True, "restarted": True}
+            failed = [p for p in publisher.payloads("setup_progress") if p.get("step") == "failed"]
+            assert failed
+            assert failed[-1]["error"] == {"code": "RUNTIME_START_FAILED"}
+            status_after_restart = await plugin.get_status()
+            assert status_after_restart["runtime"]["lastFailure"] == {
+                "code": "RUNTIME_START_FAILED",
+                "stepIndex": 0,
+            }
 
             await app.dispose()
             await app.dispose()  # idempotent (§83)
@@ -608,6 +629,197 @@ def test_setup_progress_failure_at_daemon_start(tmp_path: Path) -> None:
                 p for p in publisher.payloads("runtime_status") if p.get("state") == "unavailable"
             ]
             assert unavailable
+        finally:
+            await app.dispose()
+
+    asyncio.run(scenario())
+
+
+# ── §82 step 1 resilience + §69 full-path restart (on-device v0.1.3) ────────
+
+
+def build_download_roots(tmp_path: Path, payload: bytes) -> tuple[Path, Path, str]:
+    """Pinned-runtime layout with the default model NOT installed and the
+    manifest digest patched to `payload` (the §51 download path)."""
+    root, data_dir = build_plugin_roots(tmp_path)
+    binary = build_fixture_binary(root)
+    write_pinned_runtime_manifest(root, binary)
+
+    digest = hashlib.sha256(payload).hexdigest()
+    manifest_payload = json.loads(REAL_MODELS_MANIFEST.read_text(encoding="utf-8"))
+    download_url = ""
+    for entry in manifest_payload["models"]:
+        if entry["id"] == "base":
+            entry["sha256"] = digest
+            download_url = str(entry["downloadUrl"])
+    (root / "defaults" / "models.json").write_text(json.dumps(manifest_payload))
+    return root, data_dir, download_url
+
+
+def test_startup_retries_transient_download_then_ready(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """On-device v0.1.3 (journal 20:43): ONE transient transport error
+    (`model download request failed`) failed startup permanently. The
+    transient class now gets exactly 2 automatic retries on the documented
+    bounded 2 s/5 s ladder; every attempt re-emits the model.ensure step from
+    percent 0 (frozen payload shape, existing detail key) and success still
+    completes ready with the model installed and no stored failure."""
+
+    class RetryStream:
+        total_bytes = len(RETRY_PAYLOAD)
+
+        async def chunks(self) -> AsyncIterator[bytes]:
+            for index in range(0, len(RETRY_PAYLOAD), 64 * 1024):
+                yield RETRY_PAYLOAD[index : index + 64 * 1024]
+
+        async def close(self) -> None:
+            return None
+
+    opens: list[str] = []
+
+    class FlakyFetcher:
+        async def open(self, url: str) -> RetryStream:
+            opens.append(url)
+            if len(opens) <= 2:
+                raise TransientModelDownloadError(
+                    "model download request failed",
+                    detail="URLError errno=-3 host=example.org",
+                )
+            return RetryStream()
+
+    async def scenario() -> None:
+        # The documented ladder is the decision point under test; the run
+        # itself uses patched (fast) delays to keep the suite wall-time.
+        assert MODEL_DOWNLOAD_RETRY_DELAYS_S == (2.0, 5.0)
+        monkeypatch.setattr(backend.composition, "MODEL_DOWNLOAD_RETRY_DELAYS_S", (0.01, 0.02))
+        root, data_dir, download_url = build_download_roots(tmp_path, RETRY_PAYLOAD)
+        publisher = FakeEventPublisher()
+        app: Application = compose(
+            plugin_root=root,
+            data_dir=data_dir,
+            event_publisher=publisher,
+            model_fetcher=FlakyFetcher(),  # type: ignore[arg-type]
+        )
+        try:
+            assert not await app.models.store.is_installed("base")
+            await app.start()
+            assert await wait_until(app.supervisor.is_running, timeout=5.0)
+
+            # Initial attempt + exactly 2 automatic retries.
+            assert opens == [download_url, download_url, download_url]
+            assert await app.models.store.is_installed("base")  # §51 atomic install
+            ensure = [
+                p for p in publisher.payloads("setup_progress") if p["step"] == "model.ensure"
+            ]
+            fresh = [
+                p
+                for p in ensure
+                if p["percent"] == 0 and p["detailKey"] == "setup.detail.downloading"
+            ]
+            assert len(fresh) == 3  # each attempt re-emits model.ensure from 0
+            assert any(p["step"] == "ready" for p in publisher.payloads("setup_progress"))
+            assert (await app.get_status())["runtime"]["lastFailure"] is None
+        finally:
+            await app.dispose()
+
+    asyncio.run(scenario())
+
+
+def test_startup_checksum_failure_does_not_retry(tmp_path: Path) -> None:
+    """A MODEL_CHECKSUM_FAILED download is never retried (§68 non-transient):
+    exactly one attempt, the immediate terminal `failed` event at model.ensure,
+    and the failure recorded for the `get_status` hydration report."""
+
+    class CorruptStream:
+        total_bytes = len(CORRUPT_PAYLOAD)
+
+        async def chunks(self) -> AsyncIterator[bytes]:
+            yield CORRUPT_PAYLOAD
+
+        async def close(self) -> None:
+            return None
+
+    opens: list[str] = []
+
+    class CorruptFetcher:
+        async def open(self, url: str) -> CorruptStream:
+            opens.append(url)
+            return CorruptStream()
+
+    async def scenario() -> None:
+        # Manifest digest pinned to RETRY_PAYLOAD; the fetcher delivers a
+        # different payload → digest mismatch.
+        root, data_dir, _download_url = build_download_roots(tmp_path, RETRY_PAYLOAD)
+        publisher = FakeEventPublisher()
+        app: Application = compose(
+            plugin_root=root,
+            data_dir=data_dir,
+            event_publisher=publisher,
+            model_fetcher=CorruptFetcher(),  # type: ignore[arg-type]
+        )
+        try:
+            await app.start()  # surfaced, never fatal (§82/§69)
+
+            assert len(opens) == 1  # no retry on the checksum class
+            assert not await app.models.store.is_installed("base")  # §51: never valid
+            events = publisher.payloads("setup_progress")
+            failed = events[-1]
+            assert failed["step"] == "failed"
+            assert failed["stepIndex"] == 1  # failed at model.ensure
+            assert failed["error"] == {"code": "MODEL_CHECKSUM_FAILED"}
+            assert not any(p["step"] == "ready" for p in events)
+            assert not app.supervisor.is_running()
+            assert (await app.get_status())["runtime"]["lastFailure"] == {
+                "code": "MODEL_CHECKSUM_FAILED",
+                "stepIndex": 1,
+            }
+        finally:
+            await app.dispose()
+
+    asyncio.run(scenario())
+
+
+def test_restart_runtime_reruns_full_startup_after_failure(tmp_path: Path) -> None:
+    """§69 recovery: after a failed §82 startup, the explicit restart re-runs
+    the FULL path — runtime verify → model ensure → daemon start → warmup,
+    with the setup_progress stream — ending ready with the daemon up, sessions
+    accepted and the stored failure record cleared."""
+
+    async def scenario() -> None:
+        app, publisher, _data_dir = compose_with_fixture_daemon(tmp_path)
+        try:
+
+            async def failing_start(settings: object) -> None:
+                raise RuntimeStartError("spawn refused", detail="test seam")
+
+            original_start = app.supervisor.start
+            app.supervisor.start = failing_start  # type: ignore[method-assign]
+            await app.start()
+            assert any(p["step"] == "failed" for p in publisher.payloads("setup_progress"))
+            assert not app.supervisor.is_running()
+
+            app.supervisor.start = original_start  # type: ignore[method-assign]
+            await app.restart_runtime()
+
+            assert await wait_until(app.supervisor.is_running, timeout=5.0)
+            events = publisher.payloads("setup_progress")
+            # The fresh §82 stream re-ran after the failed run: the tail is
+            # exactly the frozen fresh-path sequence, terminating in ready.
+            assert [str(p["step"]) for p in events][-7:] == [
+                "runtime.verify",
+                "runtime.verify",
+                "model.ensure",
+                "model.ensure",
+                "daemon.start",
+                "model.warmup",
+                "ready",
+            ]
+            assert [str(p["step"]) for p in events].count("ready") == 1
+            started = await app.start_recording("sess-after-restart")
+            assert started == {"sessionId": "sess-after-restart"}
+            await app.cancel_recording("sess-after-restart")
+            assert (await app.get_status())["runtime"]["lastFailure"] is None
         finally:
             await app.dispose()
 

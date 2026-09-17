@@ -84,6 +84,16 @@ class SetupProgressReporter:
         self._percent = 0
         self._last_emit_time = self._clock()
 
+    @property
+    def failing_step_index(self) -> int:
+        """Index of the step the run failed (or would fail) at.
+
+        Valid after `fail()`: the reporter stays at the failing step, so the
+        composition root can store the failure position for the §30
+        `get_status` report (frontend setup-panel hydration).
+        """
+        return self._step_index
+
     async def step(
         self,
         step_index: int,

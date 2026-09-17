@@ -18,10 +18,12 @@ import type {
     SpeechRuntimeStatus,
 } from "../../application/ports/SpeechPort";
 import {
+    isRuntimeStatusReport,
     isSpeechCapabilities,
     isSpeechRuntimeStatus,
     isTranscriptReadyPayload,
 } from "../../application/ports/SpeechPort";
+import type { SetupProgressSnapshot } from "../../application/ports/SetupProgressPort";
 import {
     SetupProgressStore,
     isSetupProgressSnapshot,
@@ -34,6 +36,7 @@ import type { DeckyBackendClient } from "./DeckyBackendClient";
  */
 export const SPEECH_CALLABLES = {
     getCapabilities: "get_capabilities",
+    getStatus: "get_status",
     startRecording: "start_recording",
     stopRecording: "stop_recording",
     cancelRecording: "cancel_recording",
@@ -46,6 +49,9 @@ export const SPEECH_EVENTS = {
     runtimeStatus: "runtime_status",
     setupProgress: "setup_progress",
 } as const;
+
+/** The four setup steps of the frozen `setup_progress` contract. */
+const SETUP_TOTAL_STEPS = 4;
 
 /** Versioned `speech_error` backend payload (§67): stable code, no parsing. */
 export interface SpeechErrorPayload {
@@ -246,6 +252,59 @@ export class DeckySpeechAdapter implements SpeechPort {
             return;
         }
         this.setupProgress.publish(payload);
+    }
+
+    /**
+     * Hydrates the setup store from the §30 status report so a startup
+     * failure that fired before this frontend subscribed still surfaces
+     * (on-device v0.1.3 finding: the terminal `failed` event preceded the
+     * panel mount and was never seen again). Runtime down with a stored last
+     * failure and no download in flight → synthesized terminal `failed`
+     * view with the failing step from the report (0 when absent). Live wins:
+     * an existing snapshot — a live event or an earlier hydration — is never
+     * overwritten, and any later live `setup_progress` event replaces it.
+     */
+    async hydrateSetupFromStatus(): Promise<void> {
+        if (this.setupProgress.getSnapshot() !== null) {
+            return;
+        }
+        let payload: unknown;
+        try {
+            payload = await this.backend.call(SPEECH_CALLABLES.getStatus);
+        } catch (error) {
+            this.logger.warn("setup hydration call failed", {
+                detail: error instanceof Error ? error.message : String(error),
+            });
+            return;
+        }
+        if (!isRuntimeStatusReport(payload)) {
+            this.logger.warn("dropped get_status payload: boundary guard failed");
+            return;
+        }
+        const { runtime, modelDownloadInProgress } = payload;
+        const failure = runtime.lastFailure;
+        if (runtime.running || modelDownloadInProgress || !runtime.enabled || failure === null) {
+            return;
+        }
+        const stepIndex =
+            Number.isInteger(failure.stepIndex) &&
+            failure.stepIndex >= 0 &&
+            failure.stepIndex <= SETUP_TOTAL_STEPS
+                ? failure.stepIndex
+                : 0;
+        const synthesized: SetupProgressSnapshot = {
+            protocolVersion: 1,
+            step: "failed",
+            labelKey: "setup.state.failed",
+            stepIndex,
+            totalSteps: SETUP_TOTAL_STEPS,
+            percent: 0,
+            indeterminate: false,
+            error: { code: failure.code },
+        };
+        if (isSetupProgressSnapshot(synthesized)) {
+            this.setupProgress.publish(synthesized);
+        }
     }
 
     private dispatch(event: SpeechEvent): void {

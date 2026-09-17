@@ -22,6 +22,7 @@ import os
 import threading
 import time
 import urllib.error
+import urllib.parse
 import urllib.request
 from collections.abc import AsyncIterator, Callable
 from pathlib import Path
@@ -32,6 +33,7 @@ from backend.domain.errors import (
     ModelChecksumFailedError,
     ModelDownloadFailedError,
     ModelNotInstalledError,
+    TransientModelDownloadError,
 )
 from backend.infrastructure.model.model_manifest import MODEL_ID_RE, ModelManifest
 
@@ -79,10 +81,39 @@ class ModelHttpFetcher(Protocol):
     async def open(self, url: str) -> DownloadStream: ...
 
 
+def _url_host(url: str) -> str:
+    """Hostname of a download URL (§73-safe: model hosts are not sensitive)."""
+    return urllib.parse.urlsplit(url).hostname or "unknown-host"
+
+
+def _transport_detail(exc: BaseException, host: str) -> str:
+    """`ReasonClass [errno=N] <text> host=<host>` for a transport failure.
+
+    Diagnosability without content (§73): the OS-level reason class, its
+    errno/OS text and the model host — never transcript or audio data.
+    URLError's wrapped OS reason is preferred over the wrapper itself.
+    """
+    reason = getattr(exc, "reason", None)
+    cause = reason if isinstance(reason, BaseException) else exc
+    errno = getattr(cause, "errno", None)
+    parts = [type(cause).__name__]
+    if errno is not None:
+        parts.append(f"errno={errno}")
+    text = str(cause).strip()
+    if text:
+        parts.append(text)
+    parts.append(f"host={host}")
+    return " ".join(parts)
+
+
 def _urlopen(url: str) -> http.client.HTTPResponse:
     """Blocking GET on a worker thread; non-2xx and transport errors map to
-    the stable §68 MODEL_DOWNLOAD_FAILED code (detail is a code, §73)."""
+    the stable §68 MODEL_DOWNLOAD_FAILED code with a diagnosable detail
+    (reason class + HTTP status/errno + host; §73 lists no transcript/audio
+    content). URLError/timeout/connection-reset failures are marked as the
+    transient class the §82 startup path may retry."""
     request = urllib.request.Request(url, headers={"Accept": "*/*"}, method="GET")
+    host = _url_host(url)
     try:
         response: http.client.HTTPResponse = urllib.request.urlopen(
             request, timeout=_URLOPEN_TIMEOUT_S
@@ -90,16 +121,24 @@ def _urlopen(url: str) -> http.client.HTTPResponse:
     except urllib.error.HTTPError as exc:
         exc.close()  # the error body is never read
         raise ModelDownloadFailedError(
-            "model download request failed", detail=f"HTTP {exc.code}"
+            "model download request failed", detail=f"HTTP {exc.code} host={host}"
         ) from exc
-    except (OSError, ValueError) as exc:  # URLError/socket errors, unknown scheme
+    except urllib.error.URLError as exc:  # wraps the OS reason (timeout, DNS, reset)
+        raise TransientModelDownloadError(
+            "model download request failed", detail=_transport_detail(exc, host)
+        ) from exc
+    except OSError as exc:  # raw socket-level failures without the URLError wrap
+        raise TransientModelDownloadError(
+            "model download request failed", detail=_transport_detail(exc, host)
+        ) from exc
+    except ValueError as exc:  # unknown scheme / malformed URL: never transient
         raise ModelDownloadFailedError(
-            "model download request failed", detail=type(exc).__name__
+            "model download request failed", detail=f"{type(exc).__name__} host={host}"
         ) from exc
     if not 200 <= response.status < 300:
         response.close()
         raise ModelDownloadFailedError(
-            "model download request failed", detail=f"HTTP {response.status}"
+            "model download request failed", detail=f"HTTP {response.status} host={host}"
         )
     return response
 
@@ -127,15 +166,26 @@ class UrllibModelFetcher:
 
     async def open(self, url: str) -> DownloadStream:
         response = await asyncio.to_thread(_urlopen, url)
-        return _UrllibDownloadStream(response=response, total_bytes=_content_length(response))
+        return _UrllibDownloadStream(
+            response=response,
+            total_bytes=_content_length(response),
+            host=_url_host(url),
+        )
 
 
 class _UrllibDownloadStream:
     """DownloadStream over a urllib response, read chunk-wise off the loop."""
 
-    def __init__(self, *, response: http.client.HTTPResponse, total_bytes: int | None) -> None:
+    def __init__(
+        self,
+        *,
+        response: http.client.HTTPResponse,
+        total_bytes: int | None,
+        host: str,
+    ) -> None:
         self._response = response
         self._total_bytes = total_bytes
+        self._host = host
         self._cancel = threading.Event()
 
     @property
@@ -152,9 +202,11 @@ class _UrllibDownloadStream:
                 except ModelDownloadCancelled:
                     raise
                 except (http.client.HTTPException, OSError, TimeoutError) as exc:
-                    raise ModelDownloadFailedError(
+                    # Mid-stream connection reset/timeout: the transient
+                    # transport class, diagnosable down to errno + host.
+                    raise TransientModelDownloadError(
                         "model download interrupted while streaming",
-                        detail=type(exc).__name__,
+                        detail=_transport_detail(exc, self._host),
                     ) from exc
                 if not chunk:
                     return

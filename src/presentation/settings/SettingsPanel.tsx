@@ -107,6 +107,11 @@ export function SettingsPanel({
                 setSpeech(caps);
             }
         });
+        // Failure hydration: a startup failure that fired before this panel
+        // subscribed left no live setup snapshot (on-device v0.1.3 finding).
+        // The adapter rebuilds the terminal failed view from the §30 status
+        // report, never overwriting an existing snapshot (live wins).
+        void diagnostics.hydrateSetupProgress();
         return () => {
             cancelled = true;
         };

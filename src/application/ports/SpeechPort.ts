@@ -37,6 +37,58 @@ export interface TranscriptReadyPayload {
 /** Runtime status reported by the backend (`speech_status`/`runtime_status`, spec §30). */
 export type SpeechRuntimeStatus = "starting" | "ready" | "unavailable" | "crashed";
 
+/** Stored last §82 startup failure in the `get_status` report (§68 code). */
+export interface RuntimeFailureRecord {
+    readonly code: string;
+    readonly stepIndex: number;
+}
+
+/**
+ * Versioned `get_status` response (spec §30/§67), fields the frontend
+ * consumes. `runtime.lastFailure` is the backend's stored §82 startup
+ * failure (or null) and drives the setup panel's failure hydration.
+ */
+export interface RuntimeStatusReport {
+    readonly protocolVersion: 1;
+    readonly runtime: {
+        readonly running: boolean;
+        readonly state: string;
+        readonly restartAttempts: number;
+        readonly enabled: boolean;
+        readonly lastFailure: RuntimeFailureRecord | null;
+    };
+    readonly modelDownloadInProgress: boolean;
+}
+
+export function isRuntimeStatusReport(value: unknown): value is RuntimeStatusReport {
+    if (!isRecord(value) || value["protocolVersion"] !== 1) {
+        return false;
+    }
+    const runtime = value["runtime"];
+    if (!isRecord(runtime)) {
+        return false;
+    }
+    if (
+        typeof runtime["running"] !== "boolean" ||
+        typeof runtime["state"] !== "string" ||
+        typeof runtime["restartAttempts"] !== "number" ||
+        typeof runtime["enabled"] !== "boolean"
+    ) {
+        return false;
+    }
+    const failure = runtime["lastFailure"];
+    if (
+        failure !== null &&
+        (!isRecord(failure) ||
+            typeof failure["code"] !== "string" ||
+            failure["code"].length === 0 ||
+            typeof failure["stepIndex"] !== "number")
+    ) {
+        return false;
+    }
+    return typeof value["modelDownloadInProgress"] === "boolean";
+}
+
 /** Events pushed by the speech port (spec §29/§30). */
 export type SpeechEvent =
     | { readonly type: "transcript-ready"; readonly payload: TranscriptReadyPayload }

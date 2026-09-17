@@ -90,6 +90,7 @@ class PluginCompositionRoot implements Disposable {
                 const payload = await backendClient.call("get_capabilities");
                 return isSpeechCapabilities(payload) ? payload : null;
             },
+            hydrateSetupProgress: () => speechPort.hydrateSetupFromStatus(),
             restartRuntime: async () => {
                 await backendClient.call("restart_runtime");
             },

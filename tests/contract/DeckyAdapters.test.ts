@@ -11,7 +11,7 @@ import { DeckySettingsAdapter } from "../../src/infrastructure/decky/DeckySettin
 import { DictationError } from "../../src/domain/DictationError";
 import type { LogEntry } from "../../src/shared/Logger";
 import { Logger } from "../../src/shared/Logger";
-import { SETUP_SNAPSHOTS, FakeDeckyTransport } from "./helpers";
+import { FAILED_GET_STATUS_REPORT, SETUP_SNAPSHOTS, FakeDeckyTransport } from "./helpers";
 import { TEST_SETTINGS } from "../frontend/fakes/FakeSettingsPort";
 
 const VALID_CAPABILITIES = {
@@ -213,6 +213,107 @@ describe("DeckySpeechAdapter", () => {
 
         expect(adapter.setupProgress.getSnapshot()).toBeNull();
         expect(transport.removedListeners.map((entry) => entry.event)).toContain("setup_progress");
+    });
+
+    it("hydrates a failed snapshot from the get_status report when no live event arrived", async () => {
+        // On-device v0.1.3 finding: the terminal `failed` setup event fired
+        // before the frontend mounted, so the panel rendered nothing. The
+        // status report's stored last failure reconstructs the failed view.
+        const transport = new FakeDeckyTransport();
+        transport.callResponses.set("get_status", FAILED_GET_STATUS_REPORT);
+        const adapter = new DeckySpeechAdapter(new DeckyBackendClient(transport));
+
+        await adapter.hydrateSetupFromStatus();
+
+        expect(transport.calls.map((call) => call.route)).toEqual(["get_status"]);
+        expect(adapter.setupProgress.getSnapshot()).toEqual({
+            protocolVersion: 1,
+            step: "failed",
+            labelKey: "setup.state.failed",
+            stepIndex: 1,
+            totalSteps: 4,
+            percent: 0,
+            indeterminate: false,
+            error: { code: "MODEL_DOWNLOAD_FAILED" },
+        });
+    });
+
+    it("live setup_progress wins over hydration in both arrival orders", async () => {
+        const transport = new FakeDeckyTransport();
+        transport.callResponses.set("get_status", FAILED_GET_STATUS_REPORT);
+        const adapter = new DeckySpeechAdapter(new DeckyBackendClient(transport));
+        adapter.subscribe(() => undefined); // arms the live backend subscriptions
+
+        // Live first, hydration second: the live snapshot is kept.
+        transport.emit("setup_progress", SETUP_SNAPSHOTS.download);
+        await adapter.hydrateSetupFromStatus();
+        expect(adapter.setupProgress.getSnapshot()).toEqual(SETUP_SNAPSHOTS.download);
+
+        // Hydrated first, live second: the live event replaces the synthesis.
+        transport.callResponses.clear();
+        const hydrated = new DeckySpeechAdapter(new DeckyBackendClient(transport));
+        hydrated.subscribe(() => undefined);
+        await hydrated.hydrateSetupFromStatus();
+        transport.emit("setup_progress", SETUP_SNAPSHOTS.download);
+        expect(hydrated.setupProgress.getSnapshot()).toEqual(SETUP_SNAPSHOTS.download);
+    });
+
+    it("does not synthesize a failure unless the report records one and nothing is running", async () => {
+        const healthy = {
+            ...FAILED_GET_STATUS_REPORT,
+            runtime: { ...FAILED_GET_STATUS_REPORT.runtime, lastFailure: null },
+        };
+        const running = {
+            ...FAILED_GET_STATUS_REPORT,
+            runtime: { ...FAILED_GET_STATUS_REPORT.runtime, running: true },
+        };
+        const disabled = {
+            ...FAILED_GET_STATUS_REPORT,
+            runtime: { ...FAILED_GET_STATUS_REPORT.runtime, enabled: false },
+        };
+        const downloading = { ...FAILED_GET_STATUS_REPORT, modelDownloadInProgress: true };
+
+        for (const report of [healthy, running, disabled, downloading]) {
+            const transport = new FakeDeckyTransport();
+            transport.callResponses.set("get_status", report);
+            const adapter = new DeckySpeechAdapter(new DeckyBackendClient(transport));
+
+            await adapter.hydrateSetupFromStatus();
+
+            expect(adapter.setupProgress.getSnapshot()).toBeNull();
+        }
+
+        // A malformed payload is dropped, never rendered (§99).
+        const entries: LogEntry[] = [];
+        const transport = new FakeDeckyTransport();
+        transport.callResponses.set("get_status", { nope: true });
+        const adapter = new DeckySpeechAdapter(
+            new DeckyBackendClient(transport),
+            new Logger("speech.runtime", (entry) => entries.push(entry)),
+        );
+        await adapter.hydrateSetupFromStatus();
+        expect(adapter.setupProgress.getSnapshot()).toBeNull();
+        expect(entries.some((entry) => entry.message.includes("get_status"))).toBe(true);
+    });
+
+    it("clamps a status stepIndex outside the frozen step range back to 0", async () => {
+        const transport = new FakeDeckyTransport();
+        transport.callResponses.set("get_status", {
+            ...FAILED_GET_STATUS_REPORT,
+            runtime: {
+                ...FAILED_GET_STATUS_REPORT.runtime,
+                lastFailure: { code: "RUNTIME_START_FAILED", stepIndex: 99 },
+            },
+        });
+        const adapter = new DeckySpeechAdapter(new DeckyBackendClient(transport));
+
+        await adapter.hydrateSetupFromStatus();
+
+        expect(adapter.setupProgress.getSnapshot()).toMatchObject({
+            step: "failed",
+            stepIndex: 0,
+            error: { code: "RUNTIME_START_FAILED" },
+        });
     });
 });
 

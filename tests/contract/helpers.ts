@@ -158,6 +158,25 @@ export const SETUP_SNAPSHOTS = {
     },
 } as const satisfies Record<string, SetupProgressSnapshot>;
 
+/**
+ * Real-shaped `get_status` failure report (§30/§67): the backend recorded a
+ * failed §82 startup (MODEL_DOWNLOAD_FAILED at the model.ensure step), the
+ * daemon is down, the plugin is enabled and no download is in flight. Drives
+ * the setup-panel failure hydration in the adapter, panel and harness tests.
+ */
+export const FAILED_GET_STATUS_REPORT = {
+    protocolVersion: 1,
+    runtime: {
+        running: false,
+        state: "stopped",
+        restartAttempts: 0,
+        enabled: true,
+        lastFailure: { code: "MODEL_DOWNLOAD_FAILED", stepIndex: 1 },
+    },
+    speech: { protocolVersion: 1, state: "ready", activeSessionId: null, counters: {} },
+    modelDownloadInProgress: false,
+} as const;
+
 /** Decky transport double: records callable routes and dispatches events. */
 export class FakeDeckyTransport implements DeckyTransport {
     readonly calls: { route: string; args: unknown[] }[] = [];

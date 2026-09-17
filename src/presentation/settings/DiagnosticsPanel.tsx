@@ -32,6 +32,13 @@ import type { CapabilityState } from "./CapabilityChip";
 export interface DiagnosticsSource {
     loadCapabilityReport(): Promise<KeyboardCapabilityReport | null>;
     loadSpeechCapabilities(): Promise<SpeechCapabilities | null>;
+    /**
+     * Hydrates the setup store from the §30 status report so a startup
+     * failure that fired before the panel subscribed still renders (live
+     * events always win). No-op when the runtime is fine or a snapshot
+     * already exists.
+     */
+    hydrateSetupProgress(): Promise<void>;
     restartRuntime(): Promise<void>;
 }
 
