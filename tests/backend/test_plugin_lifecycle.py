@@ -15,6 +15,10 @@ from pathlib import Path
 
 import main
 import pytest
+from backend.domain.contracts import (
+    EVENT_MODEL_DOWNLOAD_PROGRESS,
+    EVENT_SETUP_PROGRESS,
+)
 from backend.domain.errors import InternalError
 
 
@@ -23,6 +27,7 @@ class _FakeApplication:
 
     def __init__(self) -> None:
         self.calls: list[str] = []
+        self.publisher: object | None = None  # recorded compose kwarg
 
     async def start(self) -> None:
         self.calls.append("start")
@@ -39,14 +44,36 @@ class _FakeApplication:
         return {"state": "fake"}
 
 
+class _FakeDeckyModule:
+    """Loader-shaped `decky_plugin` stand-in (sandboxed_plugin.py:99-110).
+
+    Exposes exactly what main.py reads: the module-level async `emit` and the
+    `DECKY_PLUGIN_RUNTIME_DIR` persistent-data global.
+    """
+
+    def __init__(self, runtime_dir: Path) -> None:
+        self.emitted: list[tuple[str, dict[str, object]]] = []
+        self.DECKY_PLUGIN_RUNTIME_DIR = str(runtime_dir)
+
+    async def emit(self, event_name: str, payload: dict[str, object]) -> None:
+        self.emitted.append((event_name, payload))
+
+
 def _patch_compose(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> list[_FakeApplication]:
     """Route main.compose to a spy; pin the composition arguments."""
+
     apps: list[_FakeApplication] = []
 
-    def fake_compose(*, plugin_root: Path, data_dir: Path) -> _FakeApplication:
+    def fake_compose(
+        *,
+        plugin_root: Path,
+        data_dir: Path,
+        event_publisher: object | None = None,
+    ) -> _FakeApplication:
         assert plugin_root == Path(main.__file__).resolve().parent
         assert data_dir == tmp_path  # SPEECHTODECK_DATA_DIR override
         app = _FakeApplication()
+        app.publisher = event_publisher
         apps.append(app)
         return app
 
@@ -150,3 +177,69 @@ def test_callable_after_unload_fails_closed(
         assert apps[0].calls.count("dispose") == 1
 
     asyncio.run(scenario())
+
+
+def test_composition_under_decky_wires_emit_transport(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Audit must-fix 1: under the loader, composition wires the real event
+    transport (DeckyEventPublisher over the module-level `decky_plugin.emit`),
+    so setup_progress/model events reach the frontend instead of only logs."""
+
+    async def scenario() -> None:
+        decky = _FakeDeckyModule(tmp_path / "decky-data")
+        monkeypatch.setattr(main, "_DECKY", decky)
+        apps = _patch_compose(monkeypatch, tmp_path)
+        plugin = main.Plugin()
+
+        await plugin._migration()
+
+        publisher = apps[0].publisher
+        assert isinstance(publisher, main.DeckyEventPublisher)
+
+        # Frozen §30 event names flow through the wired transport and reach
+        # the loader emit spy with (name, payload) intact.
+        await publisher.publish(EVENT_SETUP_PROGRESS, {"step": 0, "percent": 0})
+        await publisher.publish(EVENT_MODEL_DOWNLOAD_PROGRESS, {"percent": 10})
+        assert [name for name, _ in decky.emitted] == [
+            EVENT_SETUP_PROGRESS,
+            EVENT_MODEL_DOWNLOAD_PROGRESS,
+        ]
+
+    asyncio.run(scenario())
+
+
+def test_composition_without_decky_keeps_logging_publisher_default(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """No loader (tests, tooling): compose keeps its LoggingEventPublisher
+    default via the explicit `event_publisher=None` argument."""
+
+    async def scenario() -> None:
+        monkeypatch.setattr(main, "_DECKY", None)
+        apps = _patch_compose(monkeypatch, tmp_path)
+        plugin = main.Plugin()
+
+        await plugin._migration()
+
+        assert apps[0].publisher is None
+
+    asyncio.run(scenario())
+
+
+def test_data_dir_resolution_uses_loader_persistent_data_global(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Audit must-fix 2: the data dir is `DECKY_PLUGIN_RUNTIME_DIR` (loader
+    mapping `$DECKY_HOME/data/<plugin>`); `DECKY_PLUGIN_HOME` never existed."""
+
+    decky = _FakeDeckyModule(tmp_path / "decky-data")
+    monkeypatch.delenv("SPEECHTODECK_DATA_DIR", raising=False)
+    monkeypatch.setattr(main, "_DECKY", decky)
+    assert main._resolve_data_dir() == tmp_path / "decky-data"
+
+    # The loader module defaults its globals to "" when the env var is absent
+    # (decky.py os.getenv default): an empty value falls back to the local dev
+    # path, never Path("").
+    decky.DECKY_PLUGIN_RUNTIME_DIR = ""
+    assert main._resolve_data_dir() == Path.home() / ".local" / "share" / "SpeechToDeck"

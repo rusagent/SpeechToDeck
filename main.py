@@ -27,7 +27,9 @@ if str(_PLUGIN_DIR) not in sys.path:
     sys.path.insert(0, str(_PLUGIN_DIR))
 
 from backend.composition import Application, compose  # noqa: E402
+from backend.domain.contracts import EventPublisher  # noqa: E402
 from backend.domain.errors import InternalError, SpeechError  # noqa: E402
+from backend.infrastructure.decky_events import DeckyEventPublisher  # noqa: E402
 
 try:  # Decky loader injects this module into the plugin process.
     import decky_plugin  # type: ignore[import-not-found]
@@ -42,19 +44,44 @@ _DATA_DIR_ENV = "SPEECHTODECK_DATA_DIR"
 
 
 def _resolve_data_dir() -> Path:
-    """Plugin data dir: explicit override → Decky home → local dev fallback.
+    """Plugin data dir: explicit override → Decky persistent data → local fallback.
 
-    The override also lets tests and tooling isolate all writable state
-    (§109: writable paths restricted to the plugin data directory).
+    Under the Decky loader the sanctioned persistent data directory is
+    `DECKY_PLUGIN_RUNTIME_DIR`: the loader maps it to `$DECKY_HOME/data/<plugin>`
+    and pre-creates it before start (loader plugin.py:72-79). Despite the
+    "RUNTIME" name it is the persistent per-plugin data dir — the loader never
+    clears it and no `DECKY_PLUGIN_DATA_DIR` global exists (loader audit
+    2026-09-17, finding 5: `DECKY_PLUGIN_HOME` does not exist). Our app-level
+    transient state stays scoped under `<data_dir>/runtime`
+    (`PluginPaths.runtime_dir`). The override also lets tests and tooling
+    isolate all writable state (§109: writable paths restricted to the plugin
+    data directory).
     """
     override = os.environ.get(_DATA_DIR_ENV)
     if override:
         return Path(override)
     decky = _DECKY
-    home = getattr(decky, "DECKY_PLUGIN_HOME", None) if decky is not None else None
-    if isinstance(home, str) and home:
-        return Path(home)
+    data_dir = getattr(decky, "DECKY_PLUGIN_RUNTIME_DIR", None) if decky is not None else None
+    # The loader module defaults every global to "" when its env var is absent,
+    # so an empty string must fall through to the local dev path, never Path("").
+    if isinstance(data_dir, str) and data_dir:
+        return Path(data_dir)
     return Path.home() / ".local" / "share" / "SpeechToDeck"
+
+
+def _resolve_event_publisher() -> EventPublisher | None:
+    """The real Decky event transport when running under the loader.
+
+    `decky_plugin.emit` is a module-level coroutine patched in by the loader
+    (sandboxed_plugin.py:99-110), so the bound callable is passed directly.
+    Without Decky (tests, tooling) `None` keeps the `compose` default
+    (`LoggingEventPublisher`, events logged with transcript text redacted).
+    """
+    decky = _DECKY
+    emit = getattr(decky, "emit", None) if decky is not None else None
+    if not callable(emit):
+        return None
+    return DeckyEventPublisher(emit)
 
 
 class Plugin:
@@ -140,6 +167,7 @@ class Plugin:
                 self._app = compose(
                     plugin_root=_PLUGIN_DIR,
                     data_dir=_resolve_data_dir(),
+                    event_publisher=_resolve_event_publisher(),
                 )
             return self._app
 

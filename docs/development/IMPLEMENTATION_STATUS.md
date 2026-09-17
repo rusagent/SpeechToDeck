@@ -255,20 +255,36 @@ A-D remain open and the §116 exit gate has not been evaluated):
 
 ## Documented transport seam
 
-`main.py` composes the backend with `LoggingEventPublisher` at the
-`EventPublisher` port: without a Decky event transport, events are logged with
-transcript text redacted (§73) instead of being silently dropped. The real
-loader wiring point is the `event_publisher` parameter of
-`backend.composition.compose`; the Decky-facing callable transport
-(`DeckyApiTransport`) is implemented on the frontend side and imported only by
-the composition root.
+Under the Decky loader, `main.py` composes the backend with
+`DeckyEventPublisher` (`backend/infrastructure/decky_events.py`) at the
+`EventPublisher` port: `publish` awaits the loader's module-level
+`decky_plugin.emit(event, payload)` (sandboxed_plugin.py:99-110) with §106
+containment. Without a Decky event transport (tests, local tooling) the
+`compose` default (`LoggingEventPublisher`) logs events with transcript text
+redacted (§73) instead of silently dropping them. The wiring point is the
+`event_publisher` parameter of `backend.composition.compose`; the Decky-facing
+callable transport (`DeckyApiTransport`) is implemented on the frontend side.
+
+## Loader contract audit applied (main @ 82fa163, 2026-09-17)
+
+Both must-fix findings from `.tmp/audit/loader-contract-audit.md` are
+implemented:
+
+1. Event transport unwired (finding 1): `DeckyEventPublisher` now adapts the
+   `EventPublisher` port to `await decky_plugin.emit(...)` and `main.py`
+   passes it to `compose(event_publisher=...)`, so `transcript_ready`,
+   `runtime_status`, `setup_progress` and `speech_error` actually reach the
+   frontend. `DECKY_PLUGIN_HOME` did not exist (finding 5): `_resolve_data_dir`
+   now reads `DECKY_PLUGIN_RUNTIME_DIR` (the loader's persistent
+   `$DECKY_HOME/data/<plugin>`; no `DECKY_PLUGIN_DATA_DIR` global exists).
+   The optional `DECKY_PLUGIN_SETTINGS_DIR` settings relocation stays open.
 
 ## Next actions
 
 1. Phase-0 hardware spikes (§115 A-D) on Deck hardware; evaluate the §116 exit
    gate before finalizing any architecture assumption.
-2. Wire the real Decky loader transport for backend events (replace
-   `LoggingEventPublisher` at the `compose` seam) and verify one live
-   callable/event round-trip through the loader.
+2. Verify one live callable/event round-trip through the loader on Deck
+   hardware (the wiring is unit-tested; the loader transport is not executable
+   in the development sandbox).
 3. Packaging lane: `scripts/validate-package.mjs` against §112 (CI job is
    declared and skips until the script exists).
