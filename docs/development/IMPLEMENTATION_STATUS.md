@@ -301,6 +301,44 @@ later) are fixed:
    live `setup_progress` events always win. Visual harness: new
    `setup-hydrated-failed-en` capture (real adapter hydration, no live event).
 
+## Adopted mature-plugin patterns (main, 2026-09-17, v0.1.5)
+
+Per `.tmp/audit/mature-plugin-patterns.md` (shipped-plugin + loader sources
+under `.tmp/audit/repos/`):
+
+1. **Download TLS context (the on-device CERTIFICATE_VERIFY_FAILED blocker)**:
+   `UrllibModelFetcher` now resolves one TLS context — the Decky loader's
+   certifi context via the loader's bare-name module aliasing (`from helpers
+   import get_ssl_context`; decky-loader helpers.py:23, sandboxed_plugin.py:93-96,
+   the shipped decky-steamgriddb main.py:12/50 shape), else the explicit system
+   CA chain (`/etc/ssl/certs/ca-certificates.crt` → `/etc/ssl/cert.pem` →
+   `/etc/pki/tls/certs/ca-bundle.crt` → default verify paths) outside the
+   loader. The chosen context is logged (`speech.model` journal line), passed
+   to every urlopen, and verification is never disabled (the CssLoader
+   `verify_ssl=False` pattern is explicitly rejected by the audit). Live
+   download through a real loader on Deck hardware stays the open proof.
+2. **Child-process orphan hardening**: the daemon spawn applies
+   `prctl(PR_SET_PDEATHSIG, SIGTERM)` in a race-safe preexec (set → re-check
+   `getppid()` → exit if the parent already died; DeckyEQ worker.py:10-15 /
+   decky-copyparty main.py:36-37 pattern), closing the loader dispose hole
+   (loader kills only the plugin process: `KillMode=process`, SIGKILL after
+   the 5 s window) where the daemon previously survived as an init-reparented
+   orphan. The §38 process-group SIGTERM→SIGKILL ladder is unchanged;
+   non-Linux platforms spawn without the hardening.
+3. **Subprocess env (verified, no change needed)**: the audit's ludusavi
+   pattern (copy full env, delete `LD_LIBRARY_PATH`, explicit `env=` on every
+   spawn) is exceeded by our `child_environment` minimal allowlist —
+   `LD_LIBRARY_PATH` is never forwarded and both production spawn sites
+   (`daemon_supervisor._spawn`, the §47 probe) pass an explicit `env=`.
+4. **Settings persistence (not adopted)**: the loader's `SettingsManager`
+   pattern exists (audit §3, decky-steamgriddb main.py:43) for future
+   consideration; our `SettingsRepository` is spec-mandated (§55-§56).
+5. **Setup-progress events (verified, no change needed)**: our throttled,
+   awaited per-chunk/per-heartbeat emission over `EventPublisher` →
+   `await decky_plugin.emit(...)` matches the shipped DeckSMB/ludusavi
+   emit mechanism (one JSON socket line per event, loader-dispatched);
+   no correctness gap against the audit pattern.
+
 ## Next actions
 
 1. Phase-0 hardware spikes (§115 A-D) on Deck hardware; evaluate the §116 exit

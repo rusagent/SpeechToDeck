@@ -13,8 +13,11 @@ import asyncio
 import hashlib
 import http.server
 import socket
+import ssl
+import sys
 import threading
 import time
+import urllib.request
 from itertools import pairwise
 from pathlib import Path
 
@@ -27,6 +30,7 @@ from backend.application.setup_progress import (
 )
 from backend.domain.contracts import EVENT_MODEL_DOWNLOAD_COMPLETE, EVENT_SETUP_PROGRESS, ModelInfo
 from backend.domain.errors import ModelDownloadFailedError, TransientModelDownloadError
+from backend.infrastructure.model import model_store
 from backend.infrastructure.model.model_manifest import ModelManifest
 from backend.infrastructure.model.model_store import (
     ModelDownloadCancelled,
@@ -224,6 +228,122 @@ def test_transport_failure_is_transient_with_reason_and_host() -> None:
         # generic wrapper name): connection refused on Linux is
         # ConnectionRefusedError.
         assert "ConnectionRefusedError" in detail
+
+    asyncio.run(scenario())
+
+
+# ── TLS context selection (mature-plugin adopt; audit 2026-09-17) ──────────
+#
+# On device the plugin runs as a fork of the frozen Decky loader whose
+# bundled OpenSSL does not resolve the OS CA store: downloads failed with
+# CERTIFICATE_VERIFY_FAILED. The production selection takes the loader's
+# certifi context via the loader's bare-name module aliasing, else the
+# explicit system CA chain. Verification is never disabled (audit: the
+# shipped CssLoader verify_ssl=False pattern is explicitly rejected).
+
+
+class _FakeLoaderHelpers:
+    """Stand-in for the loader-aliased `decky_loader.helpers` module.
+
+    The loader aliases every `decky_loader.*` module to its bare name before
+    executing main.py (sandboxed_plugin.py:93-96), so plugin code imports
+    `helpers` from sys.modules — the exact decky-steamgriddb import shape
+    (main.py:12 `from helpers import get_ssl_context`).
+    """
+
+    def __init__(self, context: ssl.SSLContext) -> None:
+        self.context = context
+
+    def get_ssl_context(self) -> ssl.SSLContext:
+        return self.context
+
+
+def test_loader_context_is_chosen_when_loader_module_is_aliased(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Loader present: the aliased `helpers` module's context is the chosen
+    download TLS context, still requiring certificates (loader mechanism:
+    decky-loader helpers.py:23,31-32 via sandboxed_plugin.py:93-96)."""
+    loader_context = ssl.create_default_context()
+    monkeypatch.setitem(sys.modules, "helpers", _FakeLoaderHelpers(loader_context))
+    monkeypatch.setattr(model_store, "_resolved_tls", None)
+
+    context, source = model_store.resolve_download_tls_context()
+
+    assert context is loader_context
+    assert "loader" in source  # the audit label reports the loader context
+    assert context.verify_mode == ssl.CERT_REQUIRED  # verification never disabled
+
+
+def test_no_loader_falls_back_to_system_ca_chain_in_order(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """No loader (`helpers` import fails): the first existing system CA
+    bundle wins, and with no bundle at all the default verify paths remain —
+    always a certificate-requiring context."""
+    # sys.modules[name] = None makes the bare import raise ImportError
+    # deterministically, without depending on the host module search path.
+    monkeypatch.setitem(sys.modules, "helpers", None)
+    monkeypatch.setattr(model_store, "_resolved_tls", None)
+    # Real PEM bodies: the resolution loads the winning bundle as a trust
+    # anchor, so the candidates must be actual certificates (throwaway test
+    # CA, public material only).
+    ca_pem = (Path(__file__).parent / "fixtures" / "test-ca-cert.pem").read_bytes()
+    first = tmp_path / "ca-certificates.crt"
+    second = tmp_path / "ca-bundle.crt"
+    first.write_bytes(ca_pem)
+    second.write_bytes(ca_pem)
+
+    monkeypatch.setattr(
+        model_store,
+        "_CA_CANDIDATES",
+        (str(tmp_path / "missing.crt"), str(first), str(second)),
+    )
+    context, source = model_store.resolve_download_tls_context()
+    assert "ca-certificates.crt" in source  # first *existing* candidate wins
+    assert context.verify_mode == ssl.CERT_REQUIRED
+
+    monkeypatch.setattr(model_store, "_resolved_tls", None)
+    monkeypatch.setattr(model_store, "_CA_CANDIDATES", (str(tmp_path / "missing.crt"),))
+    context, source = model_store.resolve_download_tls_context()
+    assert "default" in source
+    assert context.verify_mode == ssl.CERT_REQUIRED
+
+
+def test_download_passes_selected_context_to_urlopen(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Integration through the real transport and §51 store algorithm: the
+    selected TLS context is the one handed to urlopen (the on-device
+    CERTIFICATE_VERIFY_FAILED wall; steamgriddb main.py:50,65 shape)."""
+
+    loader_context = ssl.create_default_context()
+    seen: list[ssl.SSLContext | None] = []
+    real_urlopen = urllib.request.urlopen
+
+    def recording_urlopen(*args: object, **kwargs: object) -> object:
+        seen.append(kwargs.get("context"))  # type: ignore[arg-type]
+        return real_urlopen(*args, **kwargs)  # type: ignore[arg-type]
+
+    monkeypatch.setitem(sys.modules, "helpers", _FakeLoaderHelpers(loader_context))
+    monkeypatch.setattr(model_store, "_resolved_tls", None)
+    monkeypatch.setattr(urllib.request, "urlopen", recording_urlopen)
+
+    async def scenario() -> None:
+        server = _FixtureServer()
+        try:
+            models_dir = tmp_path / "models"
+            models_dir.mkdir(parents=True)
+            store = ModelStore(
+                ModelManifest(models=(make_info(f"{server.base_url}/ok"),)),
+                models_dir,
+                UrllibModelFetcher(),
+            )
+            await store.download("base")
+            assert (models_dir / "ggml-base.bin").read_bytes() == PAYLOAD  # intact end to end
+            assert seen == [loader_context]  # the chosen context reached urlopen
+        finally:
+            server.stop()
 
     asyncio.run(scenario())
 

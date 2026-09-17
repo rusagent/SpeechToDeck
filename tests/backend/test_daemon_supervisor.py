@@ -10,8 +10,10 @@ selection/probe decision points themselves).
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import os
 import signal
+import sys
 import time
 from pathlib import Path
 
@@ -367,6 +369,115 @@ def test_orphan_prevention_via_process_group_kill(tmp_path: Path) -> None:
             pass
 
     asyncio.run(scenario())
+
+
+@pytest.mark.skipif(sys.platform != "linux", reason="PR_SET_PDEATHSIG is Linux-only")
+def test_pdeathsig_ends_daemon_when_backend_process_is_sigkilled(tmp_path: Path) -> None:
+    """Loader dispose hole (mature-plugin adopt; audit 2026-09-17): the
+    loader kills only the plugin process (KillMode=process; SIGKILL after the
+    5 s dispose window), so graceful `_unload` teardown never runs. A backend
+    stand-in starts the REAL supervisor (production `_spawn` wiring) and is
+    SIGKILLed; the kernel-level PDEATHSIG from `daemon_preexec` must end the
+    daemon — the fixture's SIGTERM handler (§38 semantics) deleted its state
+    file."""
+
+    async def scenario() -> None:
+        paths = await prepare_pinned(tmp_path)
+        pid_file = tmp_path / "standin-child-pid"
+        script = tmp_path / "backend_standin.py"
+        script.write_text(
+            "import asyncio\n"
+            "import sys\n"
+            "from pathlib import Path\n"
+            "\n"
+            f"sys.path.insert(0, {str(Path(__file__).resolve().parents[2])!r})\n"
+            "from backend.domain.contracts import DEFAULT_SETTINGS\n"
+            "from backend.infrastructure.process.daemon_supervisor import SpeechDaemonSupervisor\n"
+            "from backend.infrastructure.process.process_environment import (\n"
+            "    PluginPaths,\n"
+            "    ensure_directories,\n"
+            ")\n"
+            "from backend.infrastructure.process.runtime_variant import RuntimeVariantResolver\n"
+            "\n"
+            "\n"
+            "class Publisher:\n"
+            "    async def publish(self, name, payload):\n"
+            "        pass\n"
+            "\n"
+            "\n"
+            "async def main() -> None:\n"
+            "    plugin_root, data_dir, pid_file = sys.argv[1:4]\n"
+            "    paths = PluginPaths(plugin_root=Path(plugin_root), data_dir=Path(data_dir))\n"
+            "    ensure_directories(paths)\n"
+            "\n"
+            "    async def probe(resolver, config_path):  # §47 decision, deterministic\n"
+            "        return False  # cpu\n"
+            "\n"
+            "    supervisor = SpeechDaemonSupervisor(\n"
+            "        paths,\n"
+            "        Publisher(),\n"
+            "        RuntimeVariantResolver(paths, probe=probe),\n"
+            "        model_path_for=lambda model_id: paths.models_dir / 'ggml-base.bin',\n"
+            "    )\n"
+            "    await supervisor.start(DEFAULT_SETTINGS)\n"
+            "    Path(pid_file).write_text(str(supervisor.pid), encoding='utf-8')\n"
+            "    await asyncio.Event().wait()  # held until the test SIGKILLs us\n"
+            "\n"
+            "asyncio.run(main())\n",
+            encoding="utf-8",
+        )
+        standin = await asyncio.create_subprocess_exec(
+            sys.executable,
+            str(script),
+            str(paths.plugin_root),
+            str(paths.data_dir),
+            str(pid_file),
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.STDOUT,
+            stdin=asyncio.subprocess.DEVNULL,
+        )
+        daemon_pid: int | None = None
+        try:
+            assert await wait_until(pid_file.exists, timeout=5.0), (
+                "backend stand-in never reported the daemon pid"
+            )
+            daemon_pid = int(pid_file.read_text(encoding="utf-8").strip())
+            assert daemon_pid is not None
+            assert await wait_until(lambda: paths.status_file.exists(), timeout=5.0), (
+                "fixture daemon never became ready"
+            )
+
+            # The loader dispose hole: the parent is SIGKILLed with no chance
+            # to run any graceful teardown. The kernel must signal the child.
+            os.kill(standin.pid, signal.SIGKILL)
+            await standin.wait()
+
+            assert await wait_until(lambda: not paths.status_file.exists(), timeout=5.0), (
+                "daemon survived the backend SIGKILL (PDEATHSIG hardening missing)"
+            )
+            # The fixture's SIGTERM handler removed the state file: the child
+            # died through the PDEATHSIG SIGTERM path, §38 semantics intact.
+            assert await wait_until(lambda: _pid_gone(daemon_pid), timeout=3.0), (
+                "daemon process still present after the PDEATHSIG SIGTERM"
+            )
+        finally:
+            if standin.returncode is None:
+                with contextlib.suppress(ProcessLookupError):
+                    os.kill(standin.pid, signal.SIGKILL)
+                await standin.wait()
+            if daemon_pid is not None and not _pid_gone(daemon_pid):
+                with contextlib.suppress(ProcessLookupError):
+                    os.kill(daemon_pid, signal.SIGKILL)
+
+    asyncio.run(scenario())
+
+
+def _pid_gone(pid: int) -> bool:
+    try:
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        return True
+    return False
 
 
 def test_stop_is_idempotent(tmp_path: Path) -> None:

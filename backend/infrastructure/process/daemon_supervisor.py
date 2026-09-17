@@ -12,7 +12,12 @@ Owns the native STT daemon child process for its whole lifetime:
   hotkey/notifications/OSD/streaming) and spawns
   `bin/<variant> --config <generated> daemon` — the daemon subcommand takes
   no options upstream; all tuning travels through the config file;
-- spawns via argument-array `create_subprocess_exec` only (§40);
+- spawns via argument-array `create_subprocess_exec` only (§40), and binds
+  the child to this process's lifetime with PR_SET_PDEATHSIG where available
+  (mature-plugin adopt, audit 2026-09-17: the loader kills only the plugin
+  process — KillMode=process + SIGKILL after the dispose window — so the
+  kernel-level parent-death signal closes the orphan hole the group ladder
+  alone cannot);
 - redirects daemon stdout/stderr into a rotating log file under the plugin
   data dir, actively drained from a pipe (§39: no unread pipes, no
   transcript content is ever written by this process itself);
@@ -32,9 +37,15 @@ import json
 import logging
 import os
 import signal
+import sys
 import time
 from collections.abc import Callable
 from pathlib import Path
+
+try:  # PR_SET_PDEATHSIG is Linux-only (prctl(2)); keep other platforms spawnable.
+    import ctypes
+except ImportError:  # pragma: no cover - CPython always ships ctypes
+    ctypes = None  # type: ignore[assignment]
 
 from backend.domain.contracts import (
     EVENT_RUNTIME_STATUS,
@@ -66,6 +77,41 @@ RESTART_STABILITY_WINDOW_S = 60.0
 
 _LOG_MAX_BYTES = 512 * 1024
 _LOG_BACKUPS = 2
+
+# Linux prctl(2) operation: bind the child to this process's lifetime.
+PR_SET_PDEATHSIG = 1
+
+
+def daemon_preexec(parent_pid: int) -> Callable[[], None] | None:
+    """preexec_fn binding the daemon child to this process's lifetime.
+
+    The Decky loader kills only the plugin process: the systemd unit runs
+    `KillMode=process` and the loader SIGKILLs it after the bounded dispose
+    window (loader plugin.py:161,176-183), so a daemon outliving an aborted
+    dispose would survive as an init-reparented orphan (field-documented by
+    decky-copyparty main.py:20-27). PR_SET_PDEATHSIG makes the kernel deliver
+    SIGTERM to the child the moment this process dies — the shipped DeckyEQ
+    worker.py:10-13 / copyparty main.py:36-37 pattern — while the §38
+    SIGTERM→SIGKILL group ladder stays the primary shutdown path. The classic
+    race guard re-checks the parent after fork: when it died between fork and
+    prctl, the child exits immediately instead of outliving the backend
+    (DeckyEQ worker.py:14-15). Returns None where prctl is unavailable
+    (non-Linux platforms).
+    """
+    if ctypes is None or not sys.platform.startswith("linux"):
+        return None
+
+    def preexec() -> None:  # runs in the forked child, before exec
+        libc = ctypes.CDLL(None, use_errno=True)
+        if libc.prctl(PR_SET_PDEATHSIG, signal.SIGTERM, 0, 0, 0) != 0:
+            errno_value = ctypes.get_errno()
+            raise OSError(errno_value, os.strerror(errno_value))
+        if os.getppid() != parent_pid:
+            # The parent already died mid-spawn: never exec the daemon.
+            os._exit(1)
+
+    return preexec
+
 
 # Model path resolver: settings model id → absolute .bin path in the plugin
 # data dir (the ModelStore download target; composition wires it to the
@@ -351,7 +397,9 @@ class SpeechDaemonSupervisor:
         ]
         try:
             # §40: argument-array only. start_new_session gives the daemon its
-            # own process group so the group kill below cannot miss children.
+            # own process group so the group kill below cannot miss children;
+            # PDEATHSIG (when available) additionally ends the child if this
+            # process itself is SIGKILLed outside any graceful path.
             proc = await asyncio.create_subprocess_exec(
                 *argv,
                 stdout=asyncio.subprocess.PIPE,
@@ -360,6 +408,7 @@ class SpeechDaemonSupervisor:
                 env=child_environment(self._paths.data_dir),
                 start_new_session=True,
                 cwd=str(self._paths.data_dir),
+                preexec_fn=daemon_preexec(os.getpid()),
             )
         except OSError as exc:
             raise RuntimeStartError(

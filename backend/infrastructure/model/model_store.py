@@ -10,6 +10,17 @@ HTTP transport is isolated behind `ModelHttpFetcher`; the stdlib urllib
 implementation runs the blocking request and every chunk read on a worker
 thread (asyncio.to_thread, §100), and a threading.Event checked per chunk
 carries cancellation across that thread boundary.
+
+TLS context (mature-plugin adopt, audit 2026-09-17): under the Decky loader
+the plugin process is a fork of the frozen loader binary whose bundled
+OpenSSL does not resolve the OS CA store, so the default context fails with
+CERTIFICATE_VERIFY_FAILED on device. The loader builds one certifi-backed
+context for its own HTTPS (decky-loader helpers.py:9,23) and aliases its
+modules into plugin sys.modules (sandboxed_plugin.py:93-96), so `helpers`
+resolves exactly like the shipped decky-steamgriddb import (main.py:12;
+`urlopen(req, context=get_ssl_context())` at main.py:50,65). Outside the
+loader (tests, local tooling) an explicit system CA chain applies.
+Verification is never disabled.
 """
 
 from __future__ import annotations
@@ -18,7 +29,9 @@ import asyncio
 import contextlib
 import hashlib
 import http.client
+import logging
 import os
+import ssl
 import threading
 import time
 import urllib.error
@@ -54,6 +67,68 @@ PROGRESS_HEARTBEAT_S = 0.1
 _URLOPEN_TIMEOUT_S = 30.0
 
 _PART_SUFFIX = ".part"
+
+LOGGER = logging.getLogger("speech.model")
+
+# System CA bundle candidates for the no-loader fallback (tests, local
+# tooling), most-specific first: SteamOS/Debian, generic OpenSSL, Fedora/RHEL.
+# Under the loader the certifi context wins before this chain is consulted;
+# with no existing bundle the default verify paths are the last resort. A
+# verification-disabling context is never constructed here.
+_CA_CANDIDATES = (
+    "/etc/ssl/certs/ca-certificates.crt",
+    "/etc/ssl/cert.pem",
+    "/etc/pki/tls/certs/ca-bundle.crt",
+)
+
+# Resolved once per process: the loader aliasing cannot change mid-process.
+_resolved_tls: tuple[ssl.SSLContext, str] | None = None
+
+
+def _loader_ssl_context() -> ssl.SSLContext | None:
+    """The Decky loader's certifi context via its bare-name module aliasing.
+
+    Before executing main.py the loader aliases every `decky_loader.*` module
+    to its bare name (sandboxed_plugin.py:93-96), so `helpers` resolves to
+    decky_loader.helpers — the exact import shape shipped by decky-steamgriddb
+    (main.py:12 `from helpers import get_ssl_context`). Returns None outside
+    the loader (ImportError) or for a malformed alias; only a real SSLContext
+    is accepted, so an unexpected alias can never weaken verification.
+    """
+    try:
+        from helpers import get_ssl_context  # type: ignore[import-not-found]
+    except ImportError:
+        return None
+    context = get_ssl_context()
+    return context if isinstance(context, ssl.SSLContext) else None
+
+
+def resolve_download_tls_context() -> tuple[ssl.SSLContext, str]:
+    """TLS context for model downloads plus its audit source label.
+
+    Selection: the loader's certifi context when running under the Decky
+    loader, else the first existing system CA bundle, else the default
+    verify paths (never a verification-disabling context). The label travels
+    into the journal so a TLS failure is attributable to the exact context
+    in use (§73-safe: CA paths are not sensitive).
+    """
+    global _resolved_tls
+    if _resolved_tls is None:
+        loader_context = _loader_ssl_context()
+        if loader_context is not None:
+            _resolved_tls = (loader_context, "decky-loader certifi context")
+        else:
+            for candidate in _CA_CANDIDATES:
+                if Path(candidate).is_file():
+                    _resolved_tls = (
+                        ssl.create_default_context(cafile=candidate),
+                        f"system CA bundle {candidate}",
+                    )
+                    break
+            else:
+                _resolved_tls = (ssl.create_default_context(), "default verify paths")
+        LOGGER.info("model download TLS context: %s", _resolved_tls[1])
+    return _resolved_tls
 
 
 class ModelDownloadCancelled(Exception):
@@ -111,12 +186,16 @@ def _urlopen(url: str) -> http.client.HTTPResponse:
     the stable §68 MODEL_DOWNLOAD_FAILED code with a diagnosable detail
     (reason class + HTTP status/errno + host; §73 lists no transcript/audio
     content). URLError/timeout/connection-reset failures are marked as the
-    transient class the §82 startup path may retry."""
+    transient class the §82 startup path may retry. The request runs with the
+    resolved TLS context (loader certifi context under the Decky loader,
+    explicit system CA chain otherwise) so on-device downloads verify against
+    a CA store the frozen loader interpreter actually resolves."""
     request = urllib.request.Request(url, headers={"Accept": "*/*"}, method="GET")
     host = _url_host(url)
+    context, _ = resolve_download_tls_context()
     try:
         response: http.client.HTTPResponse = urllib.request.urlopen(
-            request, timeout=_URLOPEN_TIMEOUT_S
+            request, timeout=_URLOPEN_TIMEOUT_S, context=context
         )
     except urllib.error.HTTPError as exc:
         exc.close()  # the error body is never read
@@ -161,7 +240,8 @@ class UrllibModelFetcher:
     request and every body read run on a worker thread via asyncio.to_thread,
     chunk-wise at CHUNK_SIZE; a threading.Event checked per chunk carries
     cancellation across the thread boundary (a read already in flight is
-    bounded by one chunk).
+    bounded by one chunk). The request carries the resolved TLS context
+    (`resolve_download_tls_context`).
     """
 
     async def open(self, url: str) -> DownloadStream:
