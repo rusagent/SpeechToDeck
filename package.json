@@ -1,6 +1,6 @@
 {
     "name": "speechtodeck",
-    "version": "0.1.0",
+    "version": "0.1.1",
     "private": true,
     "description": "Steam Deck plugin: a microphone button for the Steam virtual keyboard that transcribes speech locally and inserts the final transcript as one complete payload.",
     "type": "module",
@@ -36,10 +36,11 @@
         }
     ],
     "devDependencies": {
+        "@decky/rollup": "^1.0.2",
         "@rollup/plugin-commonjs": "29.0.3",
-        "@rollup/plugin-json": "6.1.0",
         "@rollup/plugin-node-resolve": "16.0.3",
         "@testing-library/react": "16.3.3",
+        "@types/node": "^24.13.5",
         "@types/react": "~18.3.31",
         "@types/react-dom": "~18.3.7",
         "eslint": "10.10.0",

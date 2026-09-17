@@ -6,9 +6,10 @@ fakes (`FakeSettingsPort`, `FakeStateStore`) and realistic capability
 reports.
 
 `@decky/ui` resolves its field primitives from Steam's webpack runtime, so
-they cannot run in a plain browser. The plugin bundle already treats
-`@decky/ui` as a runtime global (`DeckyUI`, see `rollup.config.mjs`); this
-harness provides that global through `decky-ui-standin.js`, a static
+they cannot run in a plain browser. The plugin bundle treats `@decky/ui` as
+a runtime global (`DFL` on the Steam page, see `rollup.config.mjs`); this
+harness maps it to its own `DeckyUI` global (`tests/visual/rollup.config.mjs`)
+and provides that global through `decky-ui-standin.js`, a static
 re-creation of the Deck visual language (see its header comment for the
 cited tokens: Motiva Sans stack, hairline-divided panel sections, Steam
 blue accent #1a9fff, state colors #5ac189/#ff5c5c/#8f98a0). No production

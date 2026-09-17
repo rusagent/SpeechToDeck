@@ -36,7 +36,9 @@ import { isSpeechCapabilities } from "./application/ports/SpeechPort";
 import type { SettingsPort } from "./application/ports/SettingsPort";
 import type { DictationState } from "./domain/DictationState";
 
-export class PluginCompositionRoot implements Disposable {
+// Entry-module contract: the ONLY export is the callable default (the loader
+// evaluates `m.default()`); the composition root is internal wiring.
+class PluginCompositionRoot implements Disposable {
     private readonly resources: Disposable[] = [];
     private readonly lifecycle: PluginLifecycle;
     private readonly presenter: MicrophoneControlPresenter;
