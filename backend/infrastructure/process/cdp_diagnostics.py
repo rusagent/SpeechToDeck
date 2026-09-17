@@ -18,6 +18,7 @@ mutating code and never reads field contents; transcripts never pass through
 
 from __future__ import annotations
 
+import json
 import logging
 from typing import Any
 
@@ -94,8 +95,6 @@ class CdpDiagnostics:
             # plus the visibility class is the whole observation (§58: read-only).
             value = await self._client.evaluate(session_id, KEYBOARD_PROBE_EXPRESSION)
             if isinstance(value, str):
-                import json
-
                 parsed = json.loads(value)
                 if isinstance(parsed, dict):
                     keyboard_seen = parsed.get("present") is True
