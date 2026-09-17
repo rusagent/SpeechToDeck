@@ -22,3 +22,23 @@ coverage/
 *.bin
 bin/*
 !bin/README.md
+
+# Internal project documentation stays local, out of the public repo
+docs/
+
+# AI/agent tooling artifacts stay local
+.opencode/
+.kilo/
+.kilo*
+.claude/
+CLAUDE.md
+AGENTS.md
+GEMINI.md
+.cursor/
+.cursorrules
+.windsurf/
+.aider*
+.serena/
+.zcode/
+.mcp.json
+.specstory/
