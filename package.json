@@ -1,6 +1,6 @@
 {
     "name": "speechtodeck",
-    "version": "0.1.5",
+    "version": "0.1.6",
     "private": true,
     "description": "Steam Deck plugin: a microphone button for the Steam virtual keyboard that transcribes speech locally and inserts the final transcript as one complete payload.",
     "type": "module",

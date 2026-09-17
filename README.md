@@ -9,7 +9,11 @@ no automatic submit.
 
 - A mic button is mounted into the Steam virtual keyboard through a strict
   anti-corruption layer; all undocumented Steam internals stay inside
-  `src/infrastructure/steam/`.
+  `src/infrastructure/steam/`. The mount works without changing any Steam
+  settings — no "Allow Remote CEF Debugging" toggle is required. Optionally
+  enabling that toggle (Decky settings) enriches the plugin's diagnostics
+  panel with cross-view facts (whether the Steam keyboard view is reachable
+  and showing); the dictation feature itself never depends on it.
 - Recording flows through an explicit state machine (a discriminated union, no
   boolean flag soup): record full utterance → stop → transcribe → insert one
   complete string via clipboard + one paste action.
