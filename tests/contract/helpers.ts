@@ -12,6 +12,7 @@ import type { PasteActionPort } from "../../src/application/ports/PasteActionPor
 import type { Disposable } from "../../src/shared/Disposable";
 import type { DictationState } from "../../src/domain/DictationState";
 import type { StateStore } from "../../src/application/DictationController";
+import type { SetupProgressSnapshot } from "../../src/application/ports/SetupProgressPort";
 import type { DeckyTransport } from "../../src/infrastructure/decky/DeckyBackendClient";
 
 export class FakeClipboardPort implements ClipboardPort {
@@ -81,9 +82,81 @@ export class FakeStateStore implements StateStore<DictationState> {
     }
 }
 
+/** Generic in-memory snapshot store double (e.g. the setup-progress store). */
+export class FakeSnapshotStore<T> {
+    private listeners = new Set<() => void>();
+
+    constructor(private snapshot: T | null) {}
+
+    getSnapshot(): T | null {
+        return this.snapshot;
+    }
+
+    subscribe(listener: () => void): () => void {
+        this.listeners.add(listener);
+        return () => {
+            this.listeners.delete(listener);
+        };
+    }
+
+    set(snapshot: T | null): void {
+        this.snapshot = snapshot;
+        for (const listener of [...this.listeners]) {
+            listener();
+        }
+    }
+}
+
 interface DeckySubscription {
     readonly listeners: Set<(...args: unknown[]) => void>;
 }
+
+/**
+ * Valid `setup_progress` payloads for the panel, adapter and harness tests.
+ * Determinate download sits at 37% of step 1 (overall = 25 + 37/4 = 34);
+ * the failed payload fails the daemon step with a mapped §68 code.
+ */
+export const SETUP_SNAPSHOTS = {
+    download: {
+        protocolVersion: 1,
+        step: "model.ensure",
+        labelKey: "setup.step.modelEnsure",
+        stepIndex: 1,
+        totalSteps: 4,
+        percent: 37,
+        indeterminate: false,
+        detailKey: "setup.detail.downloading",
+    },
+    indeterminate: {
+        protocolVersion: 1,
+        step: "daemon.start",
+        labelKey: "setup.step.daemonStart",
+        stepIndex: 2,
+        totalSteps: 4,
+        percent: 0,
+        indeterminate: true,
+        detailKey: "setup.detail.spawning",
+    },
+    failed: {
+        protocolVersion: 1,
+        step: "failed",
+        labelKey: "setup.state.failed",
+        stepIndex: 2,
+        totalSteps: 4,
+        percent: 0,
+        indeterminate: false,
+        error: { code: "MODEL_DOWNLOAD_FAILED" },
+    },
+    ready: {
+        protocolVersion: 1,
+        step: "ready",
+        labelKey: "setup.state.ready",
+        stepIndex: 4,
+        totalSteps: 4,
+        percent: 100,
+        indeterminate: false,
+    },
+} as const satisfies Record<string, SetupProgressSnapshot>;
 
 /** Decky transport double: records callable routes and dispatches events. */
 export class FakeDeckyTransport implements DeckyTransport {

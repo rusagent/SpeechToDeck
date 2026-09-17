@@ -23,6 +23,7 @@ import type { DictationState } from "../../domain/DictationState";
 import type { StateStore } from "../../application/DictationController";
 import type { PluginSettings, SettingsPort } from "../../application/ports/SettingsPort";
 import type { SpeechCapabilities } from "../../application/ports/SpeechPort";
+import type { SetupProgressSnapshot } from "../../application/ports/SetupProgressPort";
 import { translate, translateRuntimeHealth } from "../i18n/messages";
 import type { Locale, MessageKey } from "../i18n/messages";
 import { CapabilityChip, capabilityState } from "./CapabilityChip";
@@ -31,10 +32,12 @@ import { DiagnosticsPanel } from "./DiagnosticsPanel";
 import type { DiagnosticsSource } from "./DiagnosticsPanel";
 import { LanguagePicker } from "./LanguagePicker";
 import { ModelPicker } from "./ModelPicker";
+import { SetupProgressPanel } from "./SetupProgressPanel";
 
 export interface SettingsPanelProps {
     readonly settings: SettingsPort;
     readonly store: StateStore<DictationState>;
+    readonly setupProgress: StateStore<SetupProgressSnapshot | null>;
     readonly diagnostics: DiagnosticsSource;
     readonly locale?: Locale;
 }
@@ -52,6 +55,7 @@ function optionLabel(locale: Locale, prefix: string, value: string): string {
 export function SettingsPanel({
     settings,
     store,
+    setupProgress,
     diagnostics,
     locale = "en",
 }: SettingsPanelProps): React.ReactElement {
@@ -69,6 +73,20 @@ export function SettingsPanel({
     );
     const getSnapshot = React.useMemo(() => () => store.getSnapshot(), [store]);
     const runtimeState = React.useSyncExternalStore(subscribe, getSnapshot);
+    // Setup progress is transport-level UI state with its own dedicated
+    // store; same bound-accessor pattern (§102), never the dictation machine.
+    const subscribeSetup = React.useMemo(
+        () => (onChange: () => void) => setupProgress.subscribe(onChange),
+        [setupProgress],
+    );
+    const getSetupSnapshot = React.useMemo(
+        () => () => setupProgress.getSnapshot(),
+        [setupProgress],
+    );
+    const setup = React.useSyncExternalStore(subscribeSetup, getSetupSnapshot);
+    // Shown while the runtime is setting up or failed; terminal `ready`
+    // hides it again, and a disabled plugin shows no progress at all.
+    const showSetup = value !== null && value.enabled && setup !== null && setup.step !== "ready";
 
     React.useEffect(() => {
         let cancelled = false;
@@ -121,6 +139,16 @@ export function SettingsPanel({
             {saveError ? (
                 <PanelSectionRow>
                     <span role="alert">⚠ {translate(locale, "setting.saveFailed")}</span>
+                </PanelSectionRow>
+            ) : null}
+
+            {showSetup && setup !== null ? (
+                <PanelSectionRow>
+                    <SetupProgressPanel
+                        snapshot={setup}
+                        locale={locale}
+                        onRetry={() => diagnostics.restartRuntime()}
+                    />
                 </PanelSectionRow>
             ) : null}
 

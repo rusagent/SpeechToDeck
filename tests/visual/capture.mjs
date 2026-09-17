@@ -211,6 +211,14 @@ function storeShot() {
 shot("panel-en-top", "case=panel&locale=en");
 shot("panel-en-diag", "case=panel&locale=en&scroll=Diagnostics", { sectionTitle: "Diagnostics" });
 shot("panel-de-top", "case=panel&locale=de");
+// Setup progress, REAL panel with the dedicated store preset per state:
+// active-indeterminate daemon step, determinate download at 37%, failed with
+// retry (EN + DE), and terminal ready hiding the panel again.
+shot("setup-indeterminate-en", "case=setup&variant=indeterminate&locale=en", { height: 320 });
+shot("setup-download-en", "case=setup&variant=download&locale=en", { height: 320 });
+shot("setup-failed-en", "case=setup&variant=failed&locale=en", { height: 400 });
+shot("setup-failed-de", "case=setup&variant=failed&locale=de", { height: 400 });
+shot("setup-ready-hidden-en", "case=setup&variant=ready&locale=en", { height: 320 });
 // Microphone button, all four §20 states in one clip (EN + DE error text).
 shot("mic-states-en", "case=mic&locale=en", { height: 160 });
 shot("mic-states-de", "case=mic&locale=de", { height: 160 });
