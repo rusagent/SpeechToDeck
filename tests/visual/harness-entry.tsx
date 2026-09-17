@@ -25,27 +25,39 @@ import type { DictationState } from "../../src/domain/DictationState";
 import type { DiagnosticsSource } from "../../src/presentation/settings/DiagnosticsPanel";
 import type { KeyboardCapabilityReport } from "../../src/domain/Capability";
 import type { SpeechCapabilities } from "../../src/application/ports/SpeechPort";
+import type { SetupProgressSnapshot } from "../../src/application/ports/SetupProgressPort";
 import { FakeSettingsPort } from "../../tests/frontend/fakes/FakeSettingsPort";
-import { FakeStateStore } from "../../tests/contract/helpers";
+import { SETUP_SNAPSHOTS, FakeSnapshotStore, FakeStateStore } from "../../tests/contract/helpers";
 
-export type HarnessCaseId = "panel" | "mic";
+export type HarnessCaseId = "panel" | "mic" | "setup";
+
+/** Which `setup_progress` snapshot the setup case mounts (REAL component). */
+export type HarnessSetupVariant = keyof typeof SETUP_SNAPSHOTS | "none";
 
 export interface HarnessParams {
     readonly caseId: HarnessCaseId;
     readonly locale: Locale;
     /** Store state for the panel case: `ready` | `recording` | `error`. */
     readonly stateKind: "ready" | "recording" | "error";
+    /** Setup snapshot for the setup case. */
+    readonly setup: HarnessSetupVariant;
     /** Optional `data-panel-title` of the section to scroll into view. */
     readonly scroll: string | null;
 }
 
 /** Every captured state; the smoke test mounts exactly these. */
 export const CAPTURED_CASES: readonly HarnessParams[] = [
-    { caseId: "panel", locale: "en", stateKind: "ready", scroll: null },
-    { caseId: "panel", locale: "de", stateKind: "ready", scroll: null },
-    { caseId: "panel", locale: "en", stateKind: "recording", scroll: null },
-    { caseId: "mic", locale: "en", stateKind: "ready", scroll: null },
-    { caseId: "mic", locale: "de", stateKind: "ready", scroll: null },
+    { caseId: "panel", locale: "en", stateKind: "ready", setup: "none", scroll: null },
+    { caseId: "panel", locale: "de", stateKind: "ready", setup: "none", scroll: null },
+    { caseId: "panel", locale: "en", stateKind: "recording", setup: "none", scroll: null },
+    { caseId: "mic", locale: "en", stateKind: "ready", setup: "none", scroll: null },
+    { caseId: "mic", locale: "de", stateKind: "ready", setup: "none", scroll: null },
+    // Setup progress: real panel with the dedicated store preset per state.
+    { caseId: "setup", locale: "en", stateKind: "ready", setup: "indeterminate", scroll: null },
+    { caseId: "setup", locale: "en", stateKind: "ready", setup: "download", scroll: null },
+    { caseId: "setup", locale: "en", stateKind: "ready", setup: "failed", scroll: null },
+    { caseId: "setup", locale: "de", stateKind: "ready", setup: "failed", scroll: null },
+    { caseId: "setup", locale: "en", stateKind: "ready", setup: "ready", scroll: null },
 ];
 
 const REPORT: KeyboardCapabilityReport = {
@@ -99,14 +111,19 @@ function fakeState(stateKind: HarnessParams["stateKind"]): DictationState {
 function PanelCase({
     locale,
     stateKind,
+    setup,
 }: {
     locale: Locale;
     stateKind: HarnessParams["stateKind"];
+    setup: HarnessSetupVariant;
 }) {
+    const setupSnapshot: SetupProgressSnapshot | null =
+        setup === "none" ? null : SETUP_SNAPSHOTS[setup];
     return (
         <SettingsPanel
             settings={new FakeSettingsPort()}
             store={new FakeStateStore(fakeState(stateKind))}
+            setupProgress={new FakeSnapshotStore<SetupProgressSnapshot | null>(setupSnapshot)}
             diagnostics={fakeDiagnostics()}
             locale={locale}
         />
@@ -156,10 +173,10 @@ function MicCase({ locale }: { locale: Locale }): React.ReactElement {
 }
 
 function Harness({ params }: { params: HarnessParams }): React.ReactElement {
-    return params.caseId === "panel" ? (
-        <PanelCase locale={params.locale} stateKind={params.stateKind} />
-    ) : (
+    return params.caseId === "mic" ? (
         <MicCase locale={params.locale} />
+    ) : (
+        <PanelCase locale={params.locale} stateKind={params.stateKind} setup={params.setup} />
     );
 }
 
@@ -170,15 +187,29 @@ export function mountVisualHarness(container: HTMLElement, params: HarnessParams
     return () => root.unmount();
 }
 
+const SETUP_VARIANTS: readonly HarnessSetupVariant[] = [
+    "download",
+    "indeterminate",
+    "failed",
+    "ready",
+];
+
 function paramsFromLocation(): HarnessParams {
     const search = new URLSearchParams(window.location.search);
-    const caseId = search.get("case") === "mic" ? "mic" : "panel";
+    const rawCase = search.get("case");
+    const caseId: HarnessCaseId =
+        rawCase === "mic" ? "mic" : rawCase === "setup" ? "setup" : "panel";
     const locale: Locale = search.get("locale") === "de" ? "de" : "en";
     const state = search.get("state");
+    const variant = search.get("variant");
+    const setup: HarnessSetupVariant = SETUP_VARIANTS.includes(variant as HarnessSetupVariant)
+        ? (variant as HarnessSetupVariant)
+        : "none";
     return {
         caseId,
         locale,
         stateKind: state === "recording" || state === "error" ? state : "ready",
+        setup,
         scroll: search.get("scroll"),
     };
 }

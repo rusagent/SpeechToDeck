@@ -22,6 +22,10 @@ import {
     isSpeechRuntimeStatus,
     isTranscriptReadyPayload,
 } from "../../application/ports/SpeechPort";
+import {
+    SetupProgressStore,
+    isSetupProgressSnapshot,
+} from "../../application/ports/SetupProgressPort";
 import type { DeckyBackendClient } from "./DeckyBackendClient";
 
 /**
@@ -40,6 +44,7 @@ export const SPEECH_EVENTS = {
     transcriptReady: "transcript_ready",
     speechError: "speech_error",
     runtimeStatus: "runtime_status",
+    setupProgress: "setup_progress",
 } as const;
 
 /** Versioned `speech_error` backend payload (§67): stable code, no parsing. */
@@ -115,6 +120,15 @@ function mapBackendRuntimeStatus(payload: BackendRuntimeStatusPayload): SpeechRu
 export class DeckySpeechAdapter implements SpeechPort {
     private readonly listeners = new Set<SpeechEventListener>();
     private backendEventDisposables: Disposable[] = [];
+    /** Dropped `setup_progress` payloads for the count-logged boundary guard (§99). */
+    private droppedSetupProgress = 0;
+
+    /**
+     * Latest guarded `setup_progress` snapshot for the plugin panel. Setup
+     * progress is transport-level UI state and stays out of the dictation
+     * events on purpose (§102: consumers subscribe only to relevant state).
+     */
+    readonly setupProgress = new SetupProgressStore();
 
     constructor(
         private readonly backend: DeckyBackendClient,
@@ -156,8 +170,8 @@ export class DeckySpeechAdapter implements SpeechPort {
 
     /**
      * Unsubscribes the backend events (§83). Idempotent; the v1 frontend maps
-     * `runtime_status`; `speech_status` carries no distinct v1 consumer and is
-     * not subscribed.
+     * `runtime_status` and `setup_progress`; `speech_status` carries no
+     * distinct v1 consumer and is not subscribed.
      */
     async shutdown(): Promise<void> {
         for (const disposable of this.backendEventDisposables) {
@@ -180,6 +194,9 @@ export class DeckySpeechAdapter implements SpeechPort {
             ),
             this.backend.subscribe(SPEECH_EVENTS.runtimeStatus, (payload) =>
                 this.onRuntimeStatus(payload),
+            ),
+            this.backend.subscribe(SPEECH_EVENTS.setupProgress, (payload) =>
+                this.onSetupProgress(payload),
             ),
         ];
     }
@@ -218,6 +235,17 @@ export class DeckySpeechAdapter implements SpeechPort {
             return;
         }
         this.dispatch({ type: "runtime-status", status });
+    }
+
+    private onSetupProgress(payload: unknown): void {
+        if (!isSetupProgressSnapshot(payload)) {
+            this.droppedSetupProgress += 1;
+            this.logger.warn("dropped setup_progress payload: boundary guard failed", {
+                dropped: this.droppedSetupProgress,
+            });
+            return;
+        }
+        this.setupProgress.publish(payload);
     }
 
     private dispatch(event: SpeechEvent): void {

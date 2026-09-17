@@ -42,7 +42,12 @@ export interface DiagnosticsPanelProps {
     readonly locale: Locale;
 }
 
-function CodeChip({ code }: { code: string }): React.ReactElement {
+/**
+ * Monospace chip showing the raw stable §68 code next to its mapped text
+ * (§109: the code is a fixed enum, sanitized by construction). Shared with
+ * the setup-progress panel so both error surfaces read identically.
+ */
+export function CodeChip({ code }: { code: string }): React.ReactElement {
     return (
         <span
             style={{

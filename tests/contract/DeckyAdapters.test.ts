@@ -9,7 +9,9 @@ import { DeckyBackendClient } from "../../src/infrastructure/decky/DeckyBackendC
 import { DeckySpeechAdapter } from "../../src/infrastructure/decky/DeckySpeechAdapter";
 import { DeckySettingsAdapter } from "../../src/infrastructure/decky/DeckySettingsAdapter";
 import { DictationError } from "../../src/domain/DictationError";
-import { FakeDeckyTransport } from "./helpers";
+import type { LogEntry } from "../../src/shared/Logger";
+import { Logger } from "../../src/shared/Logger";
+import { SETUP_SNAPSHOTS, FakeDeckyTransport } from "./helpers";
 import { TEST_SETTINGS } from "../frontend/fakes/FakeSettingsPort";
 
 const VALID_CAPABILITIES = {
@@ -157,6 +159,7 @@ describe("DeckySpeechAdapter", () => {
         expect(events).toEqual([]);
         expect(transport.removedListeners.map((entry) => entry.event).sort()).toEqual([
             "runtime_status",
+            "setup_progress",
             "speech_error",
             "transcript_ready",
         ]);
@@ -168,6 +171,48 @@ describe("DeckySpeechAdapter", () => {
         const adapter = new DeckySpeechAdapter(new DeckyBackendClient(transport));
 
         await expect(adapter.initialize()).rejects.toMatchObject({ code: "RUNTIME_START_FAILED" });
+    });
+
+    it("publishes guarded setup_progress payloads to the dedicated store, not the dictation stream", () => {
+        const transport = new FakeDeckyTransport();
+        const adapter = new DeckySpeechAdapter(new DeckyBackendClient(transport));
+        const speechEvents: string[] = [];
+        adapter.subscribe((event) => speechEvents.push(event.type)); // arms the backend subscriptions
+
+        transport.emit("setup_progress", SETUP_SNAPSHOTS.download);
+
+        expect(adapter.setupProgress.getSnapshot()).toEqual(SETUP_SNAPSHOTS.download);
+        expect(speechEvents).toEqual([]); // setup progress stays out of the §29 events
+    });
+
+    it("drops invalid setup_progress payloads count-logged instead of rendering them", () => {
+        const entries: LogEntry[] = [];
+        const transport = new FakeDeckyTransport();
+        const adapter = new DeckySpeechAdapter(
+            new DeckyBackendClient(transport),
+            new Logger("speech.runtime", (entry) => entries.push(entry)),
+        );
+        adapter.subscribe(() => undefined);
+
+        transport.emit("setup_progress", { garbage: true });
+        transport.emit("setup_progress", { ...SETUP_SNAPSHOTS.download, percent: 137 });
+
+        expect(adapter.setupProgress.getSnapshot()).toBeNull();
+        const warnings = entries.filter((entry) => entry.message.includes("setup_progress"));
+        expect(warnings).toHaveLength(2);
+        expect(warnings.map((entry) => entry.fields.dropped)).toEqual([1, 2]);
+    });
+
+    it("unsubscribes setup_progress in the existing shutdown path (§83)", async () => {
+        const transport = new FakeDeckyTransport();
+        const adapter = new DeckySpeechAdapter(new DeckyBackendClient(transport));
+        adapter.subscribe(() => undefined);
+
+        await adapter.shutdown();
+        transport.emit("setup_progress", SETUP_SNAPSHOTS.download);
+
+        expect(adapter.setupProgress.getSnapshot()).toBeNull();
+        expect(transport.removedListeners.map((entry) => entry.event)).toContain("setup_progress");
     });
 });
 

@@ -44,7 +44,9 @@ afterEach(cleanup);
 
 describe("visual harness smoke", () => {
     for (const params of CAPTURED_CASES) {
-        const name = `${params.caseId} / ${params.locale} / ${params.stateKind}`;
+        const name = `${params.caseId} / ${params.locale} / ${
+            params.caseId === "setup" ? params.setup : params.stateKind
+        }`;
         it(`mounts the captured state without throwing: ${name}`, async () => {
             const host = document.createElement("div");
             document.body.appendChild(host);
@@ -63,6 +65,29 @@ describe("visual harness smoke", () => {
                     expect(
                         host.querySelector(`[data-panel-title="${speechTitle}"]`),
                     ).not.toBeNull();
+                } else if (params.caseId === "setup") {
+                    // The real setup-progress surface: present while running
+                    // or failed, hidden on the terminal ready snapshot.
+                    const setupBlock = host.querySelector("[data-setup-progress]");
+                    if (params.setup === "ready") {
+                        expect(setupBlock).toBeNull();
+                    } else {
+                        expect(setupBlock).not.toBeNull();
+                        expect(setupBlock?.getAttribute("data-setup-progress")).toBe(
+                            params.setup === "download"
+                                ? "model.ensure"
+                                : params.setup === "indeterminate"
+                                  ? "daemon.start"
+                                  : "failed",
+                        );
+                        expect(host.querySelectorAll("li")).toHaveLength(4);
+                        expect(setupBlock?.querySelector('[role="progressbar"]')).not.toBeNull();
+                        const failed = params.setup === "failed";
+                        expect(setupBlock?.querySelector("button") !== null).toBe(failed);
+                        if (failed && params.locale === "de") {
+                            expect(setupBlock?.textContent).toContain("Fehlgeschlagen");
+                        }
+                    }
                 } else {
                     // All four §20 button states in one clip.
                     for (const state of ["ready", "recording", "processing", "error"]) {

@@ -17,6 +17,7 @@ import { DeckyBackendClient } from "./infrastructure/decky/DeckyBackendClient";
 import { createDeckyApiTransport } from "./infrastructure/decky/DeckyApiTransport";
 import { DeckySpeechAdapter } from "./infrastructure/decky/DeckySpeechAdapter";
 import { DeckySettingsAdapter } from "./infrastructure/decky/DeckySettingsAdapter";
+import type { SetupProgressStore } from "./application/ports/SetupProgressPort";
 import { SteamBulkPasteInserter } from "./infrastructure/steam/SteamBulkPasteInserter";
 import { SteamCapabilityProbe } from "./infrastructure/steam/SteamCapabilityProbe";
 import { SteamClipboardAdapter } from "./infrastructure/steam/SteamClipboardAdapter";
@@ -48,6 +49,7 @@ class PluginCompositionRoot implements Disposable {
     /** Wired dependencies the plugin panel consumes (§6 wiring outputs). */
     readonly settingsPort: SettingsPort;
     readonly controllerStore: StateStore<DictationState>;
+    readonly setupProgress: SetupProgressStore;
     readonly diagnostics: DiagnosticsSource;
 
     constructor(logger: Logger = new Logger("plugin.lifecycle")) {
@@ -58,6 +60,7 @@ class PluginCompositionRoot implements Disposable {
         const speechPort = new DeckySpeechAdapter(backendClient);
         const settingsAdapter = new DeckySettingsAdapter(backendClient);
         this.settingsPort = settingsAdapter;
+        this.setupProgress = speechPort.setupProgress;
 
         // The renderer resolves the store lazily: React mounts happen only
         // after startup, by which time the controller below is assigned. This
@@ -146,6 +149,7 @@ export default definePlugin(() => {
             <SettingsPanel
                 settings={compositionRoot.settingsPort}
                 store={compositionRoot.controllerStore}
+                setupProgress={compositionRoot.setupProgress}
                 diagnostics={compositionRoot.diagnostics}
             />
         ),
