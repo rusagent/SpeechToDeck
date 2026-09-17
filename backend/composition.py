@@ -40,6 +40,8 @@ from backend.domain.errors import (
 from backend.domain.session import SpeechSessionCoordinator
 from backend.infrastructure.model.model_manifest import ModelManifest, load_model_manifest
 from backend.infrastructure.model.model_store import ModelHttpFetcher, UrllibModelFetcher
+from backend.infrastructure.process.cdp_client import CdpClient
+from backend.infrastructure.process.cdp_diagnostics import CdpDiagnostics
 from backend.infrastructure.process.daemon_supervisor import SpeechDaemonSupervisor
 from backend.infrastructure.process.process_environment import (
     PluginPaths,
@@ -75,6 +77,16 @@ _RUNTIME_FIELDS = (
     "max_recording_seconds",
     "vad_enabled",
 )
+
+# Last-resort cdpDiagnostics report before the first bounded probe completed
+# (§57: never assume availability; the frontend guard renders "unknown").
+CDP_REPORT_NOT_PROBED: dict[str, object] = {
+    "cdpAvailable": False,
+    "spTargetSeen": False,
+    "keyboardSeen": False,
+    "keyboardVisible": False,
+    "reason": "not-probed",
+}
 
 # §82 step 1 resilience (on-device v0.1.3 finding: one transient network
 # error killed startup permanently): bounded automatic retries for the
@@ -136,6 +148,7 @@ class Application:
         manifest: ModelManifest,
         resolver: RuntimeVariantResolver,
         setup_progress: SetupProgressReporter,
+        cdp_diagnostics: CdpDiagnostics | None = None,
     ) -> None:
         self.paths = paths
         self.publisher = publisher
@@ -149,6 +162,12 @@ class Application:
         self.manifest = manifest
         self.resolver = resolver
         self.setup_progress = setup_progress
+        # Optional cross-view diagnostics (v0.1.6): read-only CDP probe behind
+        # the user's "Allow Remote CEF Debugging" toggle. Never functional
+        # surface — unavailability degrades into the get_status report (§105).
+        self.cdp_diagnostics = cdp_diagnostics
+        self._cdp_report: dict[str, object] = dict(CDP_REPORT_NOT_PROBED)
+        self._cdp_task: asyncio.Task[None] | None = None
         self._started = False
         self._disposed = False
         # Last §82 startup failure for the `get_status` report: stable §68
@@ -181,6 +200,7 @@ class Application:
             self._started = True
             ensure_directories(self.paths)
             settings = await self.settings_repository.load()
+            self._schedule_cdp_probe()
             try:
                 await self.monitor.start()
             except OSError as exc:
@@ -318,6 +338,27 @@ class Application:
         await setup.fail(str(exc.code))
         await self._publish_runtime_unavailable(exc.message)
 
+    # ── optional CDP diagnostics (v0.1.6, read-only, fully contained) ────────
+
+    def _schedule_cdp_probe(self) -> None:
+        """One bounded probe run in the background; results surface in
+        `get_status`. Failure can never affect functional surface (§106)."""
+        if self.cdp_diagnostics is None or self._disposed:
+            return
+        if self._cdp_task is not None and not self._cdp_task.done():
+            return
+        self._cdp_task = asyncio.create_task(self._run_cdp_probe(), name="cdp-diagnostics")
+
+    async def _run_cdp_probe(self) -> None:
+        assert self.cdp_diagnostics is not None
+        try:
+            self._cdp_report = await self.cdp_diagnostics.probe()
+        except asyncio.CancelledError:
+            raise
+        except Exception as exc:
+            LOGGER.info("cdp diagnostics probe crashed: %s", type(exc).__name__)
+            self._cdp_report = {**CDP_REPORT_NOT_PROBED, "reason": "probe-failed"}
+
     async def dispose(self) -> None:
         """§38/§83 disposal order; every step idempotent.
 
@@ -332,6 +373,8 @@ class Application:
             if self._disposed:
                 return
             self._disposed = True
+            if self._cdp_task is not None and not self._cdp_task.done():
+                self._cdp_task.cancel()
             # 1-2. stop accepting sessions; cancel any active recording (§38).
             await self.speech.shutdown()
             try:
@@ -367,6 +410,8 @@ class Application:
                 raise RuntimeUnavailableError("plugin is disabled by settings")
             await self._shutdown_runtime()
             await self._startup_runtime(settings)
+            # Fresh cross-view facts after an explicit restart action (§69).
+            self._schedule_cdp_probe()
 
     async def migrate_settings(self) -> Settings:
         """§31 `_migration`: run the settings migration chain forward once."""
@@ -422,6 +467,10 @@ class Application:
             },
             "speech": self.speech.get_status(),
             "modelDownloadInProgress": self.models.download_in_progress(),
+            # Optional v0.1.6 cross-view diagnostics (§67 additive field):
+            # read-only facts behind the user's CEF-debugging toggle. The §99
+            # frontend guard ignores the field when an older backend omits it.
+            "cdpDiagnostics": dict(self._cdp_report),
         }
 
     async def get_settings(self) -> dict[str, object]:
@@ -638,6 +687,11 @@ def compose(
     )
     monitor = RuntimeStatusMonitor(watcher, publisher)
 
+    # Optional cross-view diagnostics transport (v0.1.6): stdlib CDP client
+    # over the user-controlled "Allow Remote CEF Debugging" endpoint. The
+    # production keyboard mount never depends on it.
+    cdp_diagnostics = CdpDiagnostics(CdpClient())
+
     return Application(
         paths=paths,
         publisher=publisher,
@@ -651,4 +705,5 @@ def compose(
         manifest=manifest,
         resolver=resolver,
         setup_progress=setup_progress,
+        cdp_diagnostics=cdp_diagnostics,
     )

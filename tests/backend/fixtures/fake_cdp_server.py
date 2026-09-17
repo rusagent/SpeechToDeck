@@ -111,6 +111,8 @@ class FakeCdpServer:
         self.insert_texts: list[str] = []
         self.targets: list[dict[str, Any]] = list(SCAN_TARGETS)
         self.receipt_value = False
+        self.keyboard_present = True
+        self.keyboard_visible = False
         self.fail_attach = False
         self._sessions = 0
         self._session_writers: dict[str, asyncio.StreamWriter] = {}
@@ -286,6 +288,16 @@ class FakeCdpServer:
             return {"sessionId": session}, None
         if method == "Runtime.evaluate":
             expression = str(params.get("expression", ""))
+            if "VirtualKeyboard" in expression:
+                # The read-only keyboard presence probe (cdp_diagnostics).
+                value = (
+                    '{"present": '
+                    + ("true" if self.keyboard_present else "false")
+                    + ', "visible": '
+                    + ("true" if self.keyboard_visible else "false")
+                    + "}"
+                )
+                return {"result": {"type": "string", "value": value}}, None
             value = self.receipt_value if "__stdKeyboardHostLoaded" in expression else True
             return {"result": {"type": "boolean", "value": value}}, None
         if method == "Page.addScriptToEvaluateOnNewDocument":
