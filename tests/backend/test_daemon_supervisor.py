@@ -20,8 +20,13 @@ from pathlib import Path
 import pytest
 from backend.domain.contracts import DEFAULT_SETTINGS
 from backend.domain.errors import RuntimeStartError
+from backend.infrastructure.process import daemon_supervisor as daemon_supervisor_module
 from backend.infrastructure.process.daemon_supervisor import daemon_config_toml
+from backend.infrastructure.process.executable_copy import (
+    EXEC_COPY_DIRNAME,
+)
 from backend.infrastructure.process.process_environment import PluginPaths
+from backend.infrastructure.process.runtime_variant import hash_binary
 from conftest import (
     FakeEventPublisher,
     build_fixture_binary,
@@ -517,5 +522,149 @@ def test_start_with_explicit_cpu_backend_runs_avx2_binary(tmp_path: Path) -> Non
         assert probe_calls == []  # explicit backend: deterministic, no probe
         assert await wait_until(lambda: paths.status_file.exists(), timeout=3.0)
         await supervisor.stop()
+
+    asyncio.run(scenario())
+
+
+# ── private executable copy (on-device ETXTBSY fix, deck 2026-09-18) ────────
+
+
+def exec_copy_dir(paths: PluginPaths) -> Path:
+    return paths.runtime_dir / EXEC_COPY_DIRNAME
+
+
+def test_spawn_argv_uses_digest_verified_private_copy_not_bin(tmp_path: Path) -> None:
+    """The supervisor spawns the private copy under the data dir, never bin/.
+
+    Installing a zip over the RUNNING plugin rewrites bin/ in place and the
+    direct-executing daemon made that abort with `[Errno 26] Text file busy`.
+    The argv seam is observed with a pass-through spy (the real spawn still
+    happens and must keep the daemon alive) — the executed path is the
+    decisive fact, not a mocked subprocess.
+    """
+
+    async def scenario() -> None:
+        paths = await prepare_pinned(tmp_path)
+        recorded: list[list[str]] = []
+        real_exec = asyncio.create_subprocess_exec
+
+        async def spy(*argv: object, **kwargs: object) -> object:
+            recorded.append([str(a) for a in argv])
+            return await real_exec(*argv, **kwargs)  # type: ignore[arg-type]
+
+        original = daemon_supervisor_module.asyncio.create_subprocess_exec
+        daemon_supervisor_module.asyncio.create_subprocess_exec = spy
+        try:
+            supervisor = make_supervisor(paths, FakeEventPublisher())
+            await supervisor.start(DEFAULT_SETTINGS)
+        finally:
+            daemon_supervisor_module.asyncio.create_subprocess_exec = original
+
+        assert await wait_until(lambda: paths.status_file.exists(), timeout=3.0)
+        assert recorded, "the supervisor never spawned the daemon"
+        source = paths.plugin_root / "bin" / "voxtype-vulkan"
+        copy = exec_copy_dir(paths) / "voxtype-vulkan"
+        assert recorded[0][0] == str(copy)
+        assert recorded[0][0] != str(source)
+        assert recorded[0][1:3] == ["--config", str(paths.daemon_config)]
+        assert recorded[0][3] == "daemon"
+        # §53 second half: the executed copy matches the pinned source digest.
+        assert hash_binary(copy) == hash_binary(source)
+        await supervisor.stop()
+
+    asyncio.run(scenario())
+
+
+def test_copy_refreshed_when_source_digest_changes(tmp_path: Path) -> None:
+    """A changed source (simulated store update) refreshes the cache copy.
+
+    The cache is digest-keyed: after the source bytes change and the manifest
+    is re-pinned, the OLD supervisor (manifest cached for its process
+    lifetime) fails closed against the drifted source; the post-update
+    restart — a fresh supervisor over the same data dir — refreshes the copy
+    atomically (new inode) and the daemon runs the new bytes.
+    """
+
+    async def scenario() -> None:
+        paths = await prepare_pinned(tmp_path)
+        supervisor = make_supervisor(paths, FakeEventPublisher())
+        await supervisor.start(DEFAULT_SETTINGS)
+        assert await wait_until(lambda: paths.status_file.exists(), timeout=3.0)
+        await supervisor.stop()
+
+        copy = exec_copy_dir(paths) / "voxtype-vulkan"
+        source = paths.plugin_root / "bin" / "voxtype-vulkan"
+        first_inode = copy.stat().st_ino
+
+        for name in ("voxtype-avx2", "voxtype-vulkan"):
+            binary = paths.plugin_root / "bin" / name
+            binary.write_text(
+                binary.read_text(encoding="utf-8") + "# store update v2\n", encoding="utf-8"
+            )
+        write_pinned_runtime_manifest(paths.plugin_root, paths.plugin_root / "bin" / "voxtype-avx2")
+
+        # Same process (stale manifest cache): the drift fails closed.
+        with pytest.raises(RuntimeStartError) as excinfo:
+            await supervisor.start(DEFAULT_SETTINGS)
+        assert "digest" in excinfo.value.message
+        assert copy.stat().st_ino == first_inode  # cache untouched by the refusal
+
+        # Post-update restart: fresh process, fresh manifest load.
+        restarted = make_supervisor(paths, FakeEventPublisher())
+        await restarted.start(DEFAULT_SETTINGS)
+        assert await wait_until(lambda: paths.status_file.exists(), timeout=3.0)
+        assert copy.read_bytes() == source.read_bytes()
+        assert hash_binary(copy) == hash_binary(source)
+        assert copy.stat().st_ino != first_inode  # atomic replace, never in-place
+        await restarted.stop()
+
+    asyncio.run(scenario())
+
+
+def test_stale_tmp_copy_is_cleaned_on_cache_hit(tmp_path: Path) -> None:
+    """A stale `<name>.tmp` from an interrupted write never survives a spawn."""
+
+    async def scenario() -> None:
+        paths = await prepare_pinned(tmp_path)
+        supervisor = make_supervisor(paths, FakeEventPublisher())
+        await supervisor.start(DEFAULT_SETTINGS)
+        assert await wait_until(lambda: paths.status_file.exists(), timeout=3.0)
+        await supervisor.stop()
+
+        # Interrupted-write leftover in the cache dir (wrong bytes, never run).
+        stale = exec_copy_dir(paths) / "voxtype-vulkan.tmp"
+        stale.write_bytes(b"partial write from a crashed run")
+
+        await supervisor.start(DEFAULT_SETTINGS)
+        assert await wait_until(lambda: paths.status_file.exists(), timeout=3.0)
+        assert not stale.exists()
+        await supervisor.stop()
+
+    asyncio.run(scenario())
+
+
+@pytest.mark.skipif(
+    sys.platform != "linux" or os.geteuid() == 0,
+    reason="permission denial needs Linux and a non-root user",
+)
+def test_copy_failure_fails_closed_without_spawn(tmp_path: Path) -> None:
+    """An unwritable cache dir (disk-full class) fails closed: stable
+    RuntimeStartError, no daemon spawn, no leftover tmp file."""
+
+    async def scenario() -> None:
+        paths = await prepare_pinned(tmp_path)
+        exec_dir = exec_copy_dir(paths)
+        exec_dir.mkdir(parents=True, exist_ok=True)
+        os.chmod(exec_dir, 0o555)
+        try:
+            supervisor = make_supervisor(paths, FakeEventPublisher())
+            with pytest.raises(RuntimeStartError) as excinfo:
+                await supervisor.start(DEFAULT_SETTINGS)
+            assert str(excinfo.value.code) == "RUNTIME_START_FAILED"
+            assert not supervisor.is_running()
+            assert not paths.status_file.exists()  # nothing unverified was spawned
+            assert not (exec_dir / "voxtype-vulkan.tmp").exists()
+        finally:
+            os.chmod(exec_dir, 0o755)
 
     asyncio.run(scenario())

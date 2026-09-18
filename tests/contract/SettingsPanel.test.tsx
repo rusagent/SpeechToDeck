@@ -309,4 +309,44 @@ describe("SettingsPanel", () => {
         expect(container.querySelector('[data-setup-progress="failed"]')).toBeNull();
         expect(screen.queryByRole("button", { name: "Retry" })).toBeNull();
     });
+
+    it("renders the additive backendVersion diagnostics row when the backend reports it", async () => {
+        const diagnostics: DiagnosticsSource = {
+            ...fakeDiagnostics(),
+            loadSpeechCapabilities: async () => ({
+                speechRuntimeAvailable: true,
+                microphoneAvailable: true,
+                cpuAvailable: true,
+                vulkanAvailable: true,
+                modelInstalled: true,
+                backendVersion: "0.2.3",
+            }),
+        };
+        const { container } = render(
+            <SettingsPanel
+                settings={new FakeSettingsPort()}
+                store={new FakeStateStore({ kind: "ready" })}
+                setupProgress={fakeSetupStore(null)}
+                diagnostics={diagnostics}
+            />,
+        );
+
+        expect(await screen.findByText("0.2.3")).not.toBeNull();
+        expect(container.querySelector("[data-backend-version]")).not.toBeNull();
+    });
+
+    it("omits the backendVersion row when an older backend does not report it (§99)", async () => {
+        const { container } = render(
+            <SettingsPanel
+                settings={new FakeSettingsPort()}
+                store={new FakeStateStore({ kind: "ready" })}
+                setupProgress={fakeSetupStore(null)}
+                diagnostics={fakeDiagnostics()}
+            />,
+        );
+
+        // Settle the panel effects, then prove the row never rendered.
+        expect(await screen.findByText(/Steam keyboard detected/)).not.toBeNull();
+        expect(container.querySelector("[data-backend-version]")).toBeNull();
+    });
 });

@@ -207,6 +207,19 @@ describe("isSpeechCapabilities and status (§57/§30)", () => {
         ).toBe(false);
     });
 
+    it("accepts the additive backendVersion only as a string, and accepts its absence (§99)", () => {
+        const base = {
+            speechRuntimeAvailable: true,
+            microphoneAvailable: true,
+            cpuAvailable: true,
+            vulkanAvailable: true,
+            modelInstalled: true,
+        };
+        expect(isSpeechCapabilities(base)).toBe(true); // older backend: field omitted
+        expect(isSpeechCapabilities({ ...base, backendVersion: "0.2.3" })).toBe(true);
+        expect(isSpeechCapabilities({ ...base, backendVersion: 42 })).toBe(false);
+    });
+
     it("validates runtime status values", () => {
         for (const status of ["starting", "ready", "unavailable", "crashed"] as const) {
             expect(isSpeechRuntimeStatus(status)).toBe(true);

@@ -58,6 +58,35 @@ function describeError(error: unknown): string {
     return error instanceof Error ? error.message : String(error);
 }
 
+/** Handle shape of the platform timer scheduler (mirrors maxDurationTimer). */
+export type TimeoutHandle = ReturnType<typeof setTimeout>;
+
+/**
+ * Boot watchdog budget (§71: no wait is unbounded). When the loader's plugin
+ * registration is torn, every §30 callable hangs and the card would sit in
+ * `booting` forever with a dead button (deck 2026-09-18). Generous enough
+ * for a real cold start (settings load, hook install, backend init); tests
+ * inject manual scheduling and never wait.
+ */
+export const STARTUP_WATCHDOG_MS = 10_000;
+
+/**
+ * Scheduling seam for the boot watchdog — the same shape as the §76
+ * maxDurationTimer, made injectable so tests fire expiry deterministically
+ * (no real-time sleeps). The default schedules on the platform event loop.
+ */
+export interface StartupTimerSeam {
+    readonly timeoutMs: number;
+    schedule(handler: () => void, timeoutMs: number): TimeoutHandle;
+    cancel(handle: TimeoutHandle): void;
+}
+
+export const defaultStartupTimer: StartupTimerSeam = {
+    timeoutMs: STARTUP_WATCHDOG_MS,
+    schedule: (handler, timeoutMs) => setTimeout(handler, timeoutMs),
+    cancel: (handle) => clearTimeout(handle),
+};
+
 export class DictationController implements Disposable, StateStore<DictationState> {
     private readonly mutex = new Mutex();
     private readonly listeners = new Set<() => void>();
@@ -66,6 +95,8 @@ export class DictationController implements Disposable, StateStore<DictationStat
     private speechEvents: Disposable | null = null;
     private keyboardEvents: Disposable | null = null;
     private maxDurationTimer: ReturnType<typeof setTimeout> | null = null;
+    private startupWatchdog: TimeoutHandle | null = null;
+    private startupExpired = false;
     private pluginSettings: PluginSettings | null = null;
     private suppressedTranscript: string | null = null;
     private started = false;
@@ -81,6 +112,8 @@ export class DictationController implements Disposable, StateStore<DictationStat
         // No-op by default: application code stays silent unless composition
         // wires a real sink (spec §86). Not an infrastructure dependency.
         private readonly logger: Logger = new Logger("dictation.session", nullSink),
+        // §71 boot watchdog scheduling; injectable for deterministic tests.
+        private readonly startupTimer: StartupTimerSeam = defaultStartupTimer,
     ) {}
 
     // ── StateStore (spec §102) ──
@@ -112,56 +145,81 @@ export class DictationController implements Disposable, StateStore<DictationStat
         }
         this.started = true;
 
-        this.speechEvents = this.speech.subscribe((event) => this.onSpeechEvent(event));
-        this.keyboardEvents = this.keyboard.subscribe((event) => {
-            if (event.type === "keyboard-opened") {
-                this.handleKeyboardOpened(event.context);
-            } else {
-                void this.handleKeyboardClosed(event.contextId);
-            }
-        });
-
-        // §82 order: load settings → install keyboard hook → initialize speech
-        // runtime (backend init incl. model). The hook install MUST NOT wait
-        // for model loading, so the keyboard host starts first.
-        //
-        // v0.2.2 (on-device regression fix): a failed hook does NOT abort
-        // startup. The QAM panel flow needs no keyboard injection; a broken
-        // hook only leaves the in-keyboard button dormant and degrades
-        // through the §58 diagnostics consumed by the capability report.
-        let loaded: PluginSettings;
-        try {
-            loaded = await this.settings.load();
-        } catch (error) {
-            this.logger.error("settings load failed", { detail: describeError(error) });
-            this.apply({ type: "STARTUP_FAILED", reason: "SETTINGS_LOAD_FAILED" });
-            return;
-        }
-        this.pluginSettings = loaded;
-
-        try {
-            await this.keyboard.start();
-        } catch (error) {
-            this.logger.warn("keyboard hook start failed; continuing without it", {
-                detail: describeError(error),
-            });
-        }
-
-        let capabilities: SpeechCapabilities;
-        try {
-            capabilities = await this.speech.initialize();
-        } catch (error) {
-            this.logger.error("speech runtime initialize failed", { detail: describeError(error) });
+        // §71: the whole §82 startup sequence is bounded. When the loader's
+        // plugin registration is torn, every callable below hangs and the card
+        // would sit in `booting` forever with a dead button (deck 2026-09-18);
+        // expiry reports the existing SPEECH_RUNTIME_UNAVAILABLE path instead.
+        this.startupExpired = false;
+        this.startupWatchdog = this.startupTimer.schedule(() => {
+            this.startupWatchdog = null;
+            this.startupExpired = true;
+            this.logger.error("startup watchdog expired; reporting runtime unavailable");
             this.apply({ type: "STARTUP_FAILED", reason: "SPEECH_RUNTIME_UNAVAILABLE" });
-            return;
-        }
+        }, this.startupTimer.timeoutMs);
 
-        const report = await this.buildRuntimeCapabilities(capabilities);
-        this.apply({
-            type: "STARTUP_COMPLETED",
-            capabilities: report,
-            enabled: loaded.enabled,
-        });
+        try {
+            this.speechEvents = this.speech.subscribe((event) => this.onSpeechEvent(event));
+            this.keyboardEvents = this.keyboard.subscribe((event) => {
+                if (event.type === "keyboard-opened") {
+                    this.handleKeyboardOpened(event.context);
+                } else {
+                    void this.handleKeyboardClosed(event.contextId);
+                }
+            });
+
+            // §82 order: load settings → install keyboard hook → initialize
+            // speech runtime (backend init incl. model). The hook install MUST
+            // NOT wait for model loading, so the keyboard host starts first.
+            //
+            // v0.2.2 (on-device regression fix): a failed hook does NOT abort
+            // startup. The QAM panel flow needs no keyboard injection; a
+            // broken hook only leaves the in-keyboard button dormant and
+            // degrades through the §58 diagnostics consumed by the capability
+            // report.
+            let loaded: PluginSettings;
+            try {
+                loaded = await this.settings.load();
+            } catch (error) {
+                this.logger.error("settings load failed", { detail: describeError(error) });
+                this.applyStartupOutcome({
+                    type: "STARTUP_FAILED",
+                    reason: "SETTINGS_LOAD_FAILED",
+                });
+                return;
+            }
+            this.pluginSettings = loaded;
+
+            try {
+                await this.keyboard.start();
+            } catch (error) {
+                this.logger.warn("keyboard hook start failed; continuing without it", {
+                    detail: describeError(error),
+                });
+            }
+
+            let capabilities: SpeechCapabilities;
+            try {
+                capabilities = await this.speech.initialize();
+            } catch (error) {
+                this.logger.error("speech runtime initialize failed", {
+                    detail: describeError(error),
+                });
+                this.applyStartupOutcome({
+                    type: "STARTUP_FAILED",
+                    reason: "SPEECH_RUNTIME_UNAVAILABLE",
+                });
+                return;
+            }
+
+            const report = await this.buildRuntimeCapabilities(capabilities);
+            this.applyStartupOutcome({
+                type: "STARTUP_COMPLETED",
+                capabilities: report,
+                enabled: loaded.enabled,
+            });
+        } finally {
+            this.clearStartupWatchdog();
+        }
     }
 
     async dispose(): Promise<void> {
@@ -171,6 +229,7 @@ export class DictationController implements Disposable, StateStore<DictationStat
         this.disposed = true; // new microphone presses are rejected from here on (§83)
 
         this.clearMaxDurationTimer();
+        this.clearStartupWatchdog();
 
         const session = extractSession(this.state);
         if (session !== null) {
@@ -537,6 +596,27 @@ export class DictationController implements Disposable, StateStore<DictationStat
         if (this.maxDurationTimer !== null) {
             clearTimeout(this.maxDurationTimer);
             this.maxDurationTimer = null;
+        }
+    }
+
+    /**
+     * Applies a startup outcome unless the §71 watchdog already expired: a
+     * late resolution (or late failure) after expiry must never flip the
+     * reported state back — the machine may legally take STARTUP_COMPLETED
+     * from `unavailable`, so the guard lives here, not in the machine.
+     */
+    private applyStartupOutcome(event: Parameters<typeof transition>[1]): void {
+        if (this.startupExpired) {
+            this.logger.warn("late startup resolution ignored after watchdog expiry");
+            return;
+        }
+        this.apply(event);
+    }
+
+    private clearStartupWatchdog(): void {
+        if (this.startupWatchdog !== null) {
+            this.startupTimer.cancel(this.startupWatchdog);
+            this.startupWatchdog = null;
         }
     }
 }

@@ -39,8 +39,8 @@ import type { CapabilityState } from "./CapabilityChip";
 
 /**
  * Data source seam wired by the composition root (no Decky/Steam imports).
- * `loadSpeechCapabilities` is consumed by the settings panel (model install
- * state, microphone availability) and passed down here as `speech`.
+ * `loadSpeechCapabilities` feeds the additive backend-version row below (the
+ * model/microphone facets of the same report gate the §57 capability report).
  * `loadCdpDiagnostics`/`loadKeyboardHookDiagnostics` are the additive v0.1.6
  * cross-view facts; `loadTabBridgeDiagnostics` is the additive v0.1.7
  * tab-bridge row source; `loadDictationFlowDiagnostics` is the additive
@@ -120,6 +120,15 @@ function CapabilityRow(props: {
     );
 }
 
+/**
+ * Label of the additive backend-version row. This lane may not touch
+ * `i18n/messages.ts` (a parallel lane owns it), so the row is labeled with
+ * the stable protocol field name until the key lands there — the same
+ * sanitize-by-construction reasoning as the §68 CodeChip: a fixed protocol
+ * identifier, never interpolated prose.
+ */
+const BACKEND_VERSION_LABEL = "backendVersion";
+
 export function DiagnosticsPanel({
     state,
     settings,
@@ -127,6 +136,7 @@ export function DiagnosticsPanel({
     locale,
 }: DiagnosticsPanelProps): React.ReactElement {
     const [report, setReport] = React.useState<KeyboardCapabilityReport | null>(null);
+    const [speech, setSpeech] = React.useState<SpeechCapabilities | null>(null);
     const [cdp, setCdp] = React.useState<CdpDiagnosticsReport | null>(null);
     const [hook, setHook] = React.useState<KeyboardHostDiagnostics | null>(null);
     const [bridge, setBridge] = React.useState<TabBridgeDiagnostics | null>(null);
@@ -138,6 +148,11 @@ export function DiagnosticsPanel({
         void source.loadCapabilityReport().then((value) => {
             if (!cancelled) {
                 setReport(value);
+            }
+        });
+        void source.loadSpeechCapabilities().then((value) => {
+            if (!cancelled) {
+                setSpeech(value);
             }
         });
         void Promise.resolve(source.loadCdpDiagnostics?.()).then((value) => {
@@ -256,6 +271,13 @@ export function DiagnosticsPanel({
                           `option.backend.${settings.computeBackend}` as "option.backend.auto",
                       )}
             </Field>
+            {speech !== null && speech.backendVersion !== undefined && (
+                <Field label={BACKEND_VERSION_LABEL}>
+                    <span data-backend-version="true" style={{ opacity: 0.85, fontSize: 12 }}>
+                        {speech.backendVersion}
+                    </span>
+                </Field>
+            )}
             <Field label={translate(locale, "diagnostics.lastError")}>
                 {state.kind === "error" ? (
                     <span>

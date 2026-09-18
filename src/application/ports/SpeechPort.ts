@@ -13,6 +13,12 @@ export interface SpeechCapabilities {
     readonly cpuAvailable: boolean;
     readonly vulkanAvailable: boolean;
     readonly modelInstalled: boolean;
+    /**
+     * Additive diagnostics fact (§67/§99): the backend plugin version, read
+     * once from package.json at composition and rendered by the diagnostics
+     * panel when present. Older backends omit the field.
+     */
+    readonly backendVersion?: string;
 }
 
 /**
@@ -193,6 +199,12 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 
 export function isSpeechCapabilities(value: unknown): value is SpeechCapabilities {
     if (!isRecord(value)) {
+        return false;
+    }
+    // Additive since v0.2.4 (§99): validated only when present, so older
+    // backend payloads without backendVersion stay valid.
+    const backendVersion = value["backendVersion"];
+    if (backendVersion !== undefined && typeof backendVersion !== "string") {
         return false;
     }
     return (

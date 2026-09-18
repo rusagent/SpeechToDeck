@@ -9,8 +9,18 @@
 
 import { describe, expect, it, vi } from "vitest";
 
-import { Deferred } from "../../src/shared/Deferred";
+import { DictationController } from "../../src/application/DictationController";
+import type { StartupTimerSeam } from "../../src/application/DictationController";
+import type { SpeechCapabilities } from "../../src/application/ports/SpeechPort";
 import { DictationError, MAX_TRANSCRIPT_UTF8_BYTES } from "../../src/domain/DictationError";
+import { Deferred } from "../../src/shared/Deferred";
+import { Logger, nullSink } from "../../src/shared/Logger";
+import { FakeBulkTextInserter } from "./fakes/FakeBulkTextInserter";
+import { FakeClock } from "./fakes/FakeClock";
+import { FakeIdGenerator } from "./fakes/FakeIdGenerator";
+import { FakeKeyboardHost } from "./fakes/FakeKeyboardHost";
+import { FakeSettingsPort } from "./fakes/FakeSettingsPort";
+import { ALL_CAPABILITIES, FakeSpeechPort } from "./fakes/FakeSpeechPort";
 import {
     createTestRig,
     flush,
@@ -655,5 +665,121 @@ describe("on-device event ordering (deck 2026-09-18): transcript precedes the st
         expect(rig.controller.getSnapshot().kind).toBe("ready");
         expect(rig.inserter.insertCalls).toEqual([]);
         expect(rig.controller.getLastSuppressedTranscript()).toBe("für das Panel");
+    });
+});
+
+// ── boot watchdog (§71: no startup wait is unbounded) ───────────────────────
+
+type TimeoutHandle = ReturnType<typeof setTimeout>;
+
+/** Manual scheduler: expiry fires only when the test calls fire() — no sleeps. */
+class ManualStartupTimer {
+    cancelCount = 0;
+    private handler: (() => void) | null = null;
+
+    readonly seam: StartupTimerSeam = {
+        timeoutMs: 5_000,
+        schedule: (handler: () => void): TimeoutHandle => {
+            this.handler = handler;
+            return {} as unknown as TimeoutHandle;
+        },
+        cancel: (): void => {
+            this.cancelCount += 1;
+            this.handler = null;
+        },
+    };
+
+    get armed(): boolean {
+        return this.handler !== null;
+    }
+
+    fire(): void {
+        const handler = this.handler;
+        this.handler = null;
+        handler?.();
+    }
+}
+
+/** Torn-loader stand-in: the initialize callable never resolves on its own. */
+class HangingInitializeSpeechPort extends FakeSpeechPort {
+    private readonly gate = new Deferred<void>();
+
+    constructor(trace: string[] = []) {
+        super(trace);
+    }
+
+    resolveInitialize(): void {
+        this.gate.resolve();
+    }
+
+    override async initialize(): Promise<SpeechCapabilities> {
+        this.trace.push("speech.initialize");
+        await this.gate.promise;
+        return { ...ALL_CAPABILITIES };
+    }
+}
+
+function createWatchdogRig(speechPort?: (trace: string[]) => FakeSpeechPort): {
+    rig: TestRig;
+    timer: ManualStartupTimer;
+} {
+    const trace: string[] = [];
+    const speech = speechPort ? speechPort(trace) : new FakeSpeechPort(trace);
+    const keyboard = new FakeKeyboardHost(trace);
+    const inserter = new FakeBulkTextInserter(trace);
+    const settings = new FakeSettingsPort();
+    const clock = new FakeClock();
+    const ids = new FakeIdGenerator();
+    const timer = new ManualStartupTimer();
+    const controller = new DictationController(
+        speech,
+        keyboard,
+        inserter,
+        settings,
+        clock,
+        ids,
+        new Logger("dictation.session", nullSink),
+        timer.seam,
+    );
+    return { rig: { controller, speech, keyboard, inserter, settings, clock, ids, trace }, timer };
+}
+
+describe("startup watchdog (§71: a torn loader registration must not wedge booting)", () => {
+    it("expires into the existing SPEECH_RUNTIME_UNAVAILABLE path and ignores a late resolution", async () => {
+        const { rig, timer } = createWatchdogRig((trace) => new HangingInitializeSpeechPort(trace));
+        rig.keyboard.open();
+        void rig.controller.start(); // parked inside the hanging initialize
+        await flush();
+        expect(rig.trace).toContain("speech.initialize");
+        expect(rig.controller.getSnapshot().kind).toBe("booting");
+        expect(timer.armed).toBe(true);
+
+        timer.fire();
+        await flush();
+        expect(rig.controller.getSnapshot()).toEqual({
+            kind: "unavailable",
+            reason: "SPEECH_RUNTIME_UNAVAILABLE",
+        });
+
+        // The torn callable resolves late: the state must not flip back.
+        (rig.speech as HangingInitializeSpeechPort).resolveInitialize();
+        await flush();
+        expect(rig.controller.getSnapshot()).toEqual({
+            kind: "unavailable",
+            reason: "SPEECH_RUNTIME_UNAVAILABLE",
+        });
+    });
+
+    it("clears the watchdog when startup completes, so expiry cannot fire afterwards", async () => {
+        const { rig, timer } = createWatchdogRig();
+        rig.keyboard.open();
+        await rig.controller.start();
+        expect(rig.controller.getSnapshot().kind).toBe("ready");
+        expect(timer.cancelCount).toBe(1);
+        expect(timer.armed).toBe(false);
+
+        timer.fire(); // no handler left: a cleared watchdog cannot fire
+        await flush();
+        expect(rig.controller.getSnapshot().kind).toBe("ready");
     });
 });

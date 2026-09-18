@@ -91,6 +91,41 @@ def build_plugin_roots(tmp_path: Path, *, with_fake_model: bool = False) -> tupl
     return root, data_dir
 
 
+def test_get_capabilities_reports_backend_version_fail_soft(tmp_path: Path) -> None:
+    """Additive §67 diagnostics field: the plugin version, read once from the
+    loader-installed package.json at composition. Missing or malformed
+    package.json omits the field (fail-soft, §99: older payloads stay valid).
+    """
+
+    async def scenario() -> None:
+        root, data_dir = build_plugin_roots(tmp_path / "reported")
+        (root / "package.json").write_text(
+            json.dumps({"name": "SpeechToDeck", "version": "9.9.9-test"}), encoding="utf-8"
+        )
+        app = compose(plugin_root=root, data_dir=data_dir, event_publisher=FakeEventPublisher())
+        capabilities = await app.get_capabilities()
+        assert capabilities["backendVersion"] == "9.9.9-test"
+
+        missing_root, missing_data = build_plugin_roots(tmp_path / "missing")
+        app_missing = compose(
+            plugin_root=missing_root,
+            data_dir=missing_data,
+            event_publisher=FakeEventPublisher(),
+        )
+        assert "backendVersion" not in await app_missing.get_capabilities()
+
+        broken_root, broken_data = build_plugin_roots(tmp_path / "broken")
+        (broken_root / "package.json").write_text("{not json", encoding="utf-8")
+        app_broken = compose(
+            plugin_root=broken_root,
+            data_dir=broken_data,
+            event_publisher=FakeEventPublisher(),
+        )
+        assert "backendVersion" not in await app_broken.get_capabilities()
+
+    asyncio.run(scenario())
+
+
 def test_facade_fails_closed_against_unpinned_runtime(tmp_path: Path) -> None:
     async def scenario() -> None:
         root, data_dir = build_plugin_roots(tmp_path, with_fake_model=True)

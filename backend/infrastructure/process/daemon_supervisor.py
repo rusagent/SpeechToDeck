@@ -7,10 +7,17 @@ Owns the native STT daemon child process for its whole lifetime:
   auto → the §47 probe policy in runtime_variant.py) and fails closed with
   RUNTIME_START_FAILED when the selected artifact is unpinned, its binary is
   missing, or its bytes do not match the pinned digest (§35, §53);
+- spawns the daemon from a digest-verified PRIVATE COPY of the pinned binary
+  under the plugin data dir, never `bin/` directly: installing an update over
+  the RUNNING plugin rewrites `bin/` in place and a direct-executing daemon
+  made that abort with `[Errno 26] Text file busy` (deck 2026-09-18). The
+  copy is a digest-keyed cache refreshed atomically on every spawn
+  verification (executable_copy.py); Linux rename-over-a-running-executable
+  is legal, so the refresh can never collide with the running daemon;
 - generates one TOML config per daemon start with the exact upstream keys
   (state_file, output file mode, whisper model/language, VAD, disabled
   hotkey/notifications/OSD/streaming) and spawns
-  `bin/<variant> --config <generated> daemon` — the daemon subcommand takes
+  `<private copy> --config <generated> daemon` — the daemon subcommand takes
   no options upstream; all tuning travels through the config file;
 - spawns via argument-array `create_subprocess_exec` only (§40), and binds
   the child to this process's lifetime with PR_SET_PDEATHSIG where available
@@ -54,6 +61,10 @@ from backend.domain.contracts import (
     Settings,
 )
 from backend.domain.errors import RuntimeStartError, SpeechError
+from backend.infrastructure.process.executable_copy import (
+    EXEC_COPY_DIRNAME,
+    ensure_executable_copy,
+)
 from backend.infrastructure.process.process_environment import (
     PluginPaths,
     apply_private_file_mode,
@@ -286,7 +297,10 @@ class SpeechDaemonSupervisor:
         self._proc: asyncio.subprocess.Process | None = None
         self._watch_task: asyncio.Task[None] | None = None
         self._drain_task: asyncio.Task[None] | None = None
-        self._verified: tuple[Settings, ResolvedRuntime, Path] | None = None
+        self._verified: tuple[Settings, ResolvedRuntime, Path, Path] | None = None
+        # Private executable cache under the plugin data dir (§109): the
+        # daemon never executes bin/ directly (Text-file-busy hazard).
+        self._exec_copy_dir = paths.runtime_dir / EXEC_COPY_DIRNAME
         self._stopping = False
         self._restarts_used = 0
         self._spawned_at = 0.0
@@ -297,7 +311,8 @@ class SpeechDaemonSupervisor:
 
     async def verify(self, settings: Settings) -> None:
         """§82 verification phase without spawning: config generation, variant
-        selection, binary presence and pinned-digest check (§35, §53).
+        selection, binary presence and pinned-digest check (§35, §53), plus
+        the digest-verified private executable copy.
 
         Split from `start()` so the startup orchestration can emit its
         `runtime.verify` setup step around the real verification. The verified
@@ -310,7 +325,9 @@ class SpeechDaemonSupervisor:
         """Start the pinned variant binary; idempotent while running (§35, §53).
 
         Reuses inputs from a preceding `verify()` with equal settings (§82:
-        verify → ensure → start) instead of hashing the binary twice.
+        verify → ensure → start) instead of hashing the binary twice. The
+        daemon executes the private copy prepared by the verification, never
+        `bin/` directly (Text-file-busy hazard, deck 2026-09-18).
         """
         if self.is_running():
             return
@@ -320,10 +337,11 @@ class SpeechDaemonSupervisor:
             verified = await self._verify(settings)
         self._verified = None
         self._settings = settings
-        await self._spawn(settings, verified[1], verified[2])
+        await self._spawn(settings, verified[1], verified[2], verified[3])
 
-    async def _verify(self, settings: Settings) -> tuple[Settings, ResolvedRuntime, Path]:
-        """Config generation, variant resolution, presence + digest check."""
+    async def _verify(self, settings: Settings) -> tuple[Settings, ResolvedRuntime, Path, Path]:
+        """Config generation, variant resolution, presence + digest check, and
+        the digest-verified private executable copy (§53: source AND copy)."""
         # The config exists before resolution: the §47 auto probe runs the
         # candidate binary against exactly this configuration.
         config_path = await asyncio.to_thread(
@@ -341,7 +359,13 @@ class SpeechDaemonSupervisor:
                 "runtime binary does not match the pinned digest (§53)",
                 detail=f"expected {resolved.artifact.sha256[:12]}… got {digest[:12]}…",
             )
-        return (settings, resolved, config_path)
+        exec_path = await asyncio.to_thread(
+            ensure_executable_copy,
+            resolved.binary,
+            self._exec_copy_dir,
+            source_digest=digest,
+        )
+        return (settings, resolved, config_path, exec_path)
 
     async def stop(self) -> None:
         """§38 stop order: SIGTERM → bounded wait → SIGKILL, group-wide."""
@@ -386,11 +410,15 @@ class SpeechDaemonSupervisor:
         settings: Settings,
         resolved: ResolvedRuntime,
         config_path: Path,
+        exec_path: Path,
     ) -> None:
         # Real upstream surface: global flags precede the option-less daemon
         # subcommand; all tuning travels through the generated config file.
+        # argv[0] is the digest-verified private copy — never bin/ directly —
+        # so an update installed over the running plugin cannot hit
+        # `[Errno 26] Text file busy` on the executing image.
         argv = [
-            str(resolved.binary),
+            str(exec_path),
             "--config",
             str(config_path),
             "daemon",
@@ -494,8 +522,12 @@ class SpeechDaemonSupervisor:
         if self._stopping or self.is_running():
             return
         try:
-            resolved, config_path = await self._resolve_for_restart(settings)
-            await self._spawn(settings, resolved, config_path)
+            # Full §53 re-verification for the §70 restart: the spawn inputs
+            # (config, resolved variant, private executable copy) are rebuilt
+            # through the same path as a fresh start, so a runtime that
+            # changed on disk is never restarted onto an unverified binary.
+            _, resolved, config_path, exec_path = await self._verify(settings)
+            await self._spawn(settings, resolved, config_path, exec_path)
         except SpeechError as exc:
             await self._publish_status(
                 available=False,
@@ -505,14 +537,6 @@ class SpeechDaemonSupervisor:
             )
             return
         await self._publish_status(available=True, state="restarted", restart_attempt=attempt)
-
-    async def _resolve_for_restart(self, settings: Settings) -> tuple[ResolvedRuntime, Path]:
-        """Rebuild spawn inputs for a §70 restart (config + resolved variant)."""
-        config_path = await asyncio.to_thread(
-            write_daemon_config, self._paths, settings, self._model_path_for(settings.model_id)
-        )
-        resolved = await self._resolver.resolve(settings.compute_backend, config_path=config_path)
-        return resolved, config_path
 
     async def _terminate(self, proc: asyncio.subprocess.Process) -> None:
         pid = proc.pid

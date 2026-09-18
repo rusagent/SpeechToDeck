@@ -9,6 +9,7 @@ application-domain classes.
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
 from collections.abc import Awaitable, Callable
 from pathlib import Path
@@ -104,6 +105,22 @@ def _runtime_relevant_change(before: Settings, after: Settings) -> bool:
     return any(getattr(before, field) != getattr(after, field) for field in _RUNTIME_FIELDS)
 
 
+def read_backend_version(plugin_root: Path) -> str | None:
+    """Plugin version from the loader-installed package.json (additive §67
+    diagnostics field, read once at composition).
+
+    Fail-soft by design: a missing, unreadable or malformed package.json — or
+    a missing/empty/non-string version — omits the field instead of failing
+    composition; the §99 frontend guard ignores the field when absent.
+    """
+    try:
+        payload = json.loads((plugin_root / "package.json").read_text(encoding="utf-8"))
+        version = payload["version"]
+    except (OSError, ValueError, KeyError, TypeError):
+        return None
+    return version if isinstance(version, str) and version else None
+
+
 def _daemon_idle(event: WatchEvent) -> bool:
     """Warmup predicate: the daemon state file reports idle (§41 watcher)."""
     snapshot = event.snapshot
@@ -154,6 +171,7 @@ class Application:
         level_client: LevelSocketClient,
         clipboard_writer: ClipboardWriter | None = None,
         cdp_diagnostics: CdpDiagnostics | None = None,
+        backend_version: str | None = None,
     ) -> None:
         self.paths = paths
         self.publisher = publisher
@@ -178,6 +196,10 @@ class Application:
         # v0.2 additive best-effort clipboard leg; None keeps the legacy
         # behavior (transcript_ready reports "skipped").
         self.clipboard_writer = clipboard_writer
+        # Additive §67 diagnostics fact: the plugin version, read once from
+        # package.json at composition (read_backend_version). None omits the
+        # field from the §57 capability report.
+        self._backend_version = backend_version
         self._cdp_report: dict[str, object] = dict(CDP_REPORT_NOT_PROBED)
         self._cdp_task: asyncio.Task[None] | None = None
         self._started = False
@@ -451,7 +473,7 @@ class Application:
         """
         settings = await self.settings_repository.load()
         running = self.supervisor.is_running()
-        return {
+        capabilities: dict[str, object] = {
             "protocolVersion": PROTOCOL_VERSION_V1,
             "speechRuntimeAvailable": running,
             "microphoneAvailable": running,
@@ -463,6 +485,11 @@ class Application:
             "modelId": settings.model_id,
             "language": settings.language,
         }
+        # Additive diagnostics fact (§67/§99): the plugin version for the
+        # panel's backend row. Omitted when package.json carried no version.
+        if self._backend_version is not None:
+            capabilities["backendVersion"] = self._backend_version
+        return capabilities
 
     async def get_status(self) -> dict[str, object]:
         settings = await self.settings_repository.load()
@@ -778,4 +805,5 @@ def compose(
         level_client=level_client,
         clipboard_writer=clipboard_writer,
         cdp_diagnostics=cdp_diagnostics,
+        backend_version=read_backend_version(plugin_root),
     )
