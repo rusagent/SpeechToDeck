@@ -379,7 +379,10 @@ function DictationCase({
         if (variant !== "recording") {
             return;
         }
-        // 24 frames of a plausible spoken envelope: two gentle surges.
+        // 24 frames of a plausible spoken envelope: two gentle surges. Each
+        // frame's peak is the envelope's dBFS (20·log10, floored at the
+        // meter's -60 dBFS, rounded to 3 decimals like the backend's frames)
+        // so the strip exercises the real dB-derived level mapping.
         const amplitudes = [
             0.05, 0.12, 0.2, 0.35, 0.5, 0.62, 0.7, 0.65, 0.5, 0.3, 0.18, 0.1, 0.08, 0.15, 0.28,
             0.45, 0.6, 0.75, 0.85, 0.78, 0.6, 0.4, 0.22, 0.12,
@@ -388,7 +391,10 @@ function DictationCase({
             protocolVersion: 1,
             kind: "recording_level",
             seq: 24,
-            frames: amplitudes.map((a) => [-a, a, -6]),
+            frames: amplitudes.map((a) => {
+                const peakDbfs = Math.max(-60, 20 * Math.log10(a));
+                return [-a, a, Math.round(peakDbfs * 1000) / 1000] as const;
+            }),
         });
     }, [variant, levelMeter]);
     return (

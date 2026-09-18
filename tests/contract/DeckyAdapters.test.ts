@@ -192,9 +192,11 @@ describe("DeckySpeechAdapter", () => {
         expect(snapshot.lastSeq).toBe(41); // the invalid payloads never rendered
         expect(snapshot.frameCount).toBe(2);
         expect(snapshot.bars.length).toBe(24);
-        // Amplitude = max(|min|, |max|): the newest bar carries the loud frame.
-        expect(snapshot.bars[23]).toBeCloseTo(0.9, 5);
-        expect(snapshot.bars[22]).toBeCloseTo(0.5, 5);
+        // Level = peakDbfs normalized over [-60, 0] dBFS: the newest bar
+        // carries the loud frame (-0.915 dBFS ≈ 0.985); the min/max extrema
+        // no longer drive magnitude.
+        expect(snapshot.bars[23]).toBeCloseTo((60 - 0.915) / 60, 5);
+        expect(snapshot.bars[22]).toBeCloseTo((60 - 6.021) / 60, 5);
     });
 
     it("publishes transcript payloads with the clipboard outcome into the panel store", () => {

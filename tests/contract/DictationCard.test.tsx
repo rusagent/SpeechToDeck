@@ -38,12 +38,12 @@ const ERROR: DictationState = {
     recoverable: true,
 };
 
-function framePayload(seq: number, min: number, max: number) {
+function framePayload(seq: number, min: number, max: number, peakDbfs: number) {
     return {
         protocolVersion: 1 as const,
         kind: "recording_level" as const,
         seq,
-        frames: [[min, max, -6] as const],
+        frames: [[min, max, peakDbfs] as const],
     };
 }
 
@@ -127,9 +127,11 @@ describe("DictationCard", () => {
         ).toBe("0.00");
 
         // Real frames through the real store → real bars (never synthetic).
+        // Levels come from peakDbfs over the -60..0 dBFS range: -30 → 0.50,
+        // -6 → 0.90; the min/max extrema no longer drive magnitude.
         await act(async () => {
-            store.publish(framePayload(41, -0.5, 0.5));
-            store.publish(framePayload(42, -0.9, 0.9));
+            store.publish(framePayload(41, -0.03, 0.03, -30));
+            store.publish(framePayload(42, -0.5, 0.5, -6));
         });
         expect(
             strip?.querySelector('[data-level-bar="23"]')?.getAttribute("data-level-value"),

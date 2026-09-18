@@ -78,11 +78,30 @@ const IDLE_SNAPSHOT: LevelMeterSnapshot = {
 };
 
 /**
+ * Quiet end of the level meter in dBFS: frames at or below this level render
+ * as an empty bar. Loud speech peaks near 0 dBFS, typical speech sits around
+ * -30 dBFS — a LINEAR extremum mapping throws that perceptual range away
+ * (0.02..0.3 sample amplitude ≈ the visualizer's floor colors), so the bar
+ * height is derived from `peakDbfs` instead.
+ */
+const FLOOR_DBFS = -60;
+
+function clamp01(value: number): number {
+    return Math.min(1, Math.max(0, value));
+}
+
+/** One frame's perceived level: peakDbfs normalized over [FLOOR_DBFS, 0]. */
+function frameLevel(peakDbfs: number): number {
+    return clamp01((peakDbfs - FLOOR_DBFS) / (0 - FLOOR_DBFS));
+}
+
+/**
  * Rolling 24-bar window over the received frames (§102 store shape:
  * `getSnapshot`/`subscribe`). Each frame contributes one bar whose height is
- * the window's amplitude `max(|min|, |max|)` clamped to 0..1; the snapshot
- * identity changes only when frames actually arrived, so a quiet stream
- * causes no render churn.
+ * the frame's `peakDbfs` normalized over the -60..0 dBFS range (clamped to
+ * 0..1) — NOT the min/max sample extrema, which rendered typical speech
+ * nearly invisible; the snapshot identity changes only when frames actually
+ * arrived, so a quiet stream causes no render churn.
  */
 export class LevelMeterStore {
     private readonly listeners = new Set<() => void>();
@@ -105,12 +124,8 @@ export class LevelMeterStore {
             return;
         }
         const nextBars = [...this.snapshot.bars];
-        for (const [minimum, maximum] of payload.frames) {
-            const amplitude = Math.min(
-                1,
-                Math.max(0, Math.max(Math.abs(minimum), Math.abs(maximum))),
-            );
-            nextBars.push(amplitude);
+        for (const [, , peakDbfs] of payload.frames) {
+            nextBars.push(frameLevel(peakDbfs));
         }
         // Keep the LAST window: the newest frame is the rightmost bar.
         this.snapshot = {
