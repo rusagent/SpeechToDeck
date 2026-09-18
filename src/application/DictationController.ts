@@ -124,6 +124,11 @@ export class DictationController implements Disposable, StateStore<DictationStat
         // §82 order: load settings → install keyboard hook → initialize speech
         // runtime (backend init incl. model). The hook install MUST NOT wait
         // for model loading, so the keyboard host starts first.
+        //
+        // v0.2.2 (on-device regression fix): a failed hook does NOT abort
+        // startup. The QAM panel flow needs no keyboard injection; a broken
+        // hook only leaves the in-keyboard button dormant and degrades
+        // through the §58 diagnostics consumed by the capability report.
         let loaded: PluginSettings;
         try {
             loaded = await this.settings.load();
@@ -137,9 +142,9 @@ export class DictationController implements Disposable, StateStore<DictationStat
         try {
             await this.keyboard.start();
         } catch (error) {
-            this.logger.error("keyboard hook start failed", { detail: describeError(error) });
-            this.apply({ type: "STARTUP_FAILED", reason: "KEYBOARD_HOOK_UNAVAILABLE" });
-            return;
+            this.logger.warn("keyboard hook start failed; continuing without it", {
+                detail: describeError(error),
+            });
         }
 
         let capabilities: SpeechCapabilities;

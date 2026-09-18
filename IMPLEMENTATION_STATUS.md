@@ -1,5 +1,7 @@
 # IMPLEMENTATION_STATUS
 
+## v0.2.2 — QAM dictation flow decoupled from keyboard facets (runtime + model + enabled gate only; on-device `[steam.capability] supported=false profileId=none` regression); the keyboard profile now matches the real scanned keyboard DOM (`[class*="VirtualKeyboard"]` container in a `DIV.*.Panel` parent, kb-deep.out) and still fails closed — paste/native facets stay honestly unrecognized
+
 ## v0.2.0 — owner-designed product pivot: QAM dictation card (big mic button + live level strip) → local transcript → system clipboard → Steam-keyboard Paste
 
 ### The v0.2 flow (owner design)

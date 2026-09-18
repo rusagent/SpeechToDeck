@@ -12,6 +12,7 @@ import { DefaultSteamKeyboardProfile } from "../../src/infrastructure/steam/prof
 import {
     clearKeyboardFixtures,
     installSteamWindowStubs,
+    mountRealSignatureKeyboard,
     mountSupportedKeyboard,
     mountUnsupportedMarkup,
     removeSteamWindowSignature,
@@ -57,6 +58,53 @@ describe("SteamKeyboardLocator", () => {
             expect(discovery?.keyboardDom).toBe(fixture.root);
             expect(DefaultSteamKeyboardProfile.matches(discovery!)).toBe(true);
             expect(DefaultSteamKeyboardProfile.locatePasteAction(fixture.root)).not.toBeNull();
+        } finally {
+            fixture.detachTypingRecorder();
+            clearKeyboardFixtures();
+            stubs.restore();
+        }
+    });
+
+    it("matches the REAL scanned keyboard DOM (v0.2.2 kb-deep.out) and still fails closed", () => {
+        // v0.2.2 on-device regression ([steam.capability] supported=false
+        // profileId=none): the real container carries only the CSS-module
+        // class token in a DIV.*.Panel parent — no button-role key controls —
+        // so the old key-control requirement never matched real hardware.
+        const stubs = installSteamWindowStubs();
+        const fixture = mountRealSignatureKeyboard();
+        try {
+            const context = {
+                window: { token: "steam-ui-window", window, document },
+                manager: null,
+                keyboardDom: fixture.root,
+                component: null,
+            };
+            expect(DefaultSteamKeyboardProfile.matches(context)).toBe(true);
+            expect(DefaultSteamKeyboardProfile.locateMountPoint(fixture.root)).toBe(fixture.root);
+            // Paste/native facets stay honestly unrecognized (§57/§105).
+            expect(DefaultSteamKeyboardProfile.locatePasteAction(fixture.root)).toBeNull();
+
+            // Fail closed (§59/§2.4): no keyboard, unrelated markup, and a
+            // class-token carrier outside the verified Panel parentage are
+            // all rejected — the token alone is never decisive.
+            expect(DefaultSteamKeyboardProfile.matches({ ...context, keyboardDom: null })).toBe(
+                false,
+            );
+
+            const impostor = document.createElement("div");
+            impostor.className = "x_VirtualKeyboard_y";
+            document.body.appendChild(impostor);
+            expect(DefaultSteamKeyboardProfile.matches({ ...context, keyboardDom: impostor })).toBe(
+                false,
+            );
+
+            const unrelated = document.createElement("div");
+            unrelated.className = "some_steam_panel";
+            unrelated.setAttribute("role", "dialog");
+            document.body.appendChild(unrelated);
+            expect(
+                DefaultSteamKeyboardProfile.matches({ ...context, keyboardDom: unrelated }),
+            ).toBe(false);
         } finally {
             fixture.detachTypingRecorder();
             clearKeyboardFixtures();

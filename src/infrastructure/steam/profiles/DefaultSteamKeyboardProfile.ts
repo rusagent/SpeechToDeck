@@ -2,10 +2,20 @@
  * Default compatibility profile (spec §59/§60).
  *
  * Locator evidence preference order (§60): stable semantic attributes first,
- * then roles/accessible labels, then structural relationships; minified CSS
- * classes are secondary corroboration only and are never decisive. Matching
- * is conservative multi-evidence: an unknown structure reports "unsupported"
+ * then roles/accessible labels, then structural relationships; a known
+ * profile-specific signature (§60.5) is the last honest locator for a Steam
+ * build whose real DOM carries no semantic attributes. Matching is
+ * conservative multi-evidence: an unknown structure reports "unsupported"
  * instead of guessing and continuing (§89, §2.4).
+ *
+ * v0.2.2 (on-device regression fix): the live-scanned keyboard container
+ * (`.tmp/cdp/kb-deep.out`) is a permanently-present node with a hash-prefixed
+ * CSS-module class + the literal "VirtualKeyboardVisible" visibility token,
+ * inside a `DIV.*.Panel` parent — with NO semantic attributes, NO recognized
+ * paste control, and NO button-role key controls. The former key-control
+ * requirement was fixture-built and reported `profileId=none` on real
+ * hardware; the profile now matches the verified container signature while
+ * still failing closed on unrelated DOM.
  */
 
 import type {
@@ -19,9 +29,6 @@ export const VK_ROOT_ATTRIBUTE = "data-virtualkeyboard";
 
 /** Semantic attribute marking the keyboard's native paste action control. */
 export const VK_PASTE_ACTION_ATTRIBUTE = "data-vk-action";
-
-/** Semantic attribute marking one virtual key (structural evidence). */
-export const VK_KEY_ATTRIBUTE = "data-vk-key";
 
 /** Plugin-owned mount node marker (spec §18 example). */
 export const MIC_ROOT_ATTRIBUTE = "data-speechtodeck-root";
@@ -39,16 +46,23 @@ function isActivatableControl(element: HTMLElement): boolean {
 }
 
 /**
- * The stable CSS-module token (§60.5 known-signature corroboration): the
- * live-verified keyboard container and key classes carry the literal
- * `virtualkeyboard` / `VirtualKeyboard` tokens with hash prefixes.
+ * The stable CSS-module token (§60.5 known-signature): the live-verified
+ * keyboard container class carries the literal `virtualkeyboard` /
+ * `VirtualKeyboard` token with hash prefixes (the visibility token
+ * "VirtualKeyboardVisible" is the locator's separate visibility evidence).
  */
 const VK_CLASS_TOKEN_PATTERN = /virtualkeyboard/i;
 
-function hasStructuralKeyControl(keyboard: HTMLElement): boolean {
-    // Evidence (§60.4): the root actually contains interactive key controls,
-    // so it is a keyboard and not an unrelated node with a matching class.
-    return queryOne(keyboard, `[${VK_KEY_ATTRIBUTE}], [role="button"], button`) !== null;
+/**
+ * Structural relationship (§60.4) verified on deck hardware: the keyboard
+ * container's parent is a `DIV` carrying Steam's `Panel` class
+ * (`DIV._1DLmEVjfX3d7Ec8CW7vJnt Panel`, kb-deep.out). Together with the class
+ * token this is the two-evidence known signature — the token alone never
+ * decides (§60).
+ */
+function hasVerifiedPanelParent(keyboard: HTMLElement): boolean {
+    const parent = keyboard.parentElement;
+    return parent !== null && parent.tagName === "DIV" && /\bPanel\b/.test(parent.className);
 }
 
 export const DefaultSteamKeyboardProfile: SteamKeyboardProfile = {
@@ -59,19 +73,17 @@ export const DefaultSteamKeyboardProfile: SteamKeyboardProfile = {
         if (keyboard === null) {
             return false;
         }
-        if (!hasStructuralKeyControl(keyboard)) {
-            return false;
-        }
         // Signature A (§60.1): stable semantic attribute on the root.
         if (hasAttributeTrue(keyboard, VK_ROOT_ATTRIBUTE)) {
             return true;
         }
-        // Signature B (v0.1.6, live-verified on deck hardware): the CSS-module
-        // class token — accepted only together with the structural key-control
-        // evidence above AND a registry manager hook on the same client, which
-        // discovery guarantees before this profile runs (§60: classes are
-        // corroborating evidence, never the sole locator).
-        return VK_CLASS_TOKEN_PATTERN.test(keyboard.className);
+        // Signature B (live-verified on deck hardware, v0.2.2): the known
+        // profile-specific container signature (§60.5) — the CSS-module class
+        // token AND the verified Panel parent relationship. The real DOM's
+        // key controls are not button-role elements and the container stays
+        // mounted while hidden, so neither key presence nor visibility is a
+        // match condition.
+        return VK_CLASS_TOKEN_PATTERN.test(keyboard.className) && hasVerifiedPanelParent(keyboard);
     },
 
     locateMountPoint(keyboard: HTMLElement): HTMLElement | null {

@@ -55,22 +55,25 @@ describe("startup (§82)", () => {
         expect(rig.trace).not.toContain("speech.initialize");
     });
 
-    it("reports KEYBOARD_HOOK_UNAVAILABLE and never initializes speech", async () => {
+    it("keeps starting the runtime when the keyboard hook fails (v0.2.2 QAM decoupling)", async () => {
+        // The QAM flow has no keyboard-hook dependency: a failed hook leaves
+        // the in-keyboard button dormant and degrades through the §58
+        // diagnostics — it never blocks the dictation flow (§105).
         const rig = createTestRig();
         rig.keyboard.startError = new Error("no hook");
         rig.keyboard.open();
         await rig.controller.start();
 
-        expect(rig.controller.getSnapshot()).toEqual({
-            kind: "unavailable",
-            reason: "KEYBOARD_HOOK_UNAVAILABLE",
-        });
-        expect(rig.trace).not.toContain("speech.initialize");
+        expect(rig.controller.getSnapshot().kind).toBe("ready");
+        expect(rig.trace).toContain("keyboard.start");
+        expect(rig.trace).toContain("speech.initialize");
     });
 
-    it("derives keyboardHookAvailable from the host §58 diagnostics when reported (v0.1.6)", async () => {
-        // A degrade reason on the optional diagnostics surface degrades the
-        // capability honestly (§57) even though start() itself resolved.
+    it("keeps the flow ready while keyboard hook diagnostics degrade (v0.2.2 QAM decoupling)", async () => {
+        // §57 honesty stays in the capability report (keyboardHookAvailable
+        // still derives from the host's §58 diagnostics); the flow gate no
+        // longer consumes it — keyboard facets never make dictation
+        // unavailable.
         const degraded = createTestRig();
         degraded.keyboard.diagnostics = {
             registryFound: true,
@@ -81,13 +84,9 @@ describe("startup (§82)", () => {
         };
         degraded.keyboard.open();
         await degraded.controller.start();
+        expect(degraded.controller.getSnapshot().kind).toBe("ready");
 
-        expect(degraded.controller.getSnapshot()).toEqual({
-            kind: "unavailable",
-            reason: "KEYBOARD_HOOK_UNAVAILABLE",
-        });
-
-        // A fully available hook report keeps the plugin ready.
+        // A fully available hook report also keeps the plugin ready.
         const healthy = createTestRig();
         healthy.keyboard.diagnostics = {
             registryFound: true,
@@ -511,6 +510,33 @@ describe("state store (§102) and dispose (§83)", () => {
 });
 
 describe("panel dictation flow (v0.2 owner pivot)", () => {
+    it("panel press starts a clipboard-flow session with every keyboard capability false (on-device v0.2.2 regression)", async () => {
+        // On device the probe reported `[steam.capability] supported=false
+        // profileId=none` and the old keyboard gating made every QAM press
+        // dead. The flow needs only runtime + model + enabled (§57): with
+        // the hook failed, diagnostics degraded and no insertion facets,
+        // the press must still start recording.
+        const rig = createTestRig();
+        rig.keyboard.startError = new Error("no hook");
+        rig.keyboard.diagnostics = {
+            registryFound: false,
+            managersHooked: 0,
+            keyboardSignatureSeen: false,
+            documentResolved: false,
+            reason: "registry-not-found",
+        };
+        await rig.controller.start(); // no keyboard context exists
+        expect(rig.controller.getSnapshot().kind).toBe("ready");
+
+        await rig.controller.handlePanelMicrophonePressed();
+        await flush();
+        expect(rig.controller.getSnapshot()).toMatchObject({
+            kind: "starting",
+            session: { sessionId: "id-1", keyboardContextId: null },
+        });
+        expect(rig.speech.startCalls).toEqual(["id-1"]);
+    });
+
     it("starts a clipboard-flow session from the panel without any keyboard context", async () => {
         const rig = createTestRig();
         await rig.controller.start(); // no keyboard context exists

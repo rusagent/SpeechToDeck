@@ -118,6 +118,14 @@ function sameSession(state: { readonly session: DictationSession }, sessionId: s
  * Deterministic unavailable-reason derivation from the capability report
  * (spec §57), checked in a fixed order. Returns `null` when the plugin is
  * ready to dictate.
+ *
+ * v0.2.2 (on-device regression fix): readiness is the QAM flow's own
+ * requirement — runtime available, model installed, plugin enabled. The
+ * keyboard facets (keyboardHookAvailable, clipboard/nativePaste,
+ * directInsert) do NOT gate the flow: the panel flow records and carries the
+ * transcript to the clipboard with no keyboard injection, and a degraded
+ * keyboard only leaves the in-keyboard button dormant while the facets stay
+ * honestly reported (§57/§105).
  */
 function unavailableReasonFor(
     capabilities: RuntimeCapabilities,
@@ -125,9 +133,6 @@ function unavailableReasonFor(
 ): UnavailableReason | null {
     if (!enabled) {
         return "PLUGIN_DISABLED";
-    }
-    if (!capabilities.keyboardHookAvailable) {
-        return "KEYBOARD_HOOK_UNAVAILABLE";
     }
     if (!capabilities.speechRuntimeAvailable) {
         return "SPEECH_RUNTIME_UNAVAILABLE";

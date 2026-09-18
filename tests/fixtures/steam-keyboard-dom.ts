@@ -9,10 +9,12 @@
  * exposing `m_VirtualKeyboardManager` + `m_BrowserWindow.document` (the dead
  * `window.VirtualKeyboardManager` global from the first adapter attempt is
  * gone: live probes proved it does not exist). A second fixture models the
- * verified real keyboard signature (`[class*="virtualkeyboard"]` token +
- * "VirtualKeyboardVisible" class + role=button key controls). Live Steam
- * behavior is validated separately on hardware and intentionally not claimed
- * here.
+ * verified real keyboard DOM exactly as scanned on device (v0.2.2, verbatim
+ * `.tmp/cdp/kb-deep.out`: `[class*="VirtualKeyboard"]` container +
+ * "VirtualKeyboardVisible" class inside a `DIV.*.Panel` parent — no semantic
+ * attributes, no button-role key controls, no recognized paste control).
+ * Live Steam behavior is validated separately on hardware and intentionally
+ * not claimed here.
  */
 
 import { vi } from "vitest";
@@ -182,26 +184,25 @@ export function mountSupportedKeyboard(): KeyboardFixture {
 }
 
 /**
- * The v0.1.6 live-verified real keyboard signature: hash-prefixed CSS-module
- * class token + literal "VirtualKeyboardVisible" visibility class, structural
- * key controls, no semantic attributes, no recognized paste control (matching
- * the on-device scan, where the paste mechanism is still unidentified).
+ * The live-verified REAL keyboard DOM, modeled exactly on the on-device CDP
+ * scan (`.tmp/cdp/kb-deep.out`): the permanently-present container carries a
+ * hash-prefixed CSS-module class + the literal "VirtualKeyboardVisible"
+ * visibility token, and sits in a `DIV.*.Panel` parent. The scan verified NO
+ * semantic attributes, NO recognized paste control, and NO button-role key
+ * controls inside the container — the v0.1.6 fixture's invented key controls
+ * were exactly the fixture-built assumption that broke the profile match
+ * (v0.2.2). Structure, class names, and parentage are verbatim kb-deep.out.
  */
 export function mountRealSignatureKeyboard(): KeyboardFixture {
+    const parent = document.createElement("div");
+    parent.className = "_1DLmEVjfX3d7Ec8CW7vJnt Panel";
+
     const root = document.createElement("div");
     root.className = "_2Ze6bsh7IKjSyQRmkzuxO3 VirtualKeyboardVisible Panel";
 
-    const container = document.createElement("div");
-    container.className = "_3Xy Panel virtualkeyboard_KeyRow_1a2b";
-    const keyA = document.createElement("div");
-    keyA.className = "virtualkeyboard_KeyboardKey_2KhPX";
-    keyA.setAttribute("role", "button");
-    keyA.setAttribute("aria-label", "a");
-    container.appendChild(keyA);
-
-    root.appendChild(container);
-    document.body.appendChild(root);
-    return buildKeyboardFixture(root, [container, keyA], null);
+    parent.appendChild(root);
+    document.body.appendChild(parent);
+    return buildKeyboardFixture(root, [parent], null);
 }
 
 /** Keyboard root with keys but no paste control: direct insert unavailable. */
