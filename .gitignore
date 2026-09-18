@@ -20,6 +20,8 @@ coverage/
 # Model binaries and runtime artifacts are never committed to git; they are
 # downloaded at runtime and checksummed against defaults/ manifests (§50/§53).
 *.bin
+# recorded level-frame fixtures for the audio.sock parser tests
+!tests/fixtures/levels/*.bin
 bin/*
 !bin/README.md
 
