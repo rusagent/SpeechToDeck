@@ -14,7 +14,10 @@
  *
  * jsdom limitation (documented): `document.execCommand` and layout are not
  * implemented, so the contenteditable insertion branch and fixed positioning
- * math are not exercised here — offsetWidth is forced per element.
+ * math are not exercised here — and jsdom's always-0 offsetWidth IS the
+ * on-device CEF condition (v0.1.8): the host must mount on the class token
+ * alone. Only the poll's `v`-field test stubs offsetWidth, because `v` still
+ * reports it.
  */
 
 import { beforeEach, describe, expect, it } from "vitest";
@@ -29,6 +32,7 @@ import {
 
 interface BridgeWindow {
     __stdKbBridgeLoaded?: boolean;
+    __stdKbEvaluate?: (() => void) | null;
     __stdMicEvents?: Array<{ t: number; kind: string }>;
     __stdMicFocus?: { tag: string; path: number[] } | null;
     __stdMicInsert?: (text: string) => boolean;
@@ -44,10 +48,17 @@ function installBootstrap(): void {
     new Function(KEYBOARD_BRIDGE_BOOTSTRAP_SOURCE)();
 }
 
-function makeVisibleContainer(): HTMLElement {
+/**
+ * Visible container WITHOUT an offsetWidth stub by default: jsdom reports 0 —
+ * exactly the on-device CEF condition, so the class token alone must mount.
+ * Only callers that assert the poll's `v` field pass an offsetWidth.
+ */
+function makeVisibleContainer(offsetWidth?: number): HTMLElement {
     const container = document.createElement("div");
     container.className = "hash_VirtualKeyboard__a1b2 VirtualKeyboardVisible";
-    Object.defineProperty(container, "offsetWidth", { value: 800 });
+    if (offsetWidth !== undefined) {
+        Object.defineProperty(container, "offsetWidth", { value: offsetWidth });
+    }
     document.body.appendChild(container);
     return container;
 }
@@ -72,6 +83,7 @@ beforeEach(() => {
     document.body.innerHTML = "";
     document.head.innerHTML = "";
     delete bridgeWindow.__stdKbBridgeLoaded;
+    delete bridgeWindow.__stdKbEvaluate;
     delete bridgeWindow.__stdMicEvents;
     delete bridgeWindow.__stdMicFocus;
     delete bridgeWindow.__stdMicInsert;
@@ -84,6 +96,7 @@ describe("KeyboardBridgeBootstrap source validity and idempotency", () => {
         installBootstrap();
         expect(bridgeWindow.__stdKbBridgeLoaded).toBe(true);
         expect(bridgeWindow.__stdMicEvents).toEqual([]);
+        expect(typeof bridgeWindow.__stdKbEvaluate).toBe("function");
         expect(typeof bridgeWindow.__stdMicInsert).toBe("function");
         expect(typeof bridgeWindow.__stdMicState).toBe("function");
         expect(typeof bridgeWindow.__stdMicTeardown).toBe("function");
@@ -190,6 +203,7 @@ describe("KeyboardBridgeBootstrap focus capture and one-payload insertion", () =
 
         expect(bridgeWindow.__stdMicTeardown?.()).toBe(true);
         expect(bridgeWindow.__stdKbBridgeLoaded).toBe(false);
+        expect(bridgeWindow.__stdKbEvaluate).toBeNull(); // §83: no stale evaluate handle
         expect(micHost()).toBeNull();
         expect(document.querySelectorAll("#std-mic-style")).toHaveLength(0);
         expect(bridgeWindow.__stdMicEvents).toEqual([]);
@@ -208,7 +222,9 @@ describe("poll, insert and state expressions", () => {
         expect(before).toEqual({ v: false, c: false, b: false, ev: [], f: false });
 
         installBootstrap();
-        makeVisibleContainer();
+        // The poll's `v` field still reports offsetWidth (its semantics are
+        // unchanged in v0.1.8) — only here is a width stubbed.
+        makeVisibleContainer(800);
         bridgeWindow.__stdMicEvents?.push({ t: 1, kind: "press" }, { t: 2, kind: "press" });
 
         const first = evaluate();
@@ -216,6 +232,10 @@ describe("poll, insert and state expressions", () => {
         expect(first.c).toBe(true);
         expect(first.b).toBe(true);
         expect(first.ev).toHaveLength(2);
+        // The expression runs __stdKbEvaluate BEFORE the JSON: the host mounts
+        // synchronously here (the observer has not delivered yet), the §61
+        // self-heal for a missed observer event.
+        expect(micHost()).not.toBeNull();
 
         const second = evaluate();
         expect(second.ev).toEqual([]); // drained exactly once

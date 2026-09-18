@@ -54,9 +54,10 @@ function createRig() {
     const executor: TabExecutor = async (tab, runAsync, code) => {
         expect(tab).toBe("Steam Big Picture Mode");
         expect(runAsync).toBe(false);
-        // The poll references __stdKbBridgeLoaded (the b flag) — match the
-        // poll shape FIRST.
-        if (code.startsWith("JSON.stringify")) {
+        // The poll wraps its payload in JSON.stringify({ (after the §61
+        // __stdKbEvaluate self-heal call) — match the poll shape FIRST, it
+        // also references __stdKbBridgeLoaded (the b flag).
+        if (code.includes("JSON.stringify({")) {
             return {
                 success: true,
                 result: JSON.stringify({

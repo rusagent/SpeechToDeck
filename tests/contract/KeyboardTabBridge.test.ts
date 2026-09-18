@@ -66,7 +66,9 @@ class ScriptedTransport {
 }
 
 function isPoll(call: RecordedCall): boolean {
-    return call.code.startsWith("JSON.stringify");
+    // The poll leads with the __stdKbEvaluate self-heal call (§61, v0.1.8) and
+    // wraps the payload in JSON.stringify — no other expression contains both.
+    return call.code.includes("JSON.stringify({");
 }
 
 function isInjection(call: RecordedCall): boolean {
@@ -234,6 +236,57 @@ describe("KeyboardTabBridge press channel and keyboard lifecycle", () => {
         expect(harness.transport.calls).toHaveLength(0);
         expect(harness.bridge.getFacts().reason).toBe("sp-target-not-found");
         await harness.bridge.stop();
+    });
+});
+
+describe("KeyboardTabBridge poll-driven self-heal (§61, v0.1.8 on-device regression)", () => {
+    it("mounts the mic host through one real inject+poll tick while offsetWidth stays 0", async () => {
+        // REAL in-tab evaluation: the fake executeInTab transport evaluates
+        // every code string against the jsdom document. jsdom's offsetWidth is
+        // always 0 — the exact on-device CEF condition — so a mounted host
+        // proves the class-token visibility decision end to end through the
+        // engine (inject → poll expression → __stdKbEvaluate → ensureHost).
+        const container = document.createElement("div");
+        container.className = "hash_VirtualKeyboard__a1b2 VirtualKeyboardVisible";
+        document.body.appendChild(container);
+
+        const executor: TabExecutor = async (tab, runAsync, code) => {
+            expect(tab).toBe("Steam Big Picture Mode");
+            expect(runAsync).toBe(false);
+            // eval, not new Function: the completion value IS the payload
+            // contract (Runtime.evaluate semantics; new Function returns
+            // undefined for the bootstrap IIFE and the poll statements).
+            return { success: true, result: eval(code) };
+        };
+        const bridge = new KeyboardTabBridge({
+            executor,
+            onPress: () => undefined,
+            onKeyboardOpened: () => undefined,
+            onKeyboardClosed: () => undefined,
+            contexts: new SteamKeyboardContextFactory(new FakeIdGenerator()),
+        });
+
+        await bridge.start();
+        await vi.advanceTimersByTimeAsync(0);
+
+        expect(bridge.getFacts().bootstrapInjected).toBe(true);
+        expect(document.getElementById("std-mic-host")).not.toBeNull();
+
+        await bridge.stop(); // pushes the real in-window teardown through the executor
+        document.body.innerHTML = "";
+        const residue = window as unknown as Record<string, unknown>;
+        for (const key of [
+            "__stdKbBridgeLoaded",
+            "__stdKbEvaluate",
+            "__stdMicEvents",
+            "__stdMicFocus",
+            "__stdMicInsert",
+            "__stdMicPaste",
+            "__stdMicState",
+            "__stdMicTeardown",
+        ]) {
+            delete residue[key];
+        }
     });
 });
 

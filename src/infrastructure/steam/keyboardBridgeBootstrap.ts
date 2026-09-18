@@ -12,7 +12,9 @@
  *   (the loader-side re-injection cadence and SP document reloads rely on it).
  * - `MutationObserver` on `document.body` watches for the keyboard container
  *   `[class*="VirtualKeyboard"]` gaining visibility (class token
- *   "VirtualKeyboardVisible" present AND `offsetWidth > 0`) and injects exactly
+ *   "VirtualKeyboardVisible" present — offsetWidth reads 0 in CEF on device
+ *   while the keyboard is on screen, so the token alone is authoritative) and
+ *   injects exactly
  *   ONE `<div id="std-mic-host" role="button" tabindex="0"
  *   aria-label="SpeechToDeck dictation">` bottom-left inside the container;
  *   the host is removed again when the keyboard hides. The container node is
@@ -41,7 +43,11 @@
 /** CSS-module-agnostic container selector (permanently present, per probe evidence). */
 export const KEYBOARD_CONTAINER_SELECTOR = '[class*="VirtualKeyboard"]';
 
-/** Visibility selector: literal "VirtualKeyboardVisible" token + a size check. */
+/**
+ * Visibility selector: the literal "VirtualKeyboardVisible" class token. The
+ * bootstrap's `isVisible` trusts this token alone (offsetWidth reads 0 in CEF
+ * on device while visible); the poll's `v` field still reports offsetWidth.
+ */
 export const KEYBOARD_VISIBLE_SELECTOR = '[class*="VirtualKeyboardVisible"]';
 
 /** Plugin-owned host node id inside the keyboard document. */
@@ -101,8 +107,9 @@ export const KEYBOARD_BRIDGE_BOOTSTRAP_SOURCE = `
         if (!container) {
             return false;
         }
+        // On device offsetWidth is 0 in CEF while the keyboard is on screen: the Steam class token alone is the authority.
         var cls = " " + String(container.className) + " ";
-        return cls.indexOf("VirtualKeyboardVisible") !== -1 && container.offsetWidth > 0;
+        return cls.indexOf("VirtualKeyboardVisible") !== -1;
     }
 
     function isEditable(el) {
@@ -342,6 +349,11 @@ export const KEYBOARD_BRIDGE_BOOTSTRAP_SOURCE = `
         );
     }
 
+    // §61 safety net: the plugin's 250 ms poll calls this before reading the
+    // state, so a missed observer event self-heals within one poll tick (no
+    // idle timers in the keyboard window).
+    window.__stdKbEvaluate = evaluate;
+
     window.__stdMicInsert = function (text) {
         try {
             if (typeof text !== "string" || text.length === 0) {
@@ -412,6 +424,7 @@ export const KEYBOARD_BRIDGE_BOOTSTRAP_SOURCE = `
             }
             window.__stdMicFocus = null;
             window.__stdMicEvents = [];
+            window.__stdKbEvaluate = null;
             window.__stdKbBridgeLoaded = false;
             return true;
         } catch (err) {
@@ -428,9 +441,12 @@ export const KEYBOARD_BRIDGE_BOOTSTRAP_SOURCE = `
  * bridge payload as JSON. Works with and without the bootstrap installed
  * (`b` reports the in-window flag, so injection success is observed, not
  * assumed). Drains up to 9 queued press events per poll (§61 cadence 250 ms).
+ * The leading comma operand re-runs the bootstrap's visibility evaluation
+ * FIRST, so a missed observer event self-heals within one poll tick (§61).
  */
 export function buildPollExpression(): string {
     return (
+        "(window.__stdKbEvaluate && window.__stdKbEvaluate(), " +
         "JSON.stringify({" +
         "v:(function(){var el=document.querySelector(" +
         JSON.stringify(KEYBOARD_VISIBLE_SELECTOR) +
@@ -440,7 +456,7 @@ export function buildPollExpression(): string {
         ")," +
         "b:!!window.__stdKbBridgeLoaded," +
         "ev:(window.__stdMicEvents&&window.__stdMicEvents.length)?window.__stdMicEvents.splice(0,9):[]," +
-        "f:!!window.__stdMicFocus})"
+        "f:!!window.__stdMicFocus}))"
     );
 }
 

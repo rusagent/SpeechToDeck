@@ -1,5 +1,7 @@
 # IMPLEMENTATION_STATUS
 
+## v0.1.8 — on-device mount fix: the CEF keyboard container reports `offsetWidth` 0 while visible, so the bootstrap trusts the `VirtualKeyboardVisible` class token alone and the 250 ms poll re-runs `window.__stdKbEvaluate` as the §61 self-heal
+
 ## v0.1.7 — tab-bridge keyboard architecture (replaces the dead registry-mount)
 
 ### Architecture

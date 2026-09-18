@@ -31,8 +31,10 @@ function createAdapterHarness() {
         executor: async (tab, runAsync, code) => {
             calls.push({ tab, runAsync, code });
             // The poll expression references __stdKbBridgeLoaded too (the b
-            // flag) — the poll shape must be matched first.
-            if (code.startsWith("JSON.stringify")) {
+            // flag) — the poll shape must be matched first. v0.1.8: the poll
+            // leads with the §61 __stdKbEvaluate self-heal call, so match on
+            // the JSON.stringify({ payload wrapper, not the prefix.
+            if (code.includes("JSON.stringify({")) {
                 return { success: true, result: JSON.stringify(nextPoll) };
             }
             if (code.includes("__stdKbBridgeLoaded")) {
