@@ -8,7 +8,10 @@ The Voxtype v1.0.1 runtime derives its control sentinels (state file, pid
 file, cancel trigger, per-recording overrides) from `$XDG_RUNTIME_DIR/voxtype`
 (upstream `Config::runtime_dir`), so child processes receive `XDG_RUNTIME_DIR`
 pointed at the plugin runtime directory: every native write stays inside the
-plugin data dir and cannot collide with a system-wide voxtype install.
+plugin data dir and cannot collide with a system-wide voxtype install. The
+session audio server is the one sanctioned exception: libpipewire must reach
+the REAL session socket, so `child_environment` forwards it under
+`PIPEWIRE_RUNTIME_DIR` (see there for the on-device failure this fixed).
 """
 
 from __future__ import annotations
@@ -202,15 +205,30 @@ def child_environment(data_dir: Path) -> dict[str, str]:
     data dir and XDG_RUNTIME_DIR into the plugin runtime dir so naive child
     writes cannot escape the plugin data directory (§109). Both directories
     must exist (see `ensure_directories`) before children are spawned.
+
+    Audio-server exception (deck defect 2026-09-18): the daemon captures
+    through ALSA's pipewire PCM plugin, and libpipewire resolves the session
+    server socket (`pipewire-0`) from PIPEWIRE_RUNTIME_DIR, falling back to
+    XDG_RUNTIME_DIR. With only the override below the plugin had no reachable
+    server at all — every recording failed with `snd_pcm_open: Host is down
+    (112)` before any level frame or transcript could exist. The plugin
+    process's REAL session runtime dir (systemd user units always provide it)
+    is therefore re-exposed under the audio-specific name; the voxtype state
+    override stays authoritative. Without one (tests, CI) the key is simply
+    absent — no invented paths.
     """
     path_value = os.environ.get("PATH", "/usr/local/bin:/usr/bin:/bin")
-    return {
+    env = {
         "PATH": path_value,
         "HOME": str(data_dir),
         "XDG_RUNTIME_DIR": str(data_dir / "runtime"),
         "LANG": "C.UTF-8",
         "LC_ALL": "C.UTF-8",
     }
+    session_runtime_dir = os.environ.get("XDG_RUNTIME_DIR")
+    if session_runtime_dir:
+        env["PIPEWIRE_RUNTIME_DIR"] = session_runtime_dir
+    return env
 
 
 def apply_private_file_mode(path: Path) -> None:
