@@ -31,13 +31,19 @@ afterEach(() => {
     window.localStorage.clear();
 });
 
-/** Real payload shape: `[min, max, peakDbfs]` with a symmetric amplitude. */
-function framePayload(seq: number, amplitude: number) {
+/**
+ * Real payload shape: `[min, max, peakDbfs]` with a physically consistent
+ * symmetric envelope (linear peak = 10^(peakDbfs / 20)). The store derives
+ * each bar from peakDbfs normalized over the -60..0 dBFS range, so -30 dBFS
+ * renders as 0.50 and -6 dBFS as 0.90.
+ */
+function framePayload(seq: number, peakDbfs: number) {
+    const amplitude = 10 ** (peakDbfs / 20);
     return {
         protocolVersion: 1 as const,
         kind: "recording_level" as const,
         seq,
-        frames: [[-amplitude, amplitude, amplitude] as const],
+        frames: [[-amplitude, amplitude, peakDbfs] as const],
     };
 }
 
@@ -93,8 +99,8 @@ describe("LevelVisualizer", () => {
 
         // Real frames through the real store → real columns (never synthetic).
         await act(async () => {
-            store.publish(framePayload(1, 0.5));
-            store.publish(framePayload(2, 0.9));
+            store.publish(framePayload(1, -30));
+            store.publish(framePayload(2, -6));
         });
         expect(levelValue(23)).toBe("0.90");
         expect(levelValue(22)).toBe("0.50");
@@ -116,9 +122,9 @@ describe("LevelVisualizer", () => {
         expect(stripStyleAttribute()).toBe("classic");
 
         await act(async () => {
-            store.publish(framePayload(1, 0.5));
-            store.publish(framePayload(2, 0.9));
-            store.publish(framePayload(3, 0.02));
+            store.publish(framePayload(1, -30));
+            store.publish(framePayload(2, -6));
+            store.publish(framePayload(3, -59)); // 1 dB above the floor → 0.02
         });
         const columns = levelBars();
         expect(columns).toHaveLength(24);
@@ -146,7 +152,7 @@ describe("LevelVisualizer", () => {
         expect(stripStyleAttribute()).toBe("mirror");
 
         await act(async () => {
-            store.publish(framePayload(1, 0.9));
+            store.publish(framePayload(1, -6));
         });
         const columns = levelBars();
         expect(columns).toHaveLength(24);

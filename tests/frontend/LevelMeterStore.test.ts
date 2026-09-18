@@ -1,7 +1,15 @@
 /**
  * LevelMeterStore tests (v0.2): the 24-bar rolling window maps ONLY real
- * received frames — amplitude = max(|min|, |max|) clamped to 0..1 — and the
- * snapshot identity changes only when frames actually arrive (§102).
+ * received frames, and the snapshot identity changes only when frames
+ * actually arrive (§102).
+ *
+ * Mapping defect (visualizer invisibility, fixed post-v0.2.4): the bar height
+ * was the LINEAR sample extremum max(|min|, |max|), which discarded the
+ * payload's peakDbfs and rendered typical speech (linear extrema 0.02..0.3 ≈
+ * the magma floor colors) as an empty-looking strip. The mapping is now
+ * perceptual: each bar is the frame's peakDbfs normalized over the -60..0
+ * dBFS range (FLOOR_DBFS), and min/max extrema no longer drive magnitude.
+ * Expected values below are the owner-specified dB→level pairs as literals.
  */
 
 import { describe, expect, it } from "vitest";
@@ -73,19 +81,60 @@ describe("LevelMeterStore", () => {
         expect(snapshot.lastSeq).toBeNull();
     });
 
-    it("maps received frames to amplitudes in stream order (oldest → leftmost)", () => {
+    it("normalizes each frame's peakDbfs over the -60..0 dBFS range", () => {
+        const store = new LevelMeterStore();
+        store.publish({
+            protocolVersion: 1,
+            kind: "recording_level",
+            seq: 1,
+            frames: [
+                FRAME(0, 0, -6), // loud speech → 0.9
+                FRAME(0, 0, -30), // typical speech → 0.5
+                FRAME(0, 0, -60), // the floor → 0
+                FRAME(0, 0, 3), // above full scale clamps to 1
+                FRAME(0, 0, -120), // digital silence clamps to 0
+            ],
+        });
+        const bars = store.getSnapshot().bars;
+        expect(bars[19]).toBeCloseTo(0.9, 5);
+        expect(bars[20]).toBeCloseTo(0.5, 5);
+        expect(bars[21]).toBe(0);
+        expect(bars[22]).toBe(1);
+        expect(bars[23]).toBe(0);
+    });
+
+    it("derives magnitude from peakDbfs only — min/max extrema no longer drive it", () => {
+        const store = new LevelMeterStore();
+        store.publish({
+            protocolVersion: 1,
+            kind: "recording_level",
+            seq: 2,
+            frames: [
+                // Full-scale extrema at a typical peak stay mid-level, and a
+                // loud peak with tiny extrema stays loud (the old linear
+                // mapping rendered both as 1.0 and 0.01).
+                FRAME(-1.0, 1.0, -30),
+                FRAME(-0.01, 0.01, -6),
+            ],
+        });
+        const bars = store.getSnapshot().bars;
+        expect(bars[22]).toBeCloseTo(0.5, 5);
+        expect(bars[23]).toBeCloseTo(0.9, 5);
+    });
+
+    it("maps received frames to dB-derived levels in stream order (oldest → leftmost)", () => {
         const store = new LevelMeterStore();
         store.publish({
             protocolVersion: 1,
             kind: "recording_level",
             seq: 5,
-            frames: [FRAME(-0.25, 0.5), FRAME(-1.0, 1.0)],
+            frames: [FRAME(0, 0, -30), FRAME(0, 0, -6)],
         });
         const snapshot = store.getSnapshot();
         expect(snapshot.frameCount).toBe(2);
         expect(snapshot.lastSeq).toBe(5);
         expect(snapshot.bars[22]).toBeCloseTo(0.5, 5);
-        expect(snapshot.bars[23]).toBeCloseTo(1.0, 5);
+        expect(snapshot.bars[23]).toBeCloseTo(0.9, 5);
     });
 
     it("keeps a rolling window: the last 24 frames win", () => {
@@ -94,21 +143,22 @@ describe("LevelMeterStore", () => {
             protocolVersion: 1,
             kind: "recording_level",
             seq: 29,
-            frames: Array.from({ length: 30 }, (_, i) => FRAME(i / 100, i / 100)),
+            // Frame i peaks at -(60 - i) dBFS → level i / 60.
+            frames: Array.from({ length: 30 }, (_, i) => FRAME(0, 0, -(60 - i))),
         });
         const snapshot = store.getSnapshot();
         expect(snapshot.frameCount).toBe(30);
-        expect(snapshot.bars[0]).toBeCloseTo(0.06, 5); // frame 6 (0-indexed)
-        expect(snapshot.bars[23]).toBeCloseTo(0.29, 5); // frame 29
+        expect(snapshot.bars[0]).toBeCloseTo(6 / 60, 5); // frame 6 (-54 dBFS)
+        expect(snapshot.bars[23]).toBeCloseTo(29 / 60, 5); // frame 29 (-31 dBFS)
     });
 
-    it("clamps out-of-range amplitudes into 0..1 (defensive, not fabricating)", () => {
+    it("clamps out-of-range dBFS into 0..1 (defensive, not fabricating)", () => {
         const store = new LevelMeterStore();
         store.publish({
             protocolVersion: 1,
             kind: "recording_level",
             seq: 1,
-            frames: [FRAME(-2, 2)],
+            frames: [FRAME(-2, 2, 6)],
         });
         expect(store.getSnapshot().bars[23]).toBe(1);
     });
