@@ -265,7 +265,14 @@ export function transition(current: DictationState, event: DictationEvent): Tran
 
         case "TRANSCRIPT_READY": {
             switch (current.kind) {
-                case "transcribing": {
+                // `stopping` included: the real backend emits transcript_ready
+                // INSIDE the stop_recording callable window, so over the FIFO
+                // decky socket the outcome event always precedes the callable
+                // resolution — the machine is still in `stopping` when it
+                // arrives (on-device deck 2026-09-18: rejecting it there lost
+                // the transcript forever and wedged the card in transcribing).
+                case "transcribing":
+                case "stopping": {
                     if (!sameSession(current, event.sessionId)) {
                         return unchanged(current); // stale result (§11)
                     }
@@ -311,7 +318,10 @@ export function transition(current: DictationState, event: DictationEvent): Tran
 
         case "TRANSCRIPT_SUPPRESSED": {
             switch (current.kind) {
+                // Same FIFO ordering as TRANSCRIPT_READY above: the panel
+                // suppression lands while the machine is still in `stopping`.
                 case "transcribing":
+                case "stopping":
                     if (!sameSession(current, event.sessionId)) {
                         return unchanged(current);
                     }

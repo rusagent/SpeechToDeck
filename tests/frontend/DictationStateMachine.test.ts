@@ -448,3 +448,57 @@ describe("purity (§8.2)", () => {
         expect(result.effects).toHaveLength(0);
     });
 });
+
+describe("on-device outcome ordering (deck 2026-09-18): outcome lands during stopping", () => {
+    // The real backend emits transcript_ready INSIDE the stop_recording
+    // callable window, before the callable response travels back over the
+    // single FIFO decky socket — so the frontend processes the outcome event
+    // while the machine is still in `stopping`. An outcome rejected there is
+    // lost forever and the card sits in `transcribing` (on-device finding).
+    it("stopping → inserting on TRANSCRIPT_READY, trimmed, emitting INSERT_TEXT", () => {
+        const result = transition(sessionState("stopping"), {
+            type: "TRANSCRIPT_READY",
+            sessionId: "s-1",
+            transcript: "  hello world  ",
+        });
+        expect(result.state).toEqual({
+            kind: "inserting",
+            session: SESSION,
+            transcript: "hello world",
+        });
+        expect(result.effects).toEqual([
+            { type: "INSERT_TEXT", sessionId: "s-1", text: "hello world" },
+        ]);
+    });
+
+    it("stopping → ready on TRANSCRIPT_SUPPRESSED (panel session)", () => {
+        const result = transition(sessionState("stopping"), {
+            type: "TRANSCRIPT_SUPPRESSED",
+            sessionId: "s-1",
+        });
+        expect(result.state).toEqual({ kind: "ready" });
+        applied(result);
+    });
+
+    it("empty speech during stopping returns to ready without inserting (§77)", () => {
+        const result = transition(sessionState("stopping"), {
+            type: "TRANSCRIPT_READY",
+            sessionId: "s-1",
+            transcript: "   ",
+        });
+        expect(result.state).toEqual({ kind: "ready" });
+        applied(result);
+    });
+
+    it("stale session ids stay rejected during stopping (§11)", () => {
+        rejected(sessionState("stopping"), {
+            type: "TRANSCRIPT_READY",
+            sessionId: "s-2",
+            transcript: "hello",
+        });
+        rejected(sessionState("stopping"), {
+            type: "TRANSCRIPT_SUPPRESSED",
+            sessionId: "s-2",
+        });
+    });
+});

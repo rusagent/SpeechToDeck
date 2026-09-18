@@ -616,3 +616,44 @@ describe("panel dictation flow (v0.2 owner pivot)", () => {
         expect(rig.speech.stopCalls).toEqual(["id-1"]);
     });
 });
+
+describe("on-device event ordering (deck 2026-09-18): transcript precedes the stop acknowledgement", () => {
+    it("keyboard flow: outcome during stopping still inserts exactly once and settles ready", async () => {
+        const rig = createTestRig();
+        await startReady(rig);
+        const contextId = rig.keyboard.currentContext()?.id;
+        const sessionId = await startRecording(rig);
+
+        await rig.controller.handleMicrophonePressed();
+        await flush();
+        expect(rig.controller.getSnapshot().kind).toBe("stopping");
+
+        // Real decky FIFO order: the backend emits transcript_ready inside the
+        // stop_recording callable, before its response resolves the await.
+        rig.speech.emitTranscript(sessionId, "hello world");
+        rig.speech.resolveStop(sessionId);
+        await flush();
+
+        expect(rig.controller.getSnapshot().kind).toBe("ready");
+        expect(rig.inserter.insertCalls).toEqual([{ contextId, text: "hello world" }]);
+    });
+
+    it("panel flow: outcome during stopping suppresses, retains and settles ready — never stuck transcribing", async () => {
+        const rig = createTestRig();
+        await rig.controller.start(); // no keyboard context
+        await rig.controller.handlePanelMicrophonePressed();
+        await flush();
+        rig.speech.resolveStart("id-1");
+        await flush();
+
+        await rig.controller.handlePanelMicrophonePressed();
+        await flush();
+        rig.speech.emitTranscript("id-1", "für das Panel");
+        rig.speech.resolveStop("id-1");
+        await flush();
+
+        expect(rig.controller.getSnapshot().kind).toBe("ready");
+        expect(rig.inserter.insertCalls).toEqual([]);
+        expect(rig.controller.getLastSuppressedTranscript()).toBe("für das Panel");
+    });
+});
