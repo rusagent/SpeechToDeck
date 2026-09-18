@@ -28,8 +28,19 @@ vi.mock("@decky/ui", async () => {
                 { "data-dropdown": props.label },
                 `${props.label}: ${String(props.selectedOption)}`,
             ),
-        ButtonItem: (props: { label?: string; children?: Children }) =>
-            h("button", null, props.children ?? props.label),
+        ButtonItem: (props: { label?: Children; disabled?: boolean; children?: Children }) =>
+            h(
+                "div",
+                { "data-buttonitem": true },
+                // Same convention as the decky-ui stand-in: a rich label node
+                // (catalog picker rows) renders as a label block; callers
+                // passing the same string as label and children render the
+                // single button exactly as before.
+                props.label !== undefined && props.label !== props.children
+                    ? h("div", { "data-buttonitem-label": true }, props.label)
+                    : null,
+                h("button", { disabled: props.disabled === true }, props.children ?? props.label),
+            ),
         Field: (props: { label: string; children?: Children }) =>
             h(
                 "div",
@@ -49,7 +60,9 @@ describe("visual harness smoke", () => {
                 ? params.setup
                 : params.caseId === "dictation"
                   ? params.dictation
-                  : params.stateKind
+                  : params.catalog !== undefined && params.catalog !== "none"
+                    ? `catalog-${params.catalog}`
+                    : params.stateKind
         }`;
         it(`mounts the captured state without throwing: ${name}`, async () => {
             const host = document.createElement("div");
@@ -69,6 +82,42 @@ describe("visual harness smoke", () => {
                     expect(
                         host.querySelector(`[data-panel-title="${speechTitle}"]`),
                     ).not.toBeNull();
+                    // Catalog-driven ModelPicker cases (ADR-011): the REAL
+                    // picker renders the canned defaults/models.json catalog
+                    // with the Recommended / More / For-<language> groups.
+                    if (params.catalog !== undefined && params.catalog !== "none") {
+                        expect(host.querySelector("[data-model-catalog]")).not.toBeNull();
+                        expect(
+                            host.querySelector('[data-model-group="recommended"]'),
+                        ).not.toBeNull();
+                        expect(host.querySelector('[data-model-group="more"]')).not.toBeNull();
+                        expect(
+                            host.querySelector('[data-model-group="for-language"]'),
+                        ).not.toBeNull();
+                        expect(host.textContent).toContain("For de");
+                        expect(host.textContent).toContain("Large v3 Turbo German Q5_0");
+                        if (params.catalog === "ready") {
+                            // Install-state variety: installed rows offer Use,
+                            // the selected model reports In use, the rest
+                            // offer the download first.
+                            expect(host.textContent).toContain("Use");
+                            expect(host.textContent).toContain("In use");
+                            expect(host.textContent).toContain("Download");
+                        } else {
+                            // Downloading variant: the in-flight row offers
+                            // Cancel; the single-flight lock keeps the other
+                            // Download buttons disabled (§52).
+                            const buttons = Array.from(host.querySelectorAll("button"));
+                            expect(buttons.some((button) => button.textContent === "Cancel")).toBe(
+                                true,
+                            );
+                            const downloads = buttons.filter(
+                                (button) => button.textContent === "Download",
+                            );
+                            expect(downloads.length).toBeGreaterThan(0);
+                            expect(downloads.every((button) => button.disabled)).toBe(true);
+                        }
+                    }
                 } else if (params.caseId === "setup") {
                     // The real setup-progress surface: present while running
                     // or failed, hidden on the terminal ready snapshot. The

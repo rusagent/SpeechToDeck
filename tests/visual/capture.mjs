@@ -91,6 +91,14 @@ function chromeArgs(windowSize, extra, deviceScaleFactor = 1) {
 }
 
 /** Unscrolled page geometry reported by harness-entry (data-geometry). */
+function findRegion(geometry, name) {
+    const rect = (geometry.regions ?? []).find((candidate) => candidate.name === name);
+    if (rect === undefined) {
+        fail(`no harness region named ${JSON.stringify(name)} rendered`);
+    }
+    return rect;
+}
+
 function readGeometry(query, windowHeight) {
     const dom = execFileSync(
         chrome,
@@ -107,7 +115,11 @@ function readGeometry(query, windowHeight) {
     return JSON.parse(match[1].replace(/&quot;/g, '"'));
 }
 
-function shot(name, query, { sectionTitle = null, height = 450 } = {}) {
+function shot(
+    name,
+    query,
+    { sectionTitle = null, region = null, startRegion = null, height = 450 } = {},
+) {
     // Pass 1: measure the unscrolled page (section rects are independent of
     // the window height; #visual-root content flows from the top).
     const geometry = readGeometry(query, height + BOTTOM_MARGIN);
@@ -120,6 +132,19 @@ function shot(name, query, { sectionTitle = null, height = 450 } = {}) {
         }
         cropY = Math.max(0, section.top - SECTION_MARGIN);
         cropH = Math.min(450, section.height + 2 * SECTION_MARGIN);
+    } else if (region !== null) {
+        // Named sub-section region reported by harness-entry (e.g. the
+        // catalog-driven ModelPicker block inside the Speech section).
+        const rect = findRegion(geometry, region);
+        cropY = Math.max(0, rect.top - SECTION_MARGIN);
+        cropH = Math.min(450, rect.height + 2 * SECTION_MARGIN);
+    } else if (startRegion !== null) {
+        // Region-anchored fixed-height crop: starts at the named region and
+        // extends `height` px (the full 605px picker cannot fit the ≤450px
+        // review limit, so catalog shots anchor at the decisive group).
+        const rect = findRegion(geometry, startRegion);
+        cropY = Math.max(0, rect.top - SECTION_MARGIN);
+        cropH = height;
     }
     // Pass 2: full-window screenshot at the capture size, then an exact
     // column crop at the measured offset.
@@ -231,6 +256,20 @@ shot("dictation-idle-en", "case=dictation&dictation=idle&locale=en", { height: 3
 shot("dictation-recording-en", "case=dictation&dictation=recording&locale=en", { height: 300 });
 shot("dictation-transcript-en", "case=dictation&dictation=transcript&locale=en", { height: 420 });
 shot("dictation-transcript-de", "case=dictation&dictation=transcript&locale=de", { height: 420 });
+// Catalog-driven ModelPicker (ADR-011): the REAL picker over a canned
+// list_models snapshot matching defaults/models.json. Concrete language "de"
+// selected → "For de" group with sizes/descriptions and install-state
+// variety; then the single-flight download state at 40% (live percentage +
+// Cancel, other Download buttons disabled). The full picker is ~605px tall,
+// taller than the ≤450px review limit, so each shot anchors at its decisive
+// group: (a) the More + For-de tail with sizes/descriptions and install
+// states, (b) the picker top with the in-flight row.
+shot("panel-catalog-de-en", "case=panel&catalog=ready&language=de&locale=en", {
+    startRegion: "modelGroup:more",
+});
+shot("panel-catalog-downloading-en", "case=panel&catalog=downloading&language=de&locale=en", {
+    startRegion: "modelCatalog",
+});
 storeShot();
 
 // Numeric overflow checks at the acceptance widths (no bitmaps needed).

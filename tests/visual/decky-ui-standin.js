@@ -174,6 +174,14 @@
         cursor: pointer;
     }
     .decky-button[disabled] { opacity: 0.5; cursor: default; }
+    .decky-buttonitem { margin-bottom: 6px; }
+    .decky-buttonitem-label {
+        display: block;
+        color: rgba(255, 255, 255, 0.85);
+        font-size: 13px;
+        margin-bottom: 4px;
+        overflow-wrap: anywhere;
+    }
     .mic-row {
         display: flex;
         align-items: flex-start;
@@ -290,14 +298,26 @@
     }
 
     function ButtonItem(props) {
+        // Real ButtonItem renders the row label next to the action button.
+        // Callers that pass the SAME string as label and children (setup
+        // retry, diagnostics restart) render the single button exactly as
+        // before; the catalog picker (ADR-011) passes a rich label node plus
+        // a short action child and gets the label block above the button.
+        const label = props.label;
+        const showLabelBlock = label !== undefined && label !== props.children;
         return h(
-            "button",
-            {
-                className: "decky-button",
-                disabled: props.disabled === true,
-                onClick: props.onClick,
-            },
-            props.children ?? props.label,
+            "div",
+            { className: "decky-buttonitem" },
+            showLabelBlock ? h("div", { className: "decky-buttonitem-label" }, label) : null,
+            h(
+                "button",
+                {
+                    className: "decky-button",
+                    disabled: props.disabled === true,
+                    onClick: props.onClick,
+                },
+                props.children ?? props.label,
+            ),
         );
     }
 

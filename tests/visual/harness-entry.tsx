@@ -32,6 +32,8 @@ import type {
     SetupProgressSnapshot,
     SetupProgressStore,
 } from "../../src/application/ports/SetupProgressPort";
+import type { CatalogModel } from "../../src/application/ports/ModelCatalogPort";
+import { ModelCatalogStore } from "../../src/application/ports/ModelCatalogPort";
 import { DeckyBackendClient } from "../../src/infrastructure/decky/DeckyBackendClient";
 import { DeckySpeechAdapter } from "../../src/infrastructure/decky/DeckySpeechAdapter";
 import { copyTextToClipboard } from "../../src/infrastructure/system/PanelClipboard";
@@ -52,6 +54,14 @@ export type HarnessSetupVariant = keyof typeof SETUP_SNAPSHOTS | "hydrated-faile
 /** Which dictation-card state the dictation case mounts (REAL component). */
 export type HarnessDictationVariant = "idle" | "recording" | "transcript";
 
+/**
+ * Model-catalog wiring for the panel case (ADR-011): `ready` mounts the REAL
+ * ModelPicker over a canned `list_models` snapshot matching the committed
+ * defaults/models.json; `downloading` additionally puts one row into the
+ * in-flight download state (~40%).
+ */
+export type HarnessCatalogVariant = "none" | "ready" | "downloading";
+
 export interface HarnessParams {
     readonly caseId: HarnessCaseId;
     readonly locale: Locale;
@@ -61,6 +71,10 @@ export interface HarnessParams {
     readonly setup: HarnessSetupVariant;
     /** Dictation-card state for the dictation case. */
     readonly dictation: HarnessDictationVariant;
+    /** Model-catalog wiring for the panel case (default `none`). */
+    readonly catalog?: HarnessCatalogVariant;
+    /** Settings language for the panel case (default `"system"`). */
+    readonly language?: string;
     /** Optional `data-panel-title` of the section to scroll into view. */
     readonly scroll: string | null;
 }
@@ -192,6 +206,31 @@ export const CAPTURED_CASES: readonly HarnessParams[] = [
         dictation: "transcript",
         scroll: null,
     },
+    // Catalog-driven ModelPicker (ADR-011): the REAL picker over a canned
+    // list_models snapshot matching defaults/models.json, with a concrete
+    // language selected so the per-language group renders (EN UI, "For de").
+    {
+        caseId: "panel",
+        locale: "en",
+        stateKind: "ready",
+        setup: "none",
+        dictation: "idle",
+        catalog: "ready",
+        language: "de",
+        scroll: null,
+    },
+    // Same catalog with one row in the single-flight download state at 40%
+    // (Cancel + live percentage; every other Download button disabled).
+    {
+        caseId: "panel",
+        locale: "en",
+        stateKind: "ready",
+        setup: "none",
+        dictation: "idle",
+        catalog: "downloading",
+        language: "de",
+        scroll: null,
+    },
 ];
 
 const REPORT: KeyboardCapabilityReport = {
@@ -211,6 +250,149 @@ const SPEECH: SpeechCapabilities = {
     vulkanAvailable: true,
     modelInstalled: true,
 };
+
+/**
+ * Canned `list_models` payload matching the committed defaults/models.json
+ * catalog (ADR-011): the legacy trio installed, the German full-precision
+ * model installed for install-state variety in the per-language group, every
+ * other curated entry not installed. Sizes and descriptions mirror the real
+ * manifest; the store payload never carries digests.
+ */
+const HARNESS_MODEL_CATALOG: readonly CatalogModel[] = [
+    {
+        id: "tiny",
+        engine: "whisper",
+        multilingual: true,
+        filename: "ggml-tiny.bin",
+        installed: true,
+        sizeBytes: 77691713,
+    },
+    {
+        id: "base",
+        engine: "whisper",
+        multilingual: true,
+        filename: "ggml-base.bin",
+        installed: true,
+        sizeBytes: 147951465,
+    },
+    {
+        id: "small",
+        engine: "whisper",
+        multilingual: true,
+        filename: "ggml-small.bin",
+        installed: true,
+        sizeBytes: 487601967,
+    },
+    {
+        id: "whisper-large-v3-turbo-q5_0",
+        engine: "whisper",
+        multilingual: true,
+        filename: "ggml-large-v3-turbo-q5_0.bin",
+        installed: false,
+        sizeBytes: 574041195,
+        description:
+            "Recommended primary model: near large-v3 accuracy at turbo speed, quantized for the Deck.",
+    },
+    {
+        id: "whisper-large-v3-turbo",
+        engine: "whisper",
+        multilingual: true,
+        filename: "ggml-large-v3-turbo.bin",
+        installed: false,
+        sizeBytes: 1624555275,
+        description: "Full-precision large-v3-turbo for the best general-purpose accuracy.",
+    },
+    {
+        id: "distil-small-en",
+        engine: "whisper",
+        multilingual: false,
+        filename: "ggml-distil-small.en.bin",
+        installed: false,
+        sizeBytes: 336191657,
+        languages: ["en"],
+        description: "English-only distilled model with the lowest latency.",
+    },
+    {
+        id: "distil-medium-en",
+        engine: "whisper",
+        multilingual: false,
+        filename: "ggml-medium-32-2.en.bin",
+        installed: false,
+        sizeBytes: 794018180,
+        languages: ["en"],
+        description: "English-only distilled model balancing accuracy and speed.",
+    },
+    {
+        id: "whisper-large-v3-turbo-german-q5_0",
+        engine: "whisper",
+        multilingual: true,
+        filename: "ggml-primeline-de-turbo-q5_0.bin",
+        installed: false,
+        sizeBytes: 574041195,
+        languages: ["de"],
+        description: "German-specialized large-v3-turbo, quantized (Primeline).",
+    },
+    {
+        id: "whisper-large-v3-turbo-german-f16",
+        engine: "whisper",
+        multilingual: true,
+        filename: "ggml-primeline-de-turbo-f16.bin",
+        installed: true,
+        sizeBytes: 1624555275,
+        languages: ["de"],
+        description: "German-specialized large-v3-turbo at full precision (Primeline).",
+    },
+    {
+        id: "whisper-large-v3-french-q5_0",
+        engine: "whisper",
+        multilingual: true,
+        filename: "ggml-bofeng-fr-q5_0.bin",
+        installed: false,
+        sizeBytes: 1081140203,
+        languages: ["fr"],
+        description: "French-specialized large-v3 model, quantized.",
+    },
+    {
+        id: "kotoba-whisper-v2.0-q5_0",
+        engine: "whisper",
+        multilingual: true,
+        filename: "ggml-kotoba-v2-q5_0.bin",
+        installed: false,
+        sizeBytes: 537819875,
+        languages: ["ja"],
+        description: "Japanese-specialized whisper model, quantized (kotoba v2.0).",
+    },
+    {
+        id: "kotoba-whisper-v2.0-f16",
+        engine: "whisper",
+        multilingual: true,
+        filename: "ggml-kotoba-v2-f16.bin",
+        installed: false,
+        sizeBytes: 1519521155,
+        languages: ["ja"],
+        description: "Japanese-specialized whisper model at full precision (kotoba v2.0).",
+    },
+];
+
+/**
+ * Builds the catalog store for the panel case through the production publish
+ * paths. The downloading variant reports 40% of the recommended turbo model
+ * (229616478 / 574041195 bytes) — the exact percent math the real
+ * `model_download_progress` events produce.
+ */
+function fakeCatalogStore(variant: Exclude<HarnessCatalogVariant, "none">): ModelCatalogStore {
+    const store = new ModelCatalogStore();
+    store.setModels(HARNESS_MODEL_CATALOG);
+    if (variant === "downloading") {
+        store.publishProgress({
+            protocolVersion: 1,
+            modelId: "whisper-large-v3-turbo-q5_0",
+            bytesReceived: 229616478,
+            totalBytes: 574041195,
+        });
+    }
+    return store;
+}
 
 function fakeDiagnostics(): DiagnosticsSource {
     return {
@@ -272,17 +454,38 @@ function PanelCase({
     locale,
     stateKind,
     setup,
+    catalog = "none",
+    language = "system",
 }: {
     locale: Locale;
     stateKind: HarnessParams["stateKind"];
     setup: HarnessSetupVariant;
+    catalog: HarnessCatalogVariant;
+    language: string;
 }) {
     const hydration = setup === "hydrated-failed" ? hydratedFailureCase() : null;
     const setupSnapshot: SetupProgressSnapshot | null =
         setup === "none" || setup === "hydrated-failed" ? null : SETUP_SNAPSHOTS[setup];
+    // ADR-011 catalog wiring: the REAL picker consumes the store side-channel
+    // exactly like the composed panel (load is inert here — the store is
+    // pre-populated through the production publish paths).
+    const settingsPort = new FakeSettingsPort();
+    if (language !== "system") {
+        settingsPort.value = { ...settingsPort.value, language };
+    }
+    const catalogStore = catalog === "none" ? null : fakeCatalogStore(catalog);
+    const modelCatalog =
+        catalogStore === null
+            ? undefined
+            : {
+                  store: catalogStore,
+                  load: () => Promise.resolve(),
+                  download: () => undefined,
+                  cancel: () => undefined,
+              };
     return (
         <SettingsPanel
-            settings={new FakeSettingsPort()}
+            settings={settingsPort}
             store={new FakeStateStore(fakeState(stateKind))}
             setupProgress={
                 hydration
@@ -291,6 +494,7 @@ function PanelCase({
             }
             diagnostics={hydration ? hydration.diagnostics : fakeDiagnostics()}
             locale={locale}
+            {...(modelCatalog !== undefined ? { modelCatalog } : {})}
         />
     );
 }
@@ -416,7 +620,15 @@ function Harness({ params }: { params: HarnessParams }): React.ReactElement {
     if (params.caseId === "dictation") {
         return <DictationCase locale={params.locale} variant={params.dictation} />;
     }
-    return <PanelCase locale={params.locale} stateKind={params.stateKind} setup={params.setup} />;
+    return (
+        <PanelCase
+            locale={params.locale}
+            stateKind={params.stateKind}
+            setup={params.setup}
+            catalog={params.catalog ?? "none"}
+            language={params.language ?? "system"}
+        />
+    );
 }
 
 /** Mounts one captured state; returns the disposer. Shared with the smoke test. */
@@ -454,12 +666,17 @@ function paramsFromLocation(): HarnessParams {
     const rawDictation = search.get("dictation");
     const dictation: HarnessDictationVariant =
         rawDictation === "recording" || rawDictation === "transcript" ? rawDictation : "idle";
+    const rawCatalog = search.get("catalog");
+    const catalog: HarnessCatalogVariant =
+        rawCatalog === "ready" || rawCatalog === "downloading" ? rawCatalog : "none";
     return {
         caseId,
         locale,
         stateKind: state === "recording" || state === "error" ? state : "ready",
         setup,
         dictation,
+        catalog,
+        language: search.get("language") ?? "system",
         scroll: search.get("scroll"),
     };
 }
@@ -493,10 +710,34 @@ if (
                 height: Math.round(rect.height),
             };
         });
+        // Named sub-section regions for targeted crops (the catalog-driven
+        // ModelPicker block is smaller than its host section, and its
+        // per-language group must stay inside the ≤450px review crop).
+        const catalogBlock = document.querySelector<HTMLElement>("[data-model-catalog]");
+        const regions: { name: string; top: number; height: number }[] = [];
+        if (catalogBlock) {
+            const blockRect = catalogBlock.getBoundingClientRect();
+            regions.push({
+                name: "modelCatalog",
+                top: Math.round(blockRect.top + window.scrollY),
+                height: Math.round(blockRect.height),
+            });
+            for (const group of Array.from(
+                catalogBlock.querySelectorAll<HTMLElement>("[data-model-group]"),
+            )) {
+                const groupRect = group.getBoundingClientRect();
+                regions.push({
+                    name: `modelGroup:${group.dataset.modelGroup ?? ""}`,
+                    top: Math.round(groupRect.top + window.scrollY),
+                    height: Math.round(groupRect.height),
+                });
+            }
+        }
         visualRoot.dataset.geometry = JSON.stringify({
             docH: doc.scrollHeight,
             rootX: Math.round(visualRoot.getBoundingClientRect().left + window.scrollX),
             sections,
+            regions,
         });
     };
     window.requestAnimationFrame(settle);
