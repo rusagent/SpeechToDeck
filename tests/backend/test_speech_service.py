@@ -230,9 +230,17 @@ def test_empty_transcript_is_not_an_error() -> None:
         # maps the `record stop --wait` exit 3 outcome).
         await harness.runtime.emit_transcript("   ")
         await asyncio.wait_for(stop_task, 2.0)
-        # §77: transcribing → ready directly; no transcript, no insertion,
-        # no error. The frontend decides on user messaging from the state.
-        assert harness.publisher.payloads(READY) == []
+        # §77: no transcript, no insertion, no error. The EMPTY
+        # `transcript_ready` event is still the outcome channel the frontend
+        # machine consumes to leave the stop flow — it never subscribes to
+        # `speech_status`, and without the event the §8 machine wedged in
+        # `transcribing` and locked the mic button (on-device deck
+        # 2026-09-18, owner: "nichts gesagt → locked").
+        ready = harness.publisher.payloads(READY)
+        assert len(ready) == 1
+        assert ready[0]["text"] == ""
+        assert ready[0]["sessionId"] == "session-1"
+        assert ready[0]["clipboard"] == "skipped"
         assert harness.publisher.payloads(ERROR) == []
         states = [p["state"] for p in harness.publisher.payloads(EVENTS)]
         assert states == ["recording", "transcribing", "ready"]
@@ -402,6 +410,12 @@ def test_empty_transcript_writes_no_clipboard() -> None:
     _run_transcript_scenario(harness, text="   ")  # §77 empty-speech path
 
     assert writer.texts == []  # nothing copied
-    assert harness.publisher.payloads(READY) == []
+    # The empty outcome event still travels (the frontend machine consumes
+    # it to leave the stop flow; deck 2026-09-18 lock finding) — but the
+    # clipboard leg is skipped, never attempted with empty text.
+    ready = harness.publisher.payloads(READY)
+    assert len(ready) == 1
+    assert ready[0]["text"] == ""
+    assert ready[0]["clipboard"] == "skipped"
     states = [p["state"] for p in harness.publisher.payloads(EVENTS)]
     assert states == ["recording", "transcribing", "ready"]

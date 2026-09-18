@@ -266,3 +266,70 @@ describe("panel dictation journey: press → levels → stop → transcript → 
         expect(document.querySelector("[data-level-strip]")).toBeNull();
     });
 });
+
+describe("panel dictation journey: empty speech (§77) must never lock the mic", () => {
+    it("settles back to ready with the button pressable again when nothing was said", async () => {
+        // The owner's deck scenario (2026-09-18): press, say NOTHING, stop.
+        // The daemon reports empty speech (CLI exit 3) and — since the
+        // empty-outcome fix — the backend emits an EMPTY transcript_ready
+        // inside the stop callable window instead of staying silent.
+        const transport = new ScriptedLoaderTransport();
+        transport.respond("get_capabilities", GET_CAPABILITIES);
+        transport.respond("start_recording");
+        transport.duringCall("stop_recording", () => {
+            transport.emit("transcript_ready", {
+                ...TRANSCRIPT_READY_PAYLOAD,
+                text: "",
+                clipboard: "skipped",
+            });
+            transport.respond("stop_recording");
+        });
+
+        const backend = new DeckyBackendClient(transport);
+        const speech = new DeckySpeechAdapter(backend);
+        const controller = new DictationController(
+            speech,
+            new FakeKeyboardHost([]),
+            new FakeBulkTextInserter([]),
+            new FakeSettingsPort(),
+            new FakeClock(),
+            new FakeIdGenerator(),
+        );
+
+        render(
+            <JourneyHarness controller={controller} speech={speech} onCopy={async () => true} />,
+        );
+
+        await act(async () => {
+            await controller.start();
+            await flush();
+        });
+
+        // Recording 1: press, silence, stop.
+        await act(async () => {
+            fireEvent.click(screen.getByRole("button"));
+            await flush();
+        });
+        expect(controller.getSnapshot().kind).toBe("recording");
+        await act(async () => {
+            fireEvent.click(screen.getByRole("button"));
+            await flush();
+        });
+
+        // §77: silently back to ready — never wedged in transcribing.
+        expect(controller.getSnapshot().kind).toBe("ready");
+        // No transcript block, no copied status, nothing to copy.
+        expect(document.querySelector("[data-transcript-preview]")).toBeNull();
+        expect(document.querySelector('[data-clipboard-status="copied"]')).toBeNull();
+
+        // The lock regression: the mic must accept a NEW session immediately.
+        await act(async () => {
+            fireEvent.click(screen.getByRole("button"));
+            await flush();
+        });
+        expect(controller.getSnapshot().kind).toBe("recording");
+        const startCalls = transport.calls.filter((call) => call.route === "start_recording");
+        expect(startCalls).toHaveLength(2);
+        expect(startCalls[1]!.args).toEqual(["id-2"]);
+    });
+});

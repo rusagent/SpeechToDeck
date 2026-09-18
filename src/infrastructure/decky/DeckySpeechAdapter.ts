@@ -234,12 +234,18 @@ export class DeckySpeechAdapter implements SpeechPort {
             return;
         }
         // Panel card side-channel (additive v0.2): same guarded payload,
-        // published as transport-level UI state (§102).
-        this.panelTranscript.publish({
-            sessionId: payload.sessionId,
-            text: payload.text,
-            clipboard: payload.clipboard ?? "skipped",
-        });
+        // published as transport-level UI state (§102) — but §77 empty
+        // speech renders no transcript block and must not trigger the
+        // card's auto-copy (empty text can never copy successfully). The
+        // machine event below always dispatches: the EMPTY outcome is what
+        // settles the stop flow back to ready (deck 2026-09-18 lock).
+        if (payload.text.trim().length > 0) {
+            this.panelTranscript.publish({
+                sessionId: payload.sessionId,
+                text: payload.text,
+                clipboard: payload.clipboard ?? "skipped",
+            });
+        }
         this.dispatch({ type: "transcript-ready", payload });
     }
 

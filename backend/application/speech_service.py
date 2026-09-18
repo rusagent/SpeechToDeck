@@ -398,29 +398,6 @@ class SpeechApplicationService:
     ) -> None:
         # §43 normalization: trim only. NUL and size are hard rejections (§78).
         text = result.text.strip()
-        if not text:
-            # §77 empty-speech path: the runtime itself reported empty (the
-            # client delivers exit 3 as an empty result). Return to ready
-            # with no transcript, no insertion and no error.
-            await self._sessions.clear(session.session_id)
-            self._active_session_id = None
-            self.counters.recordings_completed += 1
-            self.counters.note_transcription(max(0.0, (self._clock() - stop_monotonic) * 1000.0))
-            await self._publish_state("ready", session_id=None)
-            return
-        if "\0" in text:
-            await self._fail(
-                InvalidTranscriptError(
-                    "transcript contains NUL characters", session_id=session.session_id
-                )
-            )
-        if len(text.encode("utf-8")) > self._max_transcript_bytes:
-            await self._fail(
-                TranscriptTooLargeError(
-                    "transcript exceeds the maximum size", session_id=session.session_id
-                )
-            )
-
         settings = await self._settings_provider()
         audio_ms = result.audio_duration_ms
         if audio_ms is None:
@@ -438,17 +415,54 @@ class SpeechApplicationService:
                 settings.compute_backend if settings.compute_backend in ("cpu", "vulkan") else "cpu"
             )
         )
+        metrics: dict[str, object] = {
+            "audioDurationMs": round(audio_ms, 1),
+            "transcriptionDurationMs": round(transcription_ms, 1),
+            "modelId": settings.model_id,
+            "computeBackend": backend,
+        }
 
-        payload: dict[str, object] = {
+        if not text:
+            # §77 empty-speech path: the runtime itself reported empty (the
+            # client delivers exit 3 as an empty result). Return to ready
+            # with no transcript, no insertion and no error. The EMPTY
+            # `transcript_ready` event still travels: it is the outcome
+            # channel the frontend §8 machine consumes to leave the stop
+            # flow (it never subscribes to `speech_status`; without the
+            # event the card wedged in `transcribing` and locked the mic
+            # button — on-device deck 2026-09-18).
+            payload: dict[str, object] = {
+                "protocolVersion": PROTOCOL_VERSION_V1,
+                "sessionId": session.session_id,
+                "text": "",
+                "metrics": metrics,
+                "clipboard": "skipped",
+            }
+            await self._sessions.clear(session.session_id)
+            self._active_session_id = None
+            self.counters.recordings_completed += 1
+            self.counters.note_transcription(transcription_ms)
+            await self._publisher.publish(EVENT_TRANSCRIPT_READY, payload)
+            await self._publish_state("ready", session_id=None)
+            return
+        if "\0" in text:
+            await self._fail(
+                InvalidTranscriptError(
+                    "transcript contains NUL characters", session_id=session.session_id
+                )
+            )
+        if len(text.encode("utf-8")) > self._max_transcript_bytes:
+            await self._fail(
+                TranscriptTooLargeError(
+                    "transcript exceeds the maximum size", session_id=session.session_id
+                )
+            )
+
+        payload = {
             "protocolVersion": PROTOCOL_VERSION_V1,
             "sessionId": session.session_id,
             "text": text,
-            "metrics": {
-                "audioDurationMs": round(audio_ms, 1),
-                "transcriptionDurationMs": round(transcription_ms, 1),
-                "modelId": settings.model_id,
-                "computeBackend": backend,
-            },
+            "metrics": metrics,
         }
         # Additive v0.2 (§67 optional field): best-effort system-clipboard
         # write BEFORE the event so the payload carries the honest outcome.

@@ -219,6 +219,22 @@ describe("DeckySpeechAdapter", () => {
         expect(adapter.panelTranscript.getSnapshot()?.clipboard).toBe("skipped");
     });
 
+    it("keeps empty transcripts out of the panel store but still dispatches them (§77)", () => {
+        // The §77 empty-speech outcome travels to the machine (it settles the
+        // stop flow back to ready — deck 2026-09-18 lock finding), but an
+        // empty text must not render a transcript block or trigger the card's
+        // auto-copy (copyTextToClipboard rejects empty text → "failed" noise).
+        const transport = new FakeDeckyTransport();
+        const adapter = new DeckySpeechAdapter(new DeckyBackendClient(transport));
+        const events: unknown[] = [];
+        adapter.subscribe((event) => events.push(event));
+
+        transport.emit("transcript_ready", { ...VALID_TRANSCRIPT_PAYLOAD, text: "   " });
+
+        expect(adapter.panelTranscript.getSnapshot()).toBeNull();
+        expect(events).toHaveLength(1);
+    });
+
     it("initialize fails with a stable error when the payload guard rejects", async () => {
         const transport = new FakeDeckyTransport();
         transport.callResponses.set("get_capabilities", { nope: 1 });
