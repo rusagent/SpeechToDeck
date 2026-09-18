@@ -45,7 +45,11 @@ afterEach(cleanup);
 describe("visual harness smoke", () => {
     for (const params of CAPTURED_CASES) {
         const name = `${params.caseId} / ${params.locale} / ${
-            params.caseId === "setup" ? params.setup : params.stateKind
+            params.caseId === "setup"
+                ? params.setup
+                : params.caseId === "dictation"
+                  ? params.dictation
+                  : params.stateKind
         }`;
         it(`mounts the captured state without throwing: ${name}`, async () => {
             const host = document.createElement("div");
@@ -94,6 +98,44 @@ describe("visual harness smoke", () => {
                         if (failed && params.locale === "de") {
                             expect(setupBlock?.textContent).toContain("Fehlgeschlagen");
                         }
+                    }
+                } else if (params.caseId === "dictation") {
+                    // The v0.2 dictation card: big button from the §8 state
+                    // union; the recording variant carries a 24-bar strip fed
+                    // by real frames; the transcript variant the settled
+                    // transcript + clipboard block.
+                    const button = host.querySelector("button[data-state]");
+                    expect(button).not.toBeNull();
+                    expect(
+                        button?.getAttribute("data-state") === "recording" ||
+                            button?.getAttribute("data-state") === "ready",
+                    ).toBe(true);
+                    const strip = host.querySelector("[data-level-strip]");
+                    if (params.dictation === "recording") {
+                        expect(strip).not.toBeNull();
+                        expect(host.querySelectorAll("[data-level-bar]")).toHaveLength(24);
+                        // Real received frames: the newest bar is not idle.
+                        expect(
+                            strip
+                                ?.querySelector('[data-level-bar="23"]')
+                                ?.getAttribute("data-level-value"),
+                        ).not.toBe("0.00");
+                    } else {
+                        expect(strip).toBeNull();
+                    }
+                    if (params.dictation === "transcript") {
+                        const block = host.querySelector("[data-transcript-block]");
+                        expect(block).not.toBeNull();
+                        expect(
+                            (block?.querySelector("[data-transcript-preview]")?.textContent
+                                ?.length ?? 0) > 0,
+                        ).toBe(true);
+                        expect(
+                            block?.querySelector('[data-clipboard-status="copied"]'),
+                        ).not.toBeNull();
+                        expect(host.querySelector("[data-copy-again]")).not.toBeNull();
+                    } else {
+                        expect(host.querySelector("[data-transcript-block]")).toBeNull();
                     }
                 } else {
                     // All four §20 button states in one clip.

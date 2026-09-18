@@ -225,6 +225,12 @@ shot("setup-hydrated-failed-en", "case=setup&variant=hydrated-failed&locale=en",
 // Microphone button, all four §20 states in one clip (EN + DE error text).
 shot("mic-states-en", "case=mic&locale=en", { height: 160 });
 shot("mic-states-de", "case=mic&locale=de", { height: 160 });
+// Dictation card (v0.2): idle big button, live recording strip fed with
+// real received frames, settled transcript + clipboard block (EN + DE).
+shot("dictation-idle-en", "case=dictation&dictation=idle&locale=en", { height: 300 });
+shot("dictation-recording-en", "case=dictation&dictation=recording&locale=en", { height: 300 });
+shot("dictation-transcript-en", "case=dictation&dictation=transcript&locale=en", { height: 420 });
+shot("dictation-transcript-de", "case=dictation&dictation=transcript&locale=de", { height: 420 });
 storeShot();
 
 // Numeric overflow checks at the acceptance widths (no bitmaps needed).

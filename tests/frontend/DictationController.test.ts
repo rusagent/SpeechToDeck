@@ -509,3 +509,84 @@ describe("state store (§102) and dispose (§83)", () => {
         expect(rig.controller.getSnapshot().kind).toBe("ready");
     });
 });
+
+describe("panel dictation flow (v0.2 owner pivot)", () => {
+    it("starts a clipboard-flow session from the panel without any keyboard context", async () => {
+        const rig = createTestRig();
+        await rig.controller.start(); // no keyboard context exists
+        expect(rig.controller.getSnapshot().kind).toBe("ready");
+
+        await rig.controller.handlePanelMicrophonePressed();
+        await flush();
+        expect(rig.controller.getSnapshot()).toMatchObject({
+            kind: "starting",
+            session: { sessionId: "id-1", keyboardContextId: null },
+        });
+        expect(rig.speech.startCalls).toEqual(["id-1"]);
+
+        rig.speech.resolveStart("id-1");
+        await flush();
+        expect(rig.controller.getSnapshot().kind).toBe("recording");
+    });
+
+    it("suppresses and retains a panel-session transcript instead of inserting it", async () => {
+        const rig = createTestRig();
+        await rig.controller.start(); // no keyboard context
+        await rig.controller.handlePanelMicrophonePressed();
+        await flush();
+        rig.speech.resolveStart("id-1");
+        await flush();
+
+        // Stop → transcribing → transcript for the null-context session.
+        await rig.controller.handlePanelMicrophonePressed();
+        await flush();
+        rig.speech.resolveStop("id-1");
+        await flush();
+        rig.speech.emitTranscript("id-1", "für das Panel");
+        await flush();
+
+        // §12 suppression: no insertion; the transcript is retained so the
+        // panel card can offer copy; the flow settles back to ready.
+        expect(rig.inserter.insertCalls).toEqual([]);
+        expect(rig.controller.getLastSuppressedTranscript()).toBe("für das Panel");
+        expect(rig.controller.getSnapshot().kind).toBe("ready");
+    });
+
+    it("a keyboard opening/closing never switches or cancels a panel session", async () => {
+        const rig = createTestRig();
+        await rig.controller.start();
+        await rig.controller.handlePanelMicrophonePressed();
+        await flush();
+        rig.speech.resolveStart("id-1");
+        await flush();
+        expect(rig.controller.getSnapshot().kind).toBe("recording");
+
+        // A keyboard appearing and disappearing mid-recording belongs to no
+        // panel session context (null matches nothing): recording continues.
+        rig.keyboard.open();
+        rig.keyboard.close();
+        await flush();
+        expect(rig.controller.getSnapshot().kind).toBe("recording");
+    });
+
+    it("panel presses during recording stop it; pending presses stay serialized (§10)", async () => {
+        const rig = createTestRig();
+        await rig.controller.start();
+        await rig.controller.handlePanelMicrophonePressed();
+        await flush();
+        expect(rig.controller.getSnapshot().kind).toBe("starting");
+
+        // Duplicate press while pending: ignored, no queued stop (§10).
+        await rig.controller.handlePanelMicrophonePressed();
+        await flush();
+        expect(rig.controller.getSnapshot().kind).toBe("starting");
+        expect(rig.speech.stopCalls).toEqual([]);
+
+        rig.speech.resolveStart("id-1");
+        await flush();
+        await rig.controller.handlePanelMicrophonePressed();
+        await flush();
+        expect(rig.controller.getSnapshot().kind).toBe("stopping");
+        expect(rig.speech.stopCalls).toEqual(["id-1"]);
+    });
+});

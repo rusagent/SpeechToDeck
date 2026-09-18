@@ -33,6 +33,12 @@ export interface MicrophoneButtonProps {
      * `role="status"`; hides itself after a few seconds.
      */
     readonly errorMessage?: string | undefined;
+    /**
+     * Rendered diameter in px (additive v0.2: the QAM dictation card renders
+     * a larger control). Same 44 px default and identical §19/§20/§75
+     * semantics for the keyboard mount.
+     */
+    readonly size?: number;
 }
 
 const BUTTON_SIZE_PX = 44;
@@ -41,14 +47,18 @@ const ERROR_FLASH_MS = 4000;
 
 const RECORDING_COLOR = "#ff5c5c";
 
-function buttonStyle(state: MicrophoneVisualState, disabled: boolean): React.CSSProperties {
+function buttonStyle(
+    state: MicrophoneVisualState,
+    disabled: boolean,
+    size: number,
+): React.CSSProperties {
     const recording = state === "recording";
     return {
         display: "inline-flex",
         alignItems: "center",
         justifyContent: "center",
-        width: BUTTON_SIZE_PX,
-        height: BUTTON_SIZE_PX,
+        width: size,
+        height: size,
         borderRadius: "50%",
         border: recording
             ? `1px solid ${RECORDING_COLOR}`
@@ -85,7 +95,8 @@ const BADGE_STYLE: React.CSSProperties = {
 
 const FLASH_STYLE: React.CSSProperties = {
     position: "absolute",
-    top: BUTTON_SIZE_PX + 4,
+    top: "100%",
+    marginTop: 4,
     left: "50%",
     transform: "translateX(-50%)",
     maxWidth: 224,
@@ -101,39 +112,48 @@ const FLASH_STYLE: React.CSSProperties = {
     zIndex: 1,
 };
 
-const MIC_ICON = (
-    <svg
-        width="20"
-        height="20"
-        viewBox="0 0 24 24"
-        fill="currentColor"
-        aria-hidden="true"
-        focusable="false"
-    >
-        <path d="M12 14a3 3 0 0 0 3-3V6a3 3 0 1 0-6 0v5a3 3 0 0 0 3 3z" />
-        <path d="M18 11a1 1 0 1 0-2 0 4 4 0 0 1-8 0 1 1 0 1 0-2 0 6 6 0 0 0 5 5.91V19H9a1 1 0 1 0 0 2h6a1 1 0 1 0 0-2h-2v-2.09A6 6 0 0 0 18 11z" />
-    </svg>
-);
+function micIcon(size: number): React.ReactElement {
+    return (
+        <svg
+            width={size}
+            height={size}
+            viewBox="0 0 24 24"
+            fill="currentColor"
+            aria-hidden="true"
+            focusable="false"
+        >
+            <path d="M12 14a3 3 0 0 0 3-3V6a3 3 0 1 0-6 0v5a3 3 0 0 0 3 3z" />
+            <path d="M18 11a1 1 0 1 0-2 0 4 4 0 0 1-8 0 1 1 0 1 0-2 0 6 6 0 0 0 5 5.91V19H9a1 1 0 1 0 0 2h6a1 1 0 1 0 0-2h-2v-2.09A6 6 0 0 0 18 11z" />
+        </svg>
+    );
+}
 
-const SPINNER_ICON = (
-    <svg
-        width="20"
-        height="20"
-        viewBox="0 0 24 24"
-        fill="none"
-        aria-hidden="true"
-        focusable="false"
-        className="speechtodeck-spinner"
-    >
-        <circle cx="12" cy="12" r="9" stroke="rgba(255, 255, 255, 0.18)" strokeWidth="2.5" />
-        <path
-            d="M21 12a9 9 0 0 0-9-9"
-            stroke="rgba(255, 255, 255, 0.9)"
-            strokeWidth="2.5"
-            strokeLinecap="round"
-        />
-    </svg>
-);
+function spinnerIcon(size: number): React.ReactElement {
+    return (
+        <svg
+            width={size}
+            height={size}
+            viewBox="0 0 24 24"
+            fill="none"
+            aria-hidden="true"
+            focusable="false"
+            className="speechtodeck-spinner"
+        >
+            <circle cx="12" cy="12" r="9" stroke="rgba(255, 255, 255, 0.18)" strokeWidth="2.5" />
+            <path
+                d="M21 12a9 9 0 0 0-9-9"
+                stroke="rgba(255, 255, 255, 0.9)"
+                strokeWidth="2.5"
+                strokeLinecap="round"
+            />
+        </svg>
+    );
+}
+
+/** Glyph diameter: proportional to the button, with sane bounds. */
+function glyphSize(buttonSize: number): number {
+    return Math.round(Math.min(40, Math.max(18, buttonSize * 0.45)));
+}
 
 /**
  * Motion styles, injected once. Both animations are active-state feedback
@@ -190,6 +210,7 @@ export function MicrophoneButton({
     locale = "en",
     elapsedLabel,
     errorMessage,
+    size = BUTTON_SIZE_PX,
 }: MicrophoneButtonProps): React.ReactElement {
     injectMotionStyles();
     const label = translateMicLabel(locale, state);
@@ -205,10 +226,10 @@ export function MicrophoneButton({
             aria-pressed={recording ? true : undefined}
             disabled={disabled}
             onClick={onPress}
-            style={buttonStyle(state, disabled)}
+            style={buttonStyle(state, disabled, size)}
         >
             {state === "processing" ? (
-                SPINNER_ICON
+                spinnerIcon(glyphSize(size))
             ) : recording && elapsedLabel !== undefined && elapsedLabel.length > 0 ? (
                 <span
                     aria-hidden="true"
@@ -222,7 +243,7 @@ export function MicrophoneButton({
                     {elapsedLabel}
                 </span>
             ) : (
-                MIC_ICON
+                micIcon(glyphSize(size))
             )}
             {recording ? (
                 <span aria-hidden="true" data-state-marker="recording" style={BADGE_STYLE} />

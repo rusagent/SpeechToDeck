@@ -9,14 +9,17 @@ import { DICTATION_ERROR_CODES, isDictationErrorCode } from "../../src/domain/Di
 import { isRuntimeCapabilities } from "../../src/domain/Capability";
 import {
     isCdpDiagnosticsReport,
+    isDictationFlowReport,
     isRuntimeStatusReport,
 } from "../../src/application/ports/SpeechPort";
 import {
     isSpeechCapabilities,
     isSpeechRuntimeStatus,
+    isTranscriptClipboardStatus,
     isTranscriptReadyPayload,
     type TranscriptReadyPayload,
 } from "../../src/application/ports/SpeechPort";
+import { isRecordingLevelPayload } from "../../src/application/ports/LevelMeterPort";
 import { isPluginSettings, type PluginSettings } from "../../src/application/ports/SettingsPort";
 
 const VALID_PAYLOAD: TranscriptReadyPayload = {
@@ -76,6 +79,95 @@ describe("isTranscriptReadyPayload (§67)", () => {
         expect(isTranscriptReadyPayload(null)).toBe(false);
         expect(isTranscriptReadyPayload("payload")).toBe(false);
         expect(isTranscriptReadyPayload(undefined)).toBe(false);
+    });
+
+    it("accepts the additive v0.2 clipboard field when valid and rejects it when not", () => {
+        for (const clipboard of ["ok", "failed", "skipped"] as const) {
+            expect(isTranscriptReadyPayload({ ...VALID_PAYLOAD, clipboard })).toBe(true);
+        }
+        expect(isTranscriptClipboardStatus("ok")).toBe(true);
+        expect(isTranscriptClipboardStatus("maybe")).toBe(false);
+        // §99: an unknown clipboard outcome is a boundary violation.
+        expect(isTranscriptReadyPayload({ ...VALID_PAYLOAD, clipboard: "maybe" })).toBe(false);
+        expect(isTranscriptReadyPayload({ ...VALID_PAYLOAD, clipboard: 1 })).toBe(false);
+    });
+});
+
+describe("isRecordingLevelPayload + isDictationFlowReport (v0.2, §67/§99)", () => {
+    it("accepts a valid recording_level vector", () => {
+        expect(
+            isRecordingLevelPayload({
+                protocolVersion: 1,
+                kind: "recording_level",
+                seq: 4294967290,
+                frames: [
+                    [-0.5, 0.5, -6.021],
+                    [0, 0, -120],
+                ],
+            }),
+        ).toBe(true);
+    });
+
+    it("rejects malformed level vectors", () => {
+        expect(
+            isRecordingLevelPayload({
+                protocolVersion: 1,
+                kind: "recording_level",
+                seq: -1,
+                frames: [],
+            }),
+        ).toBe(false);
+        expect(
+            isRecordingLevelPayload({
+                protocolVersion: 1,
+                kind: "recording_level",
+                seq: 1,
+                frames: [[0, 0]],
+            }),
+        ).toBe(false);
+        expect(
+            isRecordingLevelPayload({
+                protocolVersion: 1,
+                kind: "recording_level",
+                seq: 1,
+                frames: [[Number.NaN, 0, 0]],
+            }),
+        ).toBe(false);
+        expect(isRecordingLevelPayload({ protocolVersion: 1 })).toBe(false);
+    });
+
+    it("accepts a valid dictationFlow report and rejects malformed ones", () => {
+        expect(isDictationFlowReport({ backendRunning: true, clipboard: "xclip" })).toBe(true);
+        expect(isDictationFlowReport({ backendRunning: false, clipboard: "unavailable" })).toBe(
+            true,
+        );
+        expect(isDictationFlowReport({ backendRunning: "yes", clipboard: "xclip" })).toBe(false);
+        expect(isDictationFlowReport({ backendRunning: true, clipboard: "wl-copy" })).toBe(false);
+        expect(isDictationFlowReport(null)).toBe(false);
+    });
+
+    it("validates the additive dictationFlow field on the status report only when present", () => {
+        const base = {
+            protocolVersion: 1,
+            runtime: {
+                running: true,
+                state: "running",
+                restartAttempts: 0,
+                enabled: true,
+                lastFailure: null,
+            },
+            modelDownloadInProgress: false,
+        };
+        expect(isRuntimeStatusReport(base)).toBe(true); // older backend
+        expect(
+            isRuntimeStatusReport({
+                ...base,
+                dictationFlow: { backendRunning: true, clipboard: "xclip" },
+            }),
+        ).toBe(true);
+        expect(isRuntimeStatusReport({ ...base, dictationFlow: { backendRunning: true } })).toBe(
+            false,
+        );
     });
 });
 

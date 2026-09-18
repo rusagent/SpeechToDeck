@@ -219,6 +219,44 @@ export class DictationController implements Disposable, StateStore<DictationStat
         });
     }
 
+    /**
+     * Panel press (additive v0.2, owner pivot): the QAM dictation card's
+     * big button. Same serialized press path — the §10 mutex, the §8
+     * machine, §11 stale protection are all identical — but a press with NO
+     * keyboard context starts a clipboard-flow session
+     * (`keyboardContextId: null`): its transcript is never inserted, the
+     * §12 suppression retains it for the panel, and the system-clipboard
+     * leg carries it to the Steam keyboard's Paste key. The keyboard-mount
+     * press semantics above are unchanged.
+     */
+    async handlePanelMicrophonePressed(): Promise<void> {
+        if (this.disposed) {
+            return;
+        }
+        const kind = this.state.kind;
+        if (kind !== "ready" && kind !== "recording") {
+            return;
+        }
+        await this.mutex.runExclusive(async () => {
+            const current = this.state;
+            if (current.kind === "ready") {
+                const context = this.keyboard.currentContext();
+                this.apply({
+                    type: "MICROPHONE_PRESSED",
+                    session: {
+                        sessionId: this.ids.nextId(),
+                        keyboardContextId: context === null ? null : context.id,
+                        startedAtMonotonicMs: this.clock.nowMonotonicMs(),
+                    },
+                });
+                return;
+            }
+            if (current.kind === "recording") {
+                this.apply({ type: "MICROPHONE_PRESSED" });
+            }
+        });
+    }
+
     handleKeyboardOpened(context: KeyboardContext): void {
         this.logger.info("keyboard opened", { contextId: context.id });
     }

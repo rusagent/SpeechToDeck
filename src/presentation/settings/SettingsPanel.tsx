@@ -24,12 +24,15 @@ import type { StateStore } from "../../application/DictationController";
 import type { PluginSettings, SettingsPort } from "../../application/ports/SettingsPort";
 import type { SpeechCapabilities } from "../../application/ports/SpeechPort";
 import type { SetupProgressSnapshot } from "../../application/ports/SetupProgressPort";
+import { LevelMeterStore } from "../../application/ports/LevelMeterPort";
+import type { PanelTranscriptSnapshot } from "../../application/ports/PanelTranscriptPort";
 import { translate, translateRuntimeHealth } from "../i18n/messages";
 import type { Locale, MessageKey } from "../i18n/messages";
 import { CapabilityChip, capabilityState } from "./CapabilityChip";
 import { ComputeBackendPicker } from "./ComputeBackendPicker";
 import { DiagnosticsPanel } from "./DiagnosticsPanel";
 import type { DiagnosticsSource } from "./DiagnosticsPanel";
+import { DictationCard } from "./DictationCard";
 import { LanguagePicker } from "./LanguagePicker";
 import { ModelPicker } from "./ModelPicker";
 import { SetupProgressPanel } from "./SetupProgressPanel";
@@ -40,6 +43,17 @@ export interface SettingsPanelProps {
     readonly setupProgress: StateStore<SetupProgressSnapshot | null>;
     readonly diagnostics: DiagnosticsSource;
     readonly locale?: Locale;
+    /**
+     * Additive v0.2 dictation card wiring (owner pivot): stores + press/copy
+     * handlers composed by the composition root. The card renders only when
+     * provided (§99 additive surface — never a fake control).
+     */
+    readonly dictation?: {
+        readonly levelMeter: LevelMeterStore;
+        readonly transcript: StateStore<PanelTranscriptSnapshot | null>;
+        readonly onPress: () => void;
+        readonly onCopy: (text: string) => Promise<boolean>;
+    };
 }
 
 const MAX_DURATION_MIN_SECONDS = 5;
@@ -58,6 +72,7 @@ export function SettingsPanel({
     setupProgress,
     diagnostics,
     locale = "en",
+    dictation,
 }: SettingsPanelProps): React.ReactElement {
     const [value, setValue] = React.useState<PluginSettings | null>(null);
     const [saveError, setSaveError] = React.useState(false);
@@ -84,6 +99,18 @@ export function SettingsPanel({
         [setupProgress],
     );
     const setup = React.useSyncExternalStore(subscribeSetup, getSetupSnapshot);
+    // Additive v0.2: the dictation card's transcript snapshot — same bound
+    // accessor pattern (§102); absent wiring renders no card.
+    const subscribeTranscript = React.useMemo(
+        () => (onChange: () => void) =>
+            dictation?.transcript.subscribe(onChange) ?? (() => undefined),
+        [dictation],
+    );
+    const getTranscript = React.useMemo(
+        () => () => dictation?.transcript.getSnapshot() ?? null,
+        [dictation],
+    );
+    const dictationTranscript = React.useSyncExternalStore(subscribeTranscript, getTranscript);
     // Shown while the runtime is setting up or failed; terminal `ready`
     // hides it again, and a disabled plugin shows no progress at all.
     const showSetup = value !== null && value.enabled && setup !== null && setup.step !== "ready";
@@ -141,6 +168,18 @@ export function SettingsPanel({
 
     return (
         <PanelSection title={translate(locale, "panel.title")}>
+            {dictation !== undefined ? (
+                <PanelSection title={translate(locale, "section.dictation")}>
+                    <DictationCard
+                        state={runtimeState}
+                        levelMeter={dictation.levelMeter}
+                        transcript={dictationTranscript}
+                        onPress={dictation.onPress}
+                        onCopy={dictation.onCopy}
+                        locale={locale}
+                    />
+                </PanelSection>
+            ) : null}
             {saveError ? (
                 <PanelSectionRow>
                     <span role="alert">⚠ {translate(locale, "setting.saveFailed")}</span>

@@ -28,6 +28,8 @@ import {
     SetupProgressStore,
     isSetupProgressSnapshot,
 } from "../../application/ports/SetupProgressPort";
+import { LevelMeterStore, isRecordingLevelPayload } from "../../application/ports/LevelMeterPort";
+import { PanelTranscriptStore } from "../../application/ports/PanelTranscriptPort";
 import type { DeckyBackendClient } from "./DeckyBackendClient";
 
 /**
@@ -48,6 +50,7 @@ export const SPEECH_EVENTS = {
     speechError: "speech_error",
     runtimeStatus: "runtime_status",
     setupProgress: "setup_progress",
+    recordingLevel: "recording_level",
 } as const;
 
 /** The four setup steps of the frozen `setup_progress` contract. */
@@ -128,6 +131,8 @@ export class DeckySpeechAdapter implements SpeechPort {
     private backendEventDisposables: Disposable[] = [];
     /** Dropped `setup_progress` payloads for the count-logged boundary guard (§99). */
     private droppedSetupProgress = 0;
+    /** Dropped `recording_level` payloads for the count-logged boundary guard (§99). */
+    private droppedRecordingLevel = 0;
 
     /**
      * Latest guarded `setup_progress` snapshot for the plugin panel. Setup
@@ -135,6 +140,19 @@ export class DeckySpeechAdapter implements SpeechPort {
      * events on purpose (§102: consumers subscribe only to relevant state).
      */
     readonly setupProgress = new SetupProgressStore();
+
+    /**
+     * Live level strip state (additive v0.2): guarded `recording_level`
+     * frames only — transport-level UI state, never dictation events (§102),
+     * so the 15 Hz stream cannot touch the session flow.
+     */
+    readonly levelMeter = new LevelMeterStore();
+
+    /**
+     * Latest guarded `transcript_ready` snapshot for the panel card
+     * (additive v0.2), including the backend clipboard outcome.
+     */
+    readonly panelTranscript = new PanelTranscriptStore();
 
     constructor(
         private readonly backend: DeckyBackendClient,
@@ -204,6 +222,9 @@ export class DeckySpeechAdapter implements SpeechPort {
             this.backend.subscribe(SPEECH_EVENTS.setupProgress, (payload) =>
                 this.onSetupProgress(payload),
             ),
+            this.backend.subscribe(SPEECH_EVENTS.recordingLevel, (payload) =>
+                this.onRecordingLevel(payload),
+            ),
         ];
     }
 
@@ -212,6 +233,13 @@ export class DeckySpeechAdapter implements SpeechPort {
             this.logger.warn("dropped transcript_ready payload: boundary guard failed");
             return;
         }
+        // Panel card side-channel (additive v0.2): same guarded payload,
+        // published as transport-level UI state (§102).
+        this.panelTranscript.publish({
+            sessionId: payload.sessionId,
+            text: payload.text,
+            clipboard: payload.clipboard ?? "skipped",
+        });
         this.dispatch({ type: "transcript-ready", payload });
     }
 
@@ -252,6 +280,17 @@ export class DeckySpeechAdapter implements SpeechPort {
             return;
         }
         this.setupProgress.publish(payload);
+    }
+
+    private onRecordingLevel(payload: unknown): void {
+        if (!isRecordingLevelPayload(payload)) {
+            this.droppedRecordingLevel += 1;
+            this.logger.warn("dropped recording_level payload: boundary guard failed", {
+                dropped: this.droppedRecordingLevel,
+            });
+            return;
+        }
+        this.levelMeter.publish(payload);
     }
 
     /**

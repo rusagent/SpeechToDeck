@@ -21,6 +21,10 @@ import {
 import { DeckySpeechAdapter } from "./infrastructure/decky/DeckySpeechAdapter";
 import { DeckySettingsAdapter } from "./infrastructure/decky/DeckySettingsAdapter";
 import type { SetupProgressStore } from "./application/ports/SetupProgressPort";
+import type { LevelMeterStore } from "./application/ports/LevelMeterPort";
+import type { PanelTranscriptSnapshot } from "./application/ports/PanelTranscriptPort";
+import { isRuntimeStatusReport, isSpeechCapabilities } from "./application/ports/SpeechPort";
+import { copyTextToClipboard } from "./infrastructure/system/PanelClipboard";
 import { KeyboardBridgeInserter } from "./infrastructure/steam/KeyboardBridgeInserter";
 import { SteamKeyboardTabBridgeHostAdapter } from "./infrastructure/steam/KeyboardTabBridgeHostAdapter";
 import { SteamBulkPasteInserter } from "./infrastructure/steam/SteamBulkPasteInserter";
@@ -34,7 +38,6 @@ import { SettingsPanel } from "./presentation/settings/SettingsPanel";
 import type { DiagnosticsSource } from "./presentation/settings/DiagnosticsPanel";
 import type { Disposable } from "./shared/Disposable";
 import { Logger } from "./shared/Logger";
-import { isRuntimeStatusReport, isSpeechCapabilities } from "./application/ports/SpeechPort";
 import type { SettingsPort } from "./application/ports/SettingsPort";
 import type { DictationState } from "./domain/DictationState";
 
@@ -52,6 +55,13 @@ class PluginCompositionRoot implements Disposable {
     readonly controllerStore: StateStore<DictationState>;
     readonly setupProgress: SetupProgressStore;
     readonly diagnostics: DiagnosticsSource;
+    /** Additive v0.2 dictation card wiring for the plugin panel. */
+    readonly dictation: {
+        readonly levelMeter: LevelMeterStore;
+        readonly transcript: StateStore<PanelTranscriptSnapshot | null>;
+        readonly onPress: () => void;
+        readonly onCopy: (text: string) => Promise<boolean>;
+    };
 
     constructor(logger: Logger = new Logger("plugin.lifecycle")) {
         this.logger = logger;
@@ -112,10 +122,30 @@ class PluginCompositionRoot implements Disposable {
             },
             loadKeyboardHookDiagnostics: async () => keyboardHost.getDiagnostics(),
             loadTabBridgeDiagnostics: async () => keyboardHost.getBridgeDiagnostics(),
+            loadDictationFlowDiagnostics: async () => {
+                const payload = await backendClient.call("get_status");
+                return isRuntimeStatusReport(payload) && payload.dictationFlow !== undefined
+                    ? payload.dictationFlow
+                    : null;
+            },
             hydrateSetupProgress: () => speechPort.hydrateSetupFromStatus(),
             restartRuntime: async () => {
                 await backendClient.call("restart_runtime");
             },
+        };
+
+        // v0.2 dictation card (owner pivot): the big button presses the SAME
+        // controller through the panel entry (§10 mutex, §8 machine); the
+        // level/transcript stores are the adapter's guarded UI side-channels;
+        // the copy is the panel execCommand path (primary while the backend
+        // xclip leg reports "skipped").
+        this.dictation = {
+            levelMeter: speechPort.levelMeter,
+            transcript: speechPort.panelTranscript,
+            onPress: () => {
+                void controller?.handlePanelMicrophonePressed();
+            },
+            onCopy: (text: string) => copyTextToClipboard(text),
         };
 
         this.presenter = new MicrophoneControlPresenter(controller, keyboardHost, () =>
@@ -174,6 +204,7 @@ export default definePlugin(() => {
                 store={compositionRoot.controllerStore}
                 setupProgress={compositionRoot.setupProgress}
                 diagnostics={compositionRoot.diagnostics}
+                dictation={compositionRoot.dictation}
             />
         ),
         onDismount: () => {

@@ -18,6 +18,8 @@ import * as React from "react";
 import { createRoot } from "react-dom/client";
 import { SettingsPanel } from "../../src/presentation/settings/SettingsPanel";
 import { MicrophoneButton } from "../../src/presentation/keyboard/MicrophoneButton";
+import { DictationCard } from "../../src/presentation/settings/DictationCard";
+import { LevelMeterStore } from "../../src/application/ports/LevelMeterPort";
 import { translateError } from "../../src/presentation/i18n/messages";
 import type { Locale } from "../../src/presentation/i18n/messages";
 import { DictationError } from "../../src/domain/DictationError";
@@ -25,12 +27,14 @@ import type { DictationState } from "../../src/domain/DictationState";
 import type { DiagnosticsSource } from "../../src/presentation/settings/DiagnosticsPanel";
 import type { KeyboardCapabilityReport } from "../../src/domain/Capability";
 import type { SpeechCapabilities } from "../../src/application/ports/SpeechPort";
+import type { PanelTranscriptSnapshot } from "../../src/application/ports/PanelTranscriptPort";
 import type {
     SetupProgressSnapshot,
     SetupProgressStore,
 } from "../../src/application/ports/SetupProgressPort";
 import { DeckyBackendClient } from "../../src/infrastructure/decky/DeckyBackendClient";
 import { DeckySpeechAdapter } from "../../src/infrastructure/decky/DeckySpeechAdapter";
+import { copyTextToClipboard } from "../../src/infrastructure/system/PanelClipboard";
 import { FakeSettingsPort } from "../../tests/frontend/fakes/FakeSettingsPort";
 import {
     FAILED_GET_STATUS_REPORT,
@@ -40,10 +44,13 @@ import {
     FakeStateStore,
 } from "../../tests/contract/helpers";
 
-export type HarnessCaseId = "panel" | "mic" | "setup";
+export type HarnessCaseId = "panel" | "mic" | "setup" | "dictation";
 
 /** Which `setup_progress` snapshot the setup case mounts (REAL component). */
 export type HarnessSetupVariant = keyof typeof SETUP_SNAPSHOTS | "hydrated-failed" | "none";
+
+/** Which dictation-card state the dictation case mounts (REAL component). */
+export type HarnessDictationVariant = "idle" | "recording" | "transcript";
 
 export interface HarnessParams {
     readonly caseId: HarnessCaseId;
@@ -52,26 +59,139 @@ export interface HarnessParams {
     readonly stateKind: "ready" | "recording" | "error";
     /** Setup snapshot for the setup case. */
     readonly setup: HarnessSetupVariant;
+    /** Dictation-card state for the dictation case. */
+    readonly dictation: HarnessDictationVariant;
     /** Optional `data-panel-title` of the section to scroll into view. */
     readonly scroll: string | null;
 }
 
 /** Every captured state; the smoke test mounts exactly these. */
 export const CAPTURED_CASES: readonly HarnessParams[] = [
-    { caseId: "panel", locale: "en", stateKind: "ready", setup: "none", scroll: null },
-    { caseId: "panel", locale: "de", stateKind: "ready", setup: "none", scroll: null },
-    { caseId: "panel", locale: "en", stateKind: "recording", setup: "none", scroll: null },
-    { caseId: "mic", locale: "en", stateKind: "ready", setup: "none", scroll: null },
-    { caseId: "mic", locale: "de", stateKind: "ready", setup: "none", scroll: null },
+    {
+        caseId: "panel",
+        locale: "en",
+        stateKind: "ready",
+        setup: "none",
+        dictation: "idle",
+        scroll: null,
+    },
+    {
+        caseId: "panel",
+        locale: "de",
+        stateKind: "ready",
+        setup: "none",
+        dictation: "idle",
+        scroll: null,
+    },
+    {
+        caseId: "panel",
+        locale: "en",
+        stateKind: "recording",
+        setup: "none",
+        dictation: "idle",
+        scroll: null,
+    },
+    {
+        caseId: "mic",
+        locale: "en",
+        stateKind: "ready",
+        setup: "none",
+        dictation: "idle",
+        scroll: null,
+    },
+    {
+        caseId: "mic",
+        locale: "de",
+        stateKind: "ready",
+        setup: "none",
+        dictation: "idle",
+        scroll: null,
+    },
     // Setup progress: real panel with the dedicated store preset per state.
-    { caseId: "setup", locale: "en", stateKind: "ready", setup: "indeterminate", scroll: null },
-    { caseId: "setup", locale: "en", stateKind: "ready", setup: "download", scroll: null },
-    { caseId: "setup", locale: "en", stateKind: "ready", setup: "failed", scroll: null },
-    { caseId: "setup", locale: "de", stateKind: "ready", setup: "failed", scroll: null },
-    { caseId: "setup", locale: "en", stateKind: "ready", setup: "ready", scroll: null },
+    {
+        caseId: "setup",
+        locale: "en",
+        stateKind: "ready",
+        setup: "indeterminate",
+        dictation: "idle",
+        scroll: null,
+    },
+    {
+        caseId: "setup",
+        locale: "en",
+        stateKind: "ready",
+        setup: "download",
+        dictation: "idle",
+        scroll: null,
+    },
+    {
+        caseId: "setup",
+        locale: "en",
+        stateKind: "ready",
+        setup: "failed",
+        dictation: "idle",
+        scroll: null,
+    },
+    {
+        caseId: "setup",
+        locale: "de",
+        stateKind: "ready",
+        setup: "failed",
+        dictation: "idle",
+        scroll: null,
+    },
+    {
+        caseId: "setup",
+        locale: "en",
+        stateKind: "ready",
+        setup: "ready",
+        dictation: "idle",
+        scroll: null,
+    },
     // Hydrated failure: no live event at all — the panel shows the failed
     // state because the real adapter rebuilt it from the §30 status report.
-    { caseId: "setup", locale: "en", stateKind: "ready", setup: "hydrated-failed", scroll: null },
+    {
+        caseId: "setup",
+        locale: "en",
+        stateKind: "ready",
+        setup: "hydrated-failed",
+        dictation: "idle",
+        scroll: null,
+    },
+    // Dictation card (v0.2): idle big button, live recording with REAL
+    // received frames, and the settled transcript + clipboard block.
+    {
+        caseId: "dictation",
+        locale: "en",
+        stateKind: "ready",
+        setup: "none",
+        dictation: "idle",
+        scroll: null,
+    },
+    {
+        caseId: "dictation",
+        locale: "en",
+        stateKind: "ready",
+        setup: "none",
+        dictation: "recording",
+        scroll: null,
+    },
+    {
+        caseId: "dictation",
+        locale: "en",
+        stateKind: "ready",
+        setup: "none",
+        dictation: "transcript",
+        scroll: null,
+    },
+    {
+        caseId: "dictation",
+        locale: "de",
+        stateKind: "ready",
+        setup: "none",
+        dictation: "transcript",
+        scroll: null,
+    },
 ];
 
 const REPORT: KeyboardCapabilityReport = {
@@ -217,12 +337,80 @@ function MicCase({ locale }: { locale: Locale }): React.ReactElement {
     );
 }
 
-function Harness({ params }: { params: HarnessParams }): React.ReactElement {
-    return params.caseId === "mic" ? (
-        <MicCase locale={params.locale} />
-    ) : (
-        <PanelCase locale={params.locale} stateKind={params.stateKind} setup={params.setup} />
+/**
+ * Dictation-card case (v0.2): the REAL card over the REAL level store. The
+ * `recording`/`transcript` variants publish REAL payload-shaped frames
+ * (envelope numbers only) through the store's production publish path — the
+ * rendered bars are exactly what real `recording_level` events produce; no
+ * synthetic DOM, no synthetic CSS.
+ */
+function DictationCase({
+    locale,
+    variant,
+}: {
+    locale: Locale;
+    variant: HarnessDictationVariant;
+}): React.ReactElement {
+    const levelMeter = new LevelMeterStore();
+    const transcript = new FakeSnapshotStore<PanelTranscriptSnapshot | null>(
+        variant === "transcript"
+            ? {
+                  sessionId: "harness-1",
+                  text: "Hallo Welt, das ist das Diktat vom Steam Deck.",
+                  clipboard: "ok",
+              }
+            : null,
     );
+    const state: DictationState =
+        variant === "recording"
+            ? {
+                  kind: "recording",
+                  session: {
+                      sessionId: "harness-1",
+                      keyboardContextId: null,
+                      startedAtMonotonicMs: 0,
+                  },
+              }
+            : { kind: "ready" };
+    // Publish after mount (real event timing): the card resets the level
+    // window when the state enters recording, so pre-mount frames would be
+    // wiped by its fresh-window behavior.
+    React.useEffect(() => {
+        if (variant !== "recording") {
+            return;
+        }
+        // 24 frames of a plausible spoken envelope: two gentle surges.
+        const amplitudes = [
+            0.05, 0.12, 0.2, 0.35, 0.5, 0.62, 0.7, 0.65, 0.5, 0.3, 0.18, 0.1, 0.08, 0.15, 0.28,
+            0.45, 0.6, 0.75, 0.85, 0.78, 0.6, 0.4, 0.22, 0.12,
+        ];
+        levelMeter.publish({
+            protocolVersion: 1,
+            kind: "recording_level",
+            seq: 24,
+            frames: amplitudes.map((a) => [-a, a, -6]),
+        });
+    }, [variant, levelMeter]);
+    return (
+        <DictationCard
+            state={state}
+            levelMeter={levelMeter}
+            transcript={transcript.getSnapshot()}
+            onPress={() => undefined}
+            onCopy={(text: string) => copyTextToClipboard(text)}
+            locale={locale}
+        />
+    );
+}
+
+function Harness({ params }: { params: HarnessParams }): React.ReactElement {
+    if (params.caseId === "mic") {
+        return <MicCase locale={params.locale} />;
+    }
+    if (params.caseId === "dictation") {
+        return <DictationCase locale={params.locale} variant={params.dictation} />;
+    }
+    return <PanelCase locale={params.locale} stateKind={params.stateKind} setup={params.setup} />;
 }
 
 /** Mounts one captured state; returns the disposer. Shared with the smoke test. */
@@ -244,18 +432,28 @@ function paramsFromLocation(): HarnessParams {
     const search = new URLSearchParams(window.location.search);
     const rawCase = search.get("case");
     const caseId: HarnessCaseId =
-        rawCase === "mic" ? "mic" : rawCase === "setup" ? "setup" : "panel";
+        rawCase === "mic"
+            ? "mic"
+            : rawCase === "setup"
+              ? "setup"
+              : rawCase === "dictation"
+                ? "dictation"
+                : "panel";
     const locale: Locale = search.get("locale") === "de" ? "de" : "en";
     const state = search.get("state");
     const variant = search.get("variant");
     const setup: HarnessSetupVariant = SETUP_VARIANTS.includes(variant as HarnessSetupVariant)
         ? (variant as HarnessSetupVariant)
         : "none";
+    const rawDictation = search.get("dictation");
+    const dictation: HarnessDictationVariant =
+        rawDictation === "recording" || rawDictation === "transcript" ? rawDictation : "idle";
     return {
         caseId,
         locale,
         stateKind: state === "recording" || state === "error" ? state : "ready",
         setup,
+        dictation,
         scroll: search.get("scroll"),
     };
 }

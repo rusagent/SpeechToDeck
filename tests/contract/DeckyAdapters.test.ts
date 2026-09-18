@@ -158,11 +158,65 @@ describe("DeckySpeechAdapter", () => {
 
         expect(events).toEqual([]);
         expect(transport.removedListeners.map((entry) => entry.event).sort()).toEqual([
+            "recording_level",
             "runtime_status",
             "setup_progress",
             "speech_error",
             "transcript_ready",
         ]);
+    });
+
+    it("feeds guarded recording_level payloads into the level store and drops the rest", () => {
+        const transport = new FakeDeckyTransport();
+        const adapter = new DeckySpeechAdapter(new DeckyBackendClient(transport));
+        adapter.subscribe(() => undefined); // arm the backend event subscriptions
+
+        transport.emit("recording_level", {
+            protocolVersion: 1,
+            kind: "recording_level",
+            seq: 41,
+            frames: [
+                [-0.5, 0.5, -6.021],
+                [-0.9, 0.9, -0.915],
+            ],
+        });
+        transport.emit("recording_level", { garbage: true });
+        transport.emit("recording_level", {
+            protocolVersion: 2,
+            kind: "recording_level",
+            seq: 42,
+            frames: [],
+        });
+
+        const snapshot = adapter.levelMeter.getSnapshot();
+        expect(snapshot.lastSeq).toBe(41); // the invalid payloads never rendered
+        expect(snapshot.frameCount).toBe(2);
+        expect(snapshot.bars.length).toBe(24);
+        // Amplitude = max(|min|, |max|): the newest bar carries the loud frame.
+        expect(snapshot.bars[23]).toBeCloseTo(0.9, 5);
+        expect(snapshot.bars[22]).toBeCloseTo(0.5, 5);
+    });
+
+    it("publishes transcript payloads with the clipboard outcome into the panel store", () => {
+        const transport = new FakeDeckyTransport();
+        const adapter = new DeckySpeechAdapter(new DeckyBackendClient(transport));
+        adapter.subscribe(() => undefined);
+
+        transport.emit("transcript_ready", {
+            ...VALID_TRANSCRIPT_PAYLOAD,
+            clipboard: "ok",
+        });
+
+        expect(adapter.panelTranscript.getSnapshot()).toEqual({
+            sessionId: "session-1",
+            text: "Hallo Welt",
+            clipboard: "ok",
+        });
+
+        // Older backend: no clipboard field → the panel store reports the
+        // skipped leg instead of inventing an outcome.
+        transport.emit("transcript_ready", VALID_TRANSCRIPT_PAYLOAD);
+        expect(adapter.panelTranscript.getSnapshot()?.clipboard).toBe("skipped");
     });
 
     it("initialize fails with a stable error when the payload guard rejects", async () => {

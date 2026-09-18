@@ -24,7 +24,11 @@ import {
 import type { Locale } from "../i18n/messages";
 import type { DictationState } from "../../domain/DictationState";
 import type { KeyboardCapabilityReport } from "../../domain/Capability";
-import type { CdpDiagnosticsReport, SpeechCapabilities } from "../../application/ports/SpeechPort";
+import type {
+    CdpDiagnosticsReport,
+    DictationFlowReport,
+    SpeechCapabilities,
+} from "../../application/ports/SpeechPort";
 import type {
     KeyboardHostDiagnostics,
     TabBridgeDiagnostics,
@@ -39,7 +43,8 @@ import type { CapabilityState } from "./CapabilityChip";
  * state, microphone availability) and passed down here as `speech`.
  * `loadCdpDiagnostics`/`loadKeyboardHookDiagnostics` are the additive v0.1.6
  * cross-view facts; `loadTabBridgeDiagnostics` is the additive v0.1.7
- * tab-bridge row source. All degrade to null when unavailable.
+ * tab-bridge row source; `loadDictationFlowDiagnostics` is the additive
+ * v0.2 dictation-flow row source. All degrade to null when unavailable.
  */
 export interface DiagnosticsSource {
     loadCapabilityReport(): Promise<KeyboardCapabilityReport | null>;
@@ -55,6 +60,11 @@ export interface DiagnosticsSource {
      * seen / press channel live) from the bridge's own state (§99).
      */
     loadTabBridgeDiagnostics?(): Promise<TabBridgeDiagnostics | null>;
+    /**
+     * Optional since v0.2: backend running state plus the active clipboard
+     * backend for the "Dictation flow" row (§99 additive surface).
+     */
+    loadDictationFlowDiagnostics?(): Promise<DictationFlowReport | null>;
     /**
      * Hydrates the setup store from the §30 status report so a startup
      * failure that fired before the panel subscribed still renders (live
@@ -120,6 +130,7 @@ export function DiagnosticsPanel({
     const [cdp, setCdp] = React.useState<CdpDiagnosticsReport | null>(null);
     const [hook, setHook] = React.useState<KeyboardHostDiagnostics | null>(null);
     const [bridge, setBridge] = React.useState<TabBridgeDiagnostics | null>(null);
+    const [flow, setFlow] = React.useState<DictationFlowReport | null>(null);
     const [restarting, setRestarting] = React.useState(false);
 
     React.useEffect(() => {
@@ -142,6 +153,11 @@ export function DiagnosticsPanel({
         void Promise.resolve(source.loadTabBridgeDiagnostics?.()).then((value) => {
             if (!cancelled && value !== undefined) {
                 setBridge(value);
+            }
+        });
+        void Promise.resolve(source.loadDictationFlowDiagnostics?.()).then((value) => {
+            if (!cancelled && value !== undefined) {
+                setFlow(value);
             }
         });
         return () => {
@@ -202,6 +218,25 @@ export function DiagnosticsPanel({
                 <Field label={translate(locale, "diagnostics.tabBridge")}>
                     <div style={{ opacity: 0.75, fontSize: 11 }}>
                         {translateDegradeReason(locale, bridge.reason)}
+                    </div>
+                </Field>
+            )}
+            {flow !== null && (
+                <Field label={translate(locale, "diagnostics.dictationFlow")}>
+                    <div data-dictation-flow="true" style={{ opacity: 0.85, fontSize: 12 }}>
+                        {translate(
+                            locale,
+                            flow.backendRunning
+                                ? "diagnostics.dictationFlow.running"
+                                : "diagnostics.dictationFlow.stopped",
+                        )}
+                        {" · "}
+                        {translate(
+                            locale,
+                            flow.clipboard === "xclip"
+                                ? "diagnostics.dictationFlow.xclip"
+                                : "diagnostics.dictationFlow.clipboardUnavailable",
+                        )}
                     </div>
                 </Field>
             )}

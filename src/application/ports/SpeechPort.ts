@@ -26,12 +26,20 @@ export interface TranscriptionMetrics {
     readonly computeBackend: "cpu" | "vulkan";
 }
 
-/** Versioned `transcript_ready` payload (spec §67). */
+/**
+ * Versioned `transcript_ready` payload (spec §67). `clipboard` is additive
+ * since v0.2: outcome of the backend's best-effort system-clipboard write —
+ * "ok" (written), "failed" (attempted, not written), "skipped" (not
+ * attempted; the frontend copy is primary). Older backends omit it.
+ */
+export type TranscriptClipboardStatus = "ok" | "failed" | "skipped";
+
 export interface TranscriptReadyPayload {
     readonly protocolVersion: 1;
     readonly sessionId: string;
     readonly text: string;
     readonly metrics: TranscriptionMetrics;
+    readonly clipboard?: TranscriptClipboardStatus;
 }
 
 /** Runtime status reported by the backend (`speech_status`/`runtime_status`, spec §30). */
@@ -70,6 +78,27 @@ export function isCdpDiagnosticsReport(value: unknown): value is CdpDiagnosticsR
 }
 
 /**
+ * Additive v0.2 dictation-flow facts (optional `get_status` field): whether
+ * the native runtime is running and which clipboard backend is active —
+ * "xclip" (backend writer ready) or "unavailable" (the frontend copy is
+ * primary). Validated only when present (§99: older backends omit it).
+ */
+export interface DictationFlowReport {
+    readonly backendRunning: boolean;
+    readonly clipboard: "xclip" | "unavailable";
+}
+
+export function isDictationFlowReport(value: unknown): value is DictationFlowReport {
+    if (!isRecord(value)) {
+        return false;
+    }
+    return (
+        typeof value["backendRunning"] === "boolean" &&
+        (value["clipboard"] === "xclip" || value["clipboard"] === "unavailable")
+    );
+}
+
+/**
  * Versioned `get_status` response (spec §30/§67), fields the frontend
  * consumes. `runtime.lastFailure` is the backend's stored §82 startup
  * failure (or null) and drives the setup panel's failure hydration.
@@ -87,6 +116,8 @@ export interface RuntimeStatusReport {
     };
     readonly modelDownloadInProgress: boolean;
     readonly cdpDiagnostics?: CdpDiagnosticsReport;
+    /** Additive since v0.2 (§99: validated only when present). */
+    readonly dictationFlow?: DictationFlowReport;
 }
 
 export function isRuntimeStatusReport(value: unknown): value is RuntimeStatusReport {
@@ -117,6 +148,10 @@ export function isRuntimeStatusReport(value: unknown): value is RuntimeStatusRep
     }
     const cdp = value["cdpDiagnostics"];
     if (cdp !== undefined && !isCdpDiagnosticsReport(cdp)) {
+        return false;
+    }
+    const flow = value["dictationFlow"];
+    if (flow !== undefined && !isDictationFlowReport(flow)) {
         return false;
     }
     return typeof value["modelDownloadInProgress"] === "boolean";
@@ -181,12 +216,20 @@ export function isTranscriptReadyPayload(value: unknown): value is TranscriptRea
     if (!isRecord(value)) {
         return false;
     }
+    const clipboard = value["clipboard"];
+    if (clipboard !== undefined && !isTranscriptClipboardStatus(clipboard)) {
+        return false;
+    }
     return (
         value["protocolVersion"] === 1 &&
         typeof value["sessionId"] === "string" &&
         typeof value["text"] === "string" &&
         isTranscriptionMetrics(value["metrics"])
     );
+}
+
+export function isTranscriptClipboardStatus(value: unknown): value is TranscriptClipboardStatus {
+    return value === "ok" || value === "failed" || value === "skipped";
 }
 
 export function isSpeechRuntimeStatus(value: unknown): value is SpeechRuntimeStatus {

@@ -23,6 +23,7 @@ export const EN_MESSAGES = {
     "section.speech": "Speech",
     "section.output": "Output",
     "section.diagnostics": "Diagnostics",
+    "section.dictation": "Dictation",
 
     "setting.enabled": "Enable plugin",
     "setting.computeBackend": "Compute backend",
@@ -100,6 +101,11 @@ export const EN_MESSAGES = {
     "diagnostics.computeBackend": "Compute backend",
     "diagnostics.lastError": "Last runtime error",
     "diagnostics.restartRuntime": "Restart runtime",
+    "diagnostics.dictationFlow": "Dictation flow",
+    "diagnostics.dictationFlow.running": "backend running",
+    "diagnostics.dictationFlow.stopped": "backend stopped",
+    "diagnostics.dictationFlow.xclip": "system clipboard writer ready",
+    "diagnostics.dictationFlow.clipboardUnavailable": "copying via the panel button",
 
     "degrade.not-probed": "Diagnostics have not run yet.",
     "degrade.remote-cdp-disabled":
@@ -133,6 +139,13 @@ export const EN_MESSAGES = {
     "mic.label.recording": "Recording — press to stop",
     "mic.label.processing": "Processing…",
     "mic.label.error": "Voice input error — details in the plugin panel",
+
+    "dictation.level.label": "Live microphone level",
+    "dictation.transcript.label": "Transcript",
+    "dictation.clipboard.copied": "Copied — open the Steam keyboard (STEAM+X) and press Paste.",
+    "dictation.clipboard.failed": "Copying failed — use “Copy again”.",
+    "dictation.copyAgain": "Copy again",
+    "dictation.copying": "Copying…",
 } as const;
 
 export type MessageKey = keyof typeof EN_MESSAGES;
@@ -145,6 +158,7 @@ export const DE_MESSAGES: Record<MessageKey, string> = {
     "section.speech": "Spracherkennung",
     "section.output": "Ausgabe",
     "section.diagnostics": "Diagnose",
+    "section.dictation": "Diktieren",
 
     "setting.enabled": "Plugin aktivieren",
     "setting.computeBackend": "Recheneinheit",
@@ -223,6 +237,11 @@ export const DE_MESSAGES: Record<MessageKey, string> = {
     "diagnostics.computeBackend": "Recheneinheit",
     "diagnostics.lastError": "Letzter Laufzeitfehler",
     "diagnostics.restartRuntime": "Laufzeit neu starten",
+    "diagnostics.dictationFlow": "Diktier-Ablauf",
+    "diagnostics.dictationFlow.running": "Backend läuft",
+    "diagnostics.dictationFlow.stopped": "Backend gestoppt",
+    "diagnostics.dictationFlow.xclip": "System-Zwischenablage bereit",
+    "diagnostics.dictationFlow.clipboardUnavailable": "Kopieren über den Panel-Knopf",
 
     "degrade.not-probed": "Diagnose wurde noch nicht ausgeführt.",
     "degrade.remote-cdp-disabled":
@@ -258,6 +277,14 @@ export const DE_MESSAGES: Record<MessageKey, string> = {
     "mic.label.recording": "Aufnahme läuft — zum Beenden drücken",
     "mic.label.processing": "Verarbeitung…",
     "mic.label.error": "Fehler bei der Spracheingabe — Details im Plugin-Panel",
+
+    "dictation.level.label": "Live-Mikrofonpegel",
+    "dictation.transcript.label": "Transkript",
+    "dictation.clipboard.copied":
+        "Kopiert — öffne die Steam-Tastatur (STEAM+X) und drücke Einfügen.",
+    "dictation.clipboard.failed": "Kopieren fehlgeschlagen — benutze „Erneut kopieren“.",
+    "dictation.copyAgain": "Erneut kopieren",
+    "dictation.copying": "Kopieren…",
 } as const;
 
 export const MESSAGES: Record<Locale, Record<MessageKey, string>> = {
