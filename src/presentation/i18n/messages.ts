@@ -91,6 +91,10 @@ export const EN_MESSAGES = {
     "diagnostics.pasteCapability": "Paste capability",
     "diagnostics.clipboardCapability": "Clipboard capability",
     "diagnostics.cdpDiagnostics": "CDP cross-view diagnostics",
+    "diagnostics.tabBridge": "Tab bridge",
+    "diagnostics.tabBridgeInjected": "Tab bridge injected",
+    "diagnostics.tabBridgeKeyboardSeen": "Keyboard view seen",
+    "diagnostics.tabBridgePressChannel": "Press channel live",
     "diagnostics.runtimeStatus": "Runtime status",
     "diagnostics.model": "Model",
     "diagnostics.computeBackend": "Compute backend",
@@ -101,6 +105,7 @@ export const EN_MESSAGES = {
     "degrade.remote-cdp-disabled":
         "Optional: enable “Allow Remote CEF Debugging” in the Decky settings for cross-view diagnostics.",
     "degrade.sp-target-not-found": "The main Steam UI view was not found.",
+    "degrade.bridge-not-injected": "The keyboard bridge is not installed in the Steam view yet.",
     "degrade.probe-failed": "The diagnostics probe failed.",
     "degrade.registry-not-found": "The Steam window registry was not found.",
     "degrade.manager-not-found":
@@ -209,6 +214,10 @@ export const DE_MESSAGES: Record<MessageKey, string> = {
     "diagnostics.pasteCapability": "Einfügen-Fähigkeit",
     "diagnostics.clipboardCapability": "Zwischenablage-Fähigkeit",
     "diagnostics.cdpDiagnostics": "CDP-übergreifende Diagnose",
+    "diagnostics.tabBridge": "Tab-Brücke",
+    "diagnostics.tabBridgeInjected": "Tab-Brücke injiziert",
+    "diagnostics.tabBridgeKeyboardSeen": "Tastaturansicht gesehen",
+    "diagnostics.tabBridgePressChannel": "Druckkanal aktiv",
     "diagnostics.runtimeStatus": "Laufzeitstatus",
     "diagnostics.model": "Modell",
     "diagnostics.computeBackend": "Recheneinheit",
@@ -219,6 +228,8 @@ export const DE_MESSAGES: Record<MessageKey, string> = {
     "degrade.remote-cdp-disabled":
         "Optional: Aktiviere „Allow Remote CEF Debugging“ in den Decky-Einstellungen für übergreifende Diagnose.",
     "degrade.sp-target-not-found": "Die Steam-Hauptansicht wurde nicht gefunden.",
+    "degrade.bridge-not-injected":
+        "Die Tastatur-Brücke ist noch nicht in der Steam-Ansicht installiert.",
     "degrade.probe-failed": "Die Diagnoseabfrage ist fehlgeschlagen.",
     "degrade.registry-not-found": "Die Steam-Fensterregistrierung wurde nicht gefunden.",
     "degrade.manager-not-found":

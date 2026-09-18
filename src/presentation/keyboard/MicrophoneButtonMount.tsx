@@ -208,6 +208,9 @@ export class MicrophoneControlPresenter implements Disposable {
             visible: true,
             active: model.visualState === "recording",
             busy: model.visualState === "processing",
+            // v0.1.7 (§99 additive): exact visual for out-of-document hosts
+            // (tab bridge) so __stdMicState receives the §75-true state.
+            visual: model.visualState,
             onPress: () => {
                 void this.onPress();
             },

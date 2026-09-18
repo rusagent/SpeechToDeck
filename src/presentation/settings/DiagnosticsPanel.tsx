@@ -25,7 +25,10 @@ import type { Locale } from "../i18n/messages";
 import type { DictationState } from "../../domain/DictationState";
 import type { KeyboardCapabilityReport } from "../../domain/Capability";
 import type { CdpDiagnosticsReport, SpeechCapabilities } from "../../application/ports/SpeechPort";
-import type { KeyboardHostDiagnostics } from "../../application/ports/KeyboardHostPort";
+import type {
+    KeyboardHostDiagnostics,
+    TabBridgeDiagnostics,
+} from "../../application/ports/KeyboardHostPort";
 import type { PluginSettings } from "../../application/ports/SettingsPort";
 import { CapabilityChip, capabilityState } from "./CapabilityChip";
 import type { CapabilityState } from "./CapabilityChip";
@@ -35,7 +38,8 @@ import type { CapabilityState } from "./CapabilityChip";
  * `loadSpeechCapabilities` is consumed by the settings panel (model install
  * state, microphone availability) and passed down here as `speech`.
  * `loadCdpDiagnostics`/`loadKeyboardHookDiagnostics` are the additive v0.1.6
- * cross-view facts; both degrade to null when unavailable.
+ * cross-view facts; `loadTabBridgeDiagnostics` is the additive v0.1.7
+ * tab-bridge row source. All degrade to null when unavailable.
  */
 export interface DiagnosticsSource {
     loadCapabilityReport(): Promise<KeyboardCapabilityReport | null>;
@@ -46,6 +50,11 @@ export interface DiagnosticsSource {
      */
     loadCdpDiagnostics?(): Promise<CdpDiagnosticsReport | null>;
     loadKeyboardHookDiagnostics?(): Promise<KeyboardHostDiagnostics | null>;
+    /**
+     * Optional since v0.1.7: observed tab-bridge facts (injected / keyboard
+     * seen / press channel live) from the bridge's own state (§99).
+     */
+    loadTabBridgeDiagnostics?(): Promise<TabBridgeDiagnostics | null>;
     /**
      * Hydrates the setup store from the §30 status report so a startup
      * failure that fired before the panel subscribed still renders (live
@@ -110,6 +119,7 @@ export function DiagnosticsPanel({
     const [report, setReport] = React.useState<KeyboardCapabilityReport | null>(null);
     const [cdp, setCdp] = React.useState<CdpDiagnosticsReport | null>(null);
     const [hook, setHook] = React.useState<KeyboardHostDiagnostics | null>(null);
+    const [bridge, setBridge] = React.useState<TabBridgeDiagnostics | null>(null);
     const [restarting, setRestarting] = React.useState(false);
 
     React.useEffect(() => {
@@ -127,6 +137,11 @@ export function DiagnosticsPanel({
         void Promise.resolve(source.loadKeyboardHookDiagnostics?.()).then((value) => {
             if (!cancelled && value !== undefined) {
                 setHook(value);
+            }
+        });
+        void Promise.resolve(source.loadTabBridgeDiagnostics?.()).then((value) => {
+            if (!cancelled && value !== undefined) {
+                setBridge(value);
             }
         });
         return () => {
@@ -168,6 +183,28 @@ export function DiagnosticsPanel({
                     </div>
                 )}
             </Field>
+            <CapabilityRow
+                label={translate(locale, "diagnostics.tabBridgeInjected")}
+                value={bridge === null ? undefined : bridge.injected}
+                locale={locale}
+            />
+            <CapabilityRow
+                label={translate(locale, "diagnostics.tabBridgeKeyboardSeen")}
+                value={bridge === null ? undefined : bridge.keyboardSeen}
+                locale={locale}
+            />
+            <CapabilityRow
+                label={translate(locale, "diagnostics.tabBridgePressChannel")}
+                value={bridge === null ? undefined : bridge.pressChannelLive}
+                locale={locale}
+            />
+            {bridge !== null && bridge.reason !== null && (
+                <Field label={translate(locale, "diagnostics.tabBridge")}>
+                    <div style={{ opacity: 0.75, fontSize: 11 }}>
+                        {translateDegradeReason(locale, bridge.reason)}
+                    </div>
+                </Field>
+            )}
             <Field label={translate(locale, "diagnostics.runtimeStatus")}>
                 {translateRuntimeHealth(locale, state)}
             </Field>

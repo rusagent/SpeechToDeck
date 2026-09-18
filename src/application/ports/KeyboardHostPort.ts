@@ -7,15 +7,24 @@ import type { KeyboardContext } from "../../domain/DictationSession";
 import type { Disposable } from "../../shared/Disposable";
 
 /**
+ * Visual state of the microphone control (§19/§20 model output). Carried on
+ * the props since v0.1.7 so a host that renders outside the plugin document
+ * (tab bridge) can map the exact visual, not just the active/busy flags.
+ */
+export type MicrophoneControlVisualState = "ready" | "recording" | "processing" | "error";
+
+/**
  * Props for the microphone control mounted into the Steam keyboard
  * (spec §13/§19). `active` becomes true only after recording start has been
  * acknowledged (§75); `busy` disables the button during transient states (§10).
+ * `visual` is additive since v0.1.7 (§99).
  */
 export interface MicrophoneControlProps {
     readonly visible: boolean;
     readonly active: boolean;
     readonly busy: boolean;
     readonly onPress: () => void;
+    readonly visual?: MicrophoneControlVisualState;
 }
 
 /**
@@ -53,6 +62,23 @@ export interface KeyboardHostDiagnostics {
     readonly keyboardSignatureSeen: boolean;
     /** At least one registry window instance resolved a document. */
     readonly documentResolved: boolean;
+    readonly reason: string | null;
+}
+
+/**
+ * v0.1.7 tab-bridge facts for the diagnostics panel (§99 additive surface).
+ * All three booleans are observed, never assumed (§57): `injected` is the
+ * in-window `__stdKbBridgeLoaded` flag read back by the poll, `keyboardSeen`
+ * is the permanently-present keyboard container observed at least once since
+ * start, and `pressChannelLive` means the poll channel completed at least one
+ * successful round trip since start. `reason` reuses the stable lowercase
+ * degrade-code convention (§105): "sp-target-not-found" |
+ * "bridge-not-injected" | "signature-not-found", or null when fully available.
+ */
+export interface TabBridgeDiagnostics {
+    readonly injected: boolean;
+    readonly keyboardSeen: boolean;
+    readonly pressChannelLive: boolean;
     readonly reason: string | null;
 }
 
