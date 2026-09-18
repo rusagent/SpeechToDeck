@@ -240,16 +240,18 @@ describe("KeyboardTabBridge press channel and keyboard lifecycle", () => {
 });
 
 describe("KeyboardTabBridge poll-driven self-heal (§61, v0.1.8 on-device regression)", () => {
-    it("mounts the mic host through one real inject+poll tick while offsetWidth stays 0", async () => {
+    it("mounts the mic host and OPENS the context through one real inject+poll tick while offsetWidth stays 0", async () => {
         // REAL in-tab evaluation: the fake executeInTab transport evaluates
         // every code string against the jsdom document. jsdom's offsetWidth is
-        // always 0 — the exact on-device CEF condition — so a mounted host
-        // proves the class-token visibility decision end to end through the
-        // engine (inject → poll expression → __stdKbEvaluate → ensureHost).
+        // always 0 — the exact on-device CEF condition — so a mounted host AND
+        // an opened context prove the class-token visibility decision end to
+        // end through the engine (inject → poll expression → __stdKbEvaluate →
+        // ensureHost → v:true → context lifecycle).
         const container = document.createElement("div");
         container.className = "hash_VirtualKeyboard__a1b2 VirtualKeyboardVisible";
         document.body.appendChild(container);
 
+        const opened: KeyboardContext[] = [];
         const executor: TabExecutor = async (tab, runAsync, code) => {
             expect(tab).toBe("Steam Big Picture Mode");
             expect(runAsync).toBe(false);
@@ -261,7 +263,9 @@ describe("KeyboardTabBridge poll-driven self-heal (§61, v0.1.8 on-device regres
         const bridge = new KeyboardTabBridge({
             executor,
             onPress: () => undefined,
-            onKeyboardOpened: () => undefined,
+            onKeyboardOpened: (context) => {
+                opened.push(context);
+            },
             onKeyboardClosed: () => undefined,
             contexts: new SteamKeyboardContextFactory(new FakeIdGenerator()),
         });
@@ -271,6 +275,12 @@ describe("KeyboardTabBridge poll-driven self-heal (§61, v0.1.8 on-device regres
 
         expect(bridge.getFacts().bootstrapInjected).toBe(true);
         expect(document.getElementById("std-mic-host")).not.toBeNull();
+        // The poll's `v` gate trusts the class token alone (offsetWidth 0): the
+        // context opens on the first tick — pre-fix this stayed v:false and the
+        // context never opened on device.
+        expect(opened).toHaveLength(1);
+        expect(bridge.currentContext()?.id).toBe(opened[0]?.id);
+        expect(bridge.currentContext()?.visible).toBe(true);
 
         await bridge.stop(); // pushes the real in-window teardown through the executor
         document.body.innerHTML = "";

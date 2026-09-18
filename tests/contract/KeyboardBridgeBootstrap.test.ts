@@ -16,8 +16,8 @@
  * implemented, so the contenteditable insertion branch and fixed positioning
  * math are not exercised here — and jsdom's always-0 offsetWidth IS the
  * on-device CEF condition (v0.1.8): the host must mount on the class token
- * alone. Only the poll's `v`-field test stubs offsetWidth, because `v` still
- * reports it.
+ * alone, and the poll's `v` field reports the same token (no offsetWidth
+ * stubs anywhere).
  */
 
 import { beforeEach, describe, expect, it } from "vitest";
@@ -49,16 +49,13 @@ function installBootstrap(): void {
 }
 
 /**
- * Visible container WITHOUT an offsetWidth stub by default: jsdom reports 0 —
- * exactly the on-device CEF condition, so the class token alone must mount.
- * Only callers that assert the poll's `v` field pass an offsetWidth.
+ * Visible container with ZERO dimensions: jsdom's offsetWidth is always 0 —
+ * exactly the on-device CEF condition, so the class token alone must decide
+ * both the bootstrap mount and the poll's `v` field.
  */
-function makeVisibleContainer(offsetWidth?: number): HTMLElement {
+function makeVisibleContainer(): HTMLElement {
     const container = document.createElement("div");
     container.className = "hash_VirtualKeyboard__a1b2 VirtualKeyboardVisible";
-    if (offsetWidth !== undefined) {
-        Object.defineProperty(container, "offsetWidth", { value: offsetWidth });
-    }
     document.body.appendChild(container);
     return container;
 }
@@ -222,9 +219,10 @@ describe("poll, insert and state expressions", () => {
         expect(before).toEqual({ v: false, c: false, b: false, ev: [], f: false });
 
         installBootstrap();
-        // The poll's `v` field still reports offsetWidth (its semantics are
-        // unchanged in v0.1.8) — only here is a width stubbed.
-        makeVisibleContainer(800);
+        // The container has the class token but ZERO dimensions (jsdom
+        // offsetWidth 0 — the on-device CEF condition): `v` must report the
+        // token alone (v0.1.8 poll alignment), never a width.
+        makeVisibleContainer();
         bridgeWindow.__stdMicEvents?.push({ t: 1, kind: "press" }, { t: 2, kind: "press" });
 
         const first = evaluate();

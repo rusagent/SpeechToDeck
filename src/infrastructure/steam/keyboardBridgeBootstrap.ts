@@ -44,9 +44,9 @@
 export const KEYBOARD_CONTAINER_SELECTOR = '[class*="VirtualKeyboard"]';
 
 /**
- * Visibility selector: the literal "VirtualKeyboardVisible" class token. The
- * bootstrap's `isVisible` trusts this token alone (offsetWidth reads 0 in CEF
- * on device while visible); the poll's `v` field still reports offsetWidth.
+ * Visibility selector: the literal "VirtualKeyboardVisible" class token. Both
+ * the bootstrap's `isVisible` and the poll's `v` field trust this token alone
+ * (offsetWidth reads 0 in CEF on device while visible).
  */
 export const KEYBOARD_VISIBLE_SELECTOR = '[class*="VirtualKeyboardVisible"]';
 
@@ -443,14 +443,17 @@ export const KEYBOARD_BRIDGE_BOOTSTRAP_SOURCE = `
  * assumed). Drains up to 9 queued press events per poll (§61 cadence 250 ms).
  * The leading comma operand re-runs the bootstrap's visibility evaluation
  * FIRST, so a missed observer event self-heals within one poll tick (§61).
+ * `v` reports the visibility CLASS TOKEN alone (same authority as the
+ * bootstrap's `isVisible`): offsetWidth reads 0 in CEF on device while the
+ * keyboard is on screen.
  */
 export function buildPollExpression(): string {
     return (
         "(window.__stdKbEvaluate && window.__stdKbEvaluate(), " +
         "JSON.stringify({" +
-        "v:(function(){var el=document.querySelector(" +
+        "v:!!document.querySelector(" +
         JSON.stringify(KEYBOARD_VISIBLE_SELECTOR) +
-        ");return !!el&&el.offsetWidth>0;})()," +
+        ")," +
         "c:!!document.querySelector(" +
         JSON.stringify(KEYBOARD_CONTAINER_SELECTOR) +
         ")," +
