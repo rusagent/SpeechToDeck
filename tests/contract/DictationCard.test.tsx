@@ -12,6 +12,7 @@ import { DictationCard } from "../../src/presentation/settings/DictationCard";
 import { LevelMeterStore } from "../../src/application/ports/LevelMeterPort";
 import type { PanelTranscriptSnapshot } from "../../src/application/ports/PanelTranscriptPort";
 import type { DictationState } from "../../src/domain/DictationState";
+import { DictationError } from "../../src/domain/DictationError";
 import { FakeSnapshotStore } from "./helpers";
 
 vi.mock("@decky/ui", async () => {
@@ -29,6 +30,13 @@ const RECORDING: DictationState = {
     session: { sessionId: "panel-1", keyboardContextId: null, startedAtMonotonicMs: 0 },
 };
 const READY: DictationState = { kind: "ready" };
+// On-device press failure class: the §68 coded envelope came back, but the
+// card showed only the generic mic label (2026-09-18 defect).
+const ERROR: DictationState = {
+    kind: "error",
+    error: new DictationError("RUNTIME_UNAVAILABLE"),
+    recoverable: true,
+};
 
 function framePayload(seq: number, min: number, max: number) {
     return {
@@ -81,6 +89,22 @@ describe("DictationCard", () => {
         // No strip while idle; no transcript block yet.
         expect(document.querySelector("[data-level-strip]")).toBeNull();
         expect(document.querySelector("[data-transcript-block]")).toBeNull();
+    });
+
+    it("renders the §68 code chip and the translated message inline in the error state", async () => {
+        await renderCard(
+            ERROR,
+            new LevelMeterStore(),
+            new FakeSnapshotStore<PanelTranscriptSnapshot | null>(null),
+        );
+
+        // The stable §68 code chip plus the mapped message right in the card
+        // (same pair as the Diagnostics last-error row and the setup-failed
+        // chip) — not only the generic mic label.
+        const details = document.querySelector("[data-dictation-error]");
+        expect(details).not.toBeNull();
+        expect(details?.textContent).toContain("RUNTIME_UNAVAILABLE");
+        expect(details?.textContent).toContain("The speech runtime is not available.");
     });
 
     it("renders the level strip with real published frames while recording", async () => {

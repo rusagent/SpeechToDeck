@@ -115,37 +115,37 @@ class Plugin:
     # ── §30 callables ────────────────────────────────────────────────────────
 
     async def get_capabilities(self) -> dict[str, object]:
-        return await self._call(lambda app: app.get_capabilities())
+        return await self._call("get_capabilities", lambda app: app.get_capabilities())
 
     async def get_status(self) -> dict[str, object]:
-        return await self._call(lambda app: app.get_status())
+        return await self._call("get_status", lambda app: app.get_status())
 
     async def start_recording(self, session_id: str) -> dict[str, object]:
-        return await self._call(lambda app: app.start_recording(session_id))
+        return await self._call("start_recording", lambda app: app.start_recording(session_id))
 
     async def stop_recording(self, session_id: str) -> dict[str, object]:
-        return await self._call(lambda app: app.stop_recording(session_id))
+        return await self._call("stop_recording", lambda app: app.stop_recording(session_id))
 
     async def cancel_recording(self, session_id: str) -> dict[str, object]:
-        return await self._call(lambda app: app.cancel_recording(session_id))
+        return await self._call("cancel_recording", lambda app: app.cancel_recording(session_id))
 
     async def get_settings(self) -> dict[str, object]:
-        return await self._call(lambda app: app.get_settings())
+        return await self._call("get_settings", lambda app: app.get_settings())
 
     async def update_settings(self, settings: dict[str, object]) -> dict[str, object]:
-        return await self._call(lambda app: app.update_settings(settings))
+        return await self._call("update_settings", lambda app: app.update_settings(settings))
 
     async def list_models(self) -> dict[str, object]:
-        return await self._call(lambda app: app.list_models())
+        return await self._call("list_models", lambda app: app.list_models())
 
     async def download_model(self, model_id: str) -> dict[str, object]:
-        return await self._call(lambda app: app.download_model(model_id))
+        return await self._call("download_model", lambda app: app.download_model(model_id))
 
     async def cancel_model_download(self) -> dict[str, object]:
-        return await self._call(lambda app: app.cancel_model_download())
+        return await self._call("cancel_model_download", lambda app: app.cancel_model_download())
 
     async def restart_runtime(self) -> dict[str, object]:
-        return await self._call(lambda app: _restart(app))
+        return await self._call("restart_runtime", lambda app: _restart(app))
 
     # ── internals ────────────────────────────────────────────────────────────
 
@@ -186,13 +186,28 @@ class Plugin:
 
     async def _call(
         self,
+        name: str,
         operation: Callable[[Application], Awaitable[dict[str, object]]],
     ) -> dict[str, object]:
         """§68: stable coded results across the Decky boundary; UI text is
-        mapped from `code` on the frontend, never from exception strings."""
+        mapped from `code` on the frontend, never from exception strings.
+
+        Diagnosability choke point: a failed callable is logged here exactly
+        once (WARNING) with the callable name, the stable §68 code and the
+        session id when the error carries one — no transcript, no payload
+        text (§73). Inner layers stay quiet for these coded failures, so one
+        journal line names the failing press and its layer. Successful calls
+        stay quiet (no log spam).
+        """
         try:
             result = await operation(await self._ensure_app())
         except SpeechError as error:
+            if error.session_id is not None:
+                LOGGER.warning(
+                    "%s failed: %s (session=%s)", name, str(error.code), error.session_id
+                )
+            else:
+                LOGGER.warning("%s failed: %s", name, str(error.code))
             return {"ok": False, **error.payload()}
         return {"ok": True, **result}
 

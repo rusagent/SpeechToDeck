@@ -120,6 +120,14 @@ running/stopped from the same report's `runtime.running`, and the captured
 real payload is pinned in `tests/fixtures/status/get_status_real.json`
 (frontend suite 301 → 302).
 
+v0.2.1 diagnosability fix (2026-09-18): `Plugin._call` (single choke point)
+now logs every failed callable at WARNING with the callable name, the stable
+§68 code and the session id when present (no transcript/payload text, §73;
+successes stay quiet), and the DictationCard error state renders the §68 code
+chip plus the translated message inline (same chip as the setup-failed row)
+instead of only the generic mic label — one press + one journal read now
+names the exact code and layer (backend suite 183 → 184, frontend 302 → 303).
+
 ## v0.1.8 — on-device mount fix: the CEF keyboard container reports `offsetWidth` 0 while visible, so the bootstrap trusts the `VirtualKeyboardVisible` class token alone and the 250 ms poll re-runs `window.__stdKbEvaluate` as the §61 self-heal
 
 ## v0.1.7 — tab-bridge keyboard architecture (replaces the dead registry-mount)

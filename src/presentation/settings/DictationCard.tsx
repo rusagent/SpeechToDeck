@@ -23,11 +23,12 @@ import * as React from "react";
 import { PanelSectionRow } from "@decky/ui";
 import { MicrophoneButton } from "../keyboard/MicrophoneButton";
 import { microphoneButtonModel } from "../keyboard/MicrophoneButtonModel";
-import { translate, translateMicLabel } from "../i18n/messages";
+import { translate, translateError, translateMicLabel } from "../i18n/messages";
 import type { Locale } from "../i18n/messages";
 import type { DictationState } from "../../domain/DictationState";
 import { LevelMeterStore } from "../../application/ports/LevelMeterPort";
 import type { PanelTranscriptSnapshot } from "../../application/ports/PanelTranscriptPort";
+import { CodeChip } from "./DiagnosticsPanel";
 
 export interface DictationCardProps {
     /** Controller store snapshot (the §8 state union drives everything). */
@@ -213,6 +214,22 @@ export function DictationCard({
                         bars={levels.bars}
                         label={translate(locale, "dictation.level.label")}
                     />
+                ) : null}
+                {state.kind === "error" ? (
+                    // Inline error details (§68 diagnosability): the stable
+                    // code chip plus the mapped text right where the press
+                    // failed — same layout as the setup-failed chip — not
+                    // only in the Diagnostics section's last-error row.
+                    <div
+                        role="alert"
+                        data-dictation-error="true"
+                        style={{ marginTop: 6, fontSize: 12, display: "flex", gap: 6 }}
+                    >
+                        <CodeChip code={state.error.code} />
+                        <span style={{ minWidth: 0 }}>
+                            {translateError(locale, state.error.code)}
+                        </span>
+                    </div>
                 ) : null}
                 {showTranscript && transcript !== null ? (
                     <div data-transcript-block="true" style={{ marginTop: 8 }}>
