@@ -3,6 +3,9 @@
  * validated manually before use; no blind casts.
  */
 
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
+
 import { describe, expect, it } from "vitest";
 
 import { DICTATION_ERROR_CODES, isDictationErrorCode } from "../../src/domain/DictationError";
@@ -141,6 +144,13 @@ describe("isRecordingLevelPayload + isDictationFlowReport (v0.2, §67/§99)", ()
         expect(isDictationFlowReport({ backendRunning: false, clipboard: "unavailable" })).toBe(
             true,
         );
+        // Regression (on-device 2026-09-18): the backend never emitted
+        // `backendRunning` — its v0.2 dictationFlow is clipboard-only — so the
+        // guard rejected every real get_status payload and the panel lost its
+        // status feed. The field is additive-optional (§99), validated only
+        // when present.
+        expect(isDictationFlowReport({ clipboard: "unavailable" })).toBe(true);
+        expect(isDictationFlowReport({ clipboard: "xclip" })).toBe(true);
         expect(isDictationFlowReport({ backendRunning: "yes", clipboard: "xclip" })).toBe(false);
         expect(isDictationFlowReport({ backendRunning: true, clipboard: "wl-copy" })).toBe(false);
         expect(isDictationFlowReport(null)).toBe(false);
@@ -246,6 +256,20 @@ describe("isRuntimeStatusReport + isCdpDiagnosticsReport (v0.1.6, §67/§99)", (
             }),
         ).toBe(false);
         expect(isCdpDiagnosticsReport({ cdpAvailable: true, reason: 42 })).toBe(false);
+    });
+
+    it("accepts the verbatim on-device get_status payload (2026-09-18 boundary failure)", () => {
+        // Production defect: SharedJSContext logged "dropped get_status payload:
+        // boundary guard failed" because the real v0.2.0 backend emits
+        // dictationFlow.clipboard only, while the guard required a
+        // dictationFlow.backendRunning boolean the backend never sent. The
+        // captured payload (tests/fixtures/status/get_status_real.json, origin
+        // in its _captureOrigin key) must pass the guard as-is — unknown extra
+        // keys like _captureOrigin are ignored (§99).
+        const payload: unknown = JSON.parse(
+            readFileSync(join(process.cwd(), "tests/fixtures/status/get_status_real.json"), "utf8"),
+        );
+        expect(isRuntimeStatusReport(payload)).toBe(true);
     });
 });
 

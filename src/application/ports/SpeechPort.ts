@@ -78,13 +78,16 @@ export function isCdpDiagnosticsReport(value: unknown): value is CdpDiagnosticsR
 }
 
 /**
- * Additive v0.2 dictation-flow facts (optional `get_status` field): whether
- * the native runtime is running and which clipboard backend is active —
- * "xclip" (backend writer ready) or "unavailable" (the frontend copy is
- * primary). Validated only when present (§99: older backends omit it).
+ * Additive v0.2 dictation-flow facts (optional `get_status` field): which
+ * clipboard backend is active — "xclip" (backend writer ready) or
+ * "unavailable" (the frontend copy is primary). `clipboard` is always
+ * present; `backendRunning` is additive and validated only when present
+ * (§99): the shipped v0.2.0 backend reports the clipboard fact only, so the
+ * panel derives the running/stopped fact from the same report's
+ * `runtime.running`.
  */
 export interface DictationFlowReport {
-    readonly backendRunning: boolean;
+    readonly backendRunning?: boolean;
     readonly clipboard: "xclip" | "unavailable";
 }
 
@@ -92,10 +95,11 @@ export function isDictationFlowReport(value: unknown): value is DictationFlowRep
     if (!isRecord(value)) {
         return false;
     }
-    return (
-        typeof value["backendRunning"] === "boolean" &&
-        (value["clipboard"] === "xclip" || value["clipboard"] === "unavailable")
-    );
+    const backendRunning = value["backendRunning"];
+    if (backendRunning !== undefined && typeof backendRunning !== "boolean") {
+        return false;
+    }
+    return value["clipboard"] === "xclip" || value["clipboard"] === "unavailable";
 }
 
 /**

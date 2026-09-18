@@ -124,9 +124,14 @@ class PluginCompositionRoot implements Disposable {
             loadTabBridgeDiagnostics: async () => keyboardHost.getBridgeDiagnostics(),
             loadDictationFlowDiagnostics: async () => {
                 const payload = await backendClient.call("get_status");
-                return isRuntimeStatusReport(payload) && payload.dictationFlow !== undefined
-                    ? payload.dictationFlow
-                    : null;
+                if (!isRuntimeStatusReport(payload) || payload.dictationFlow === undefined) {
+                    return null;
+                }
+                // §99: the backend's dictationFlow is clipboard-only (the
+                // on-device v0.2.0 payload never carried backendRunning), so
+                // the panel's running/stopped fact comes from the same guarded
+                // report; a present backend value would win via the spread.
+                return { backendRunning: payload.runtime.running, ...payload.dictationFlow };
             },
             hydrateSetupProgress: () => speechPort.hydrateSetupFromStatus(),
             restartRuntime: async () => {

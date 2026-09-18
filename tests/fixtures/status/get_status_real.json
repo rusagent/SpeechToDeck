@@ -1,0 +1,35 @@
+{
+    "_captureOrigin": "Real get_status payload captured on-device 2026-09-18 (~20:5x CEST) via a read-only backend.composition.compose(plugin_root=/home/deck/homebrew/plugins/SpeechToDeck).get_status() run over SSH beside the live plugin (Steam Deck, v0.2.0 install; data dir /home/deck/homebrew/data/SpeechToDeck). Fresh compose, so runtime.running is false and counters are zero — shape ground truth, not live counter state. §73: the report contains no text-bearing fields (verified by sweep before saving); clipboard is \"unavailable\" because bin/xclip is not installed. Everything except the \"_captureOrigin\" key is the verbatim captured payload.",
+    "cdpDiagnostics": {
+        "cdpAvailable": false,
+        "keyboardSeen": false,
+        "keyboardVisible": false,
+        "reason": "not-probed",
+        "spTargetSeen": false
+    },
+    "dictationFlow": {
+        "clipboard": "unavailable"
+    },
+    "modelDownloadInProgress": false,
+    "protocolVersion": 1,
+    "runtime": {
+        "enabled": true,
+        "lastFailure": null,
+        "restartAttempts": 0,
+        "running": false,
+        "state": "stopped"
+    },
+    "speech": {
+        "activeSessionId": null,
+        "counters": {
+            "averageTranscriptionMs": 0.0,
+            "lastErrorCode": null,
+            "recordingsCancelled": 0,
+            "recordingsCompleted": 0,
+            "recordingsStarted": 0,
+            "runtimeCrashes": 0
+        },
+        "protocolVersion": 1,
+        "state": "ready"
+    }
+}

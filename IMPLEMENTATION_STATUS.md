@@ -111,6 +111,15 @@ dictation states). No existing test weakened; one pre-existing accidental
 60 s wait in the transcription-timeout test shrunk to the identical
 assertion at a 2 s budget.
 
+On-device fix (2026-09-18): the §99 `get_status` guard required a
+`dictationFlow.backendRunning` boolean the shipped backend never emits (its
+v0.2 dictationFlow is clipboard-only), so every real payload was dropped
+("dropped get_status payload: boundary guard failed") and the panel lost its
+status feed; the field is now additive-optional, the Diagnostics row derives
+running/stopped from the same report's `runtime.running`, and the captured
+real payload is pinned in `tests/fixtures/status/get_status_real.json`
+(frontend suite 301 → 302).
+
 ## v0.1.8 — on-device mount fix: the CEF keyboard container reports `offsetWidth` 0 while visible, so the bootstrap trusts the `VirtualKeyboardVisible` class token alone and the 250 ms poll re-runs `window.__stdKbEvaluate` as the §61 self-heal
 
 ## v0.1.7 — tab-bridge keyboard architecture (replaces the dead registry-mount)
