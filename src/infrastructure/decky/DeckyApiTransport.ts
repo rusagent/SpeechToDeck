@@ -7,8 +7,9 @@
  * interface instead and inject fakes.
  */
 
-import { addEventListener, call as deckyCall, removeEventListener } from "@decky/api";
+import { addEventListener, call as deckyCall, executeInTab, removeEventListener } from "@decky/api";
 import type { DeckyTransport } from "./DeckyBackendClient";
+import type { TabExecutor } from "../steam/KeyboardTabBridge";
 
 export function createDeckyApiTransport(): DeckyTransport {
     return {
@@ -20,4 +21,13 @@ export function createDeckyApiTransport(): DeckyTransport {
             removeEventListener(event, listener);
         },
     };
+}
+
+/**
+ * Real `executeInTab` binding for the v0.1.7 tab bridge (same module-load
+ * side-effect boundary as `createDeckyApiTransport`: imported ONLY by the
+ * composition root; tests inject fakes over the `TabExecutor` seam).
+ */
+export function createDeckyTabExecutor(): TabExecutor {
+    return (tab, runAsync, code) => executeInTab(tab, runAsync, code);
 }

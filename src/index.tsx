@@ -14,21 +14,22 @@ import { DictationController } from "./application/DictationController";
 import type { StateStore } from "./application/DictationController";
 import { PluginLifecycle } from "./application/PluginLifecycle";
 import { DeckyBackendClient } from "./infrastructure/decky/DeckyBackendClient";
-import { createDeckyApiTransport } from "./infrastructure/decky/DeckyApiTransport";
+import {
+    createDeckyApiTransport,
+    createDeckyTabExecutor,
+} from "./infrastructure/decky/DeckyApiTransport";
 import { DeckySpeechAdapter } from "./infrastructure/decky/DeckySpeechAdapter";
 import { DeckySettingsAdapter } from "./infrastructure/decky/DeckySettingsAdapter";
 import type { SetupProgressStore } from "./application/ports/SetupProgressPort";
+import { KeyboardBridgeInserter } from "./infrastructure/steam/KeyboardBridgeInserter";
+import { SteamKeyboardTabBridgeHostAdapter } from "./infrastructure/steam/KeyboardTabBridgeHostAdapter";
 import { SteamBulkPasteInserter } from "./infrastructure/steam/SteamBulkPasteInserter";
 import { SteamCapabilityProbe } from "./infrastructure/steam/SteamCapabilityProbe";
 import { SteamClipboardAdapter } from "./infrastructure/steam/SteamClipboardAdapter";
-import { SteamKeyboardHostAdapter } from "./infrastructure/steam/SteamKeyboardHostAdapter";
-import { SteamPasteActionAdapter } from "./infrastructure/steam/SteamPasteActionAdapter";
+import { TabBridgePasteActionAdapter } from "./infrastructure/steam/TabBridgePasteActionAdapter";
 import { RandomIdGenerator } from "./infrastructure/system/RandomIdGenerator";
 import { SystemClock } from "./infrastructure/system/SystemClock";
-import {
-    MicrophoneControlPresenter,
-    createMicrophoneControlRenderer,
-} from "./presentation/keyboard/MicrophoneButtonMount";
+import { MicrophoneControlPresenter } from "./presentation/keyboard/MicrophoneButtonMount";
 import { SettingsPanel } from "./presentation/settings/SettingsPanel";
 import type { DiagnosticsSource } from "./presentation/settings/DiagnosticsPanel";
 import type { Disposable } from "./shared/Disposable";
@@ -62,16 +63,29 @@ class PluginCompositionRoot implements Disposable {
         this.settingsPort = settingsAdapter;
         this.setupProgress = speechPort.setupProgress;
 
-        // The renderer resolves the store lazily: React mounts happen only
-        // after startup, by which time the controller below is assigned. This
-        // is plain local wiring, not a global dependency container (§6).
+        // v0.1.7: the mic button lives in the real keyboard document
+        // ("Steam Big Picture Mode") via the loader's official executeInTab;
+        // the v0.1.6 registry-mount adapter is a proven dead end
+        // (managersFound=0 on device) and is no longer wired. The store is
+        // resolved lazily: the controller below is assigned before any
+        // keyboard event can arrive (bridge polls start with start()).
         let controller: DictationController | null = null;
-        const keyboardHost = new SteamKeyboardHostAdapter({
-            renderer: createMicrophoneControlRenderer(() => controller),
+        const keyboardHost = new SteamKeyboardTabBridgeHostAdapter({
+            executor: createDeckyTabExecutor(),
+            onPress: () => {
+                void controller?.handleMicrophonePressed();
+            },
+            // §61 gate: the poll loop runs ONLY while the plugin is enabled
+            // (the machine derives PLUGIN_DISABLED from the startup settings).
+            isEnabled: () => {
+                const state = controller?.getSnapshot();
+                return !(state?.kind === "unavailable" && state.reason === "PLUGIN_DISABLED");
+            },
         });
         const clipboard = new SteamClipboardAdapter();
-        const pasteAction = new SteamPasteActionAdapter(keyboardHost);
-        const textInserter = new SteamBulkPasteInserter(clipboard, pasteAction, keyboardHost);
+        const pasteAction = new TabBridgePasteActionAdapter(keyboardHost.bridge);
+        const fallbackInserter = new SteamBulkPasteInserter(clipboard, pasteAction, keyboardHost);
+        const textInserter = new KeyboardBridgeInserter(keyboardHost.bridge, fallbackInserter);
         const capabilityProbe = new SteamCapabilityProbe();
 
         controller = new DictationController(
@@ -96,10 +110,8 @@ class PluginCompositionRoot implements Disposable {
                     ? payload.cdpDiagnostics
                     : null;
             },
-            loadKeyboardHookDiagnostics: async () =>
-                typeof keyboardHost.getDiagnostics === "function"
-                    ? keyboardHost.getDiagnostics()
-                    : null,
+            loadKeyboardHookDiagnostics: async () => keyboardHost.getDiagnostics(),
+            loadTabBridgeDiagnostics: async () => keyboardHost.getBridgeDiagnostics(),
             hydrateSetupProgress: () => speechPort.hydrateSetupFromStatus(),
             restartRuntime: async () => {
                 await backendClient.call("restart_runtime");
