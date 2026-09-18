@@ -16,6 +16,7 @@
 import * as React from "react";
 import { ButtonItem, Field } from "@decky/ui";
 import {
+    modelDisplayName,
     translate,
     translateDegradeReason,
     translateError,
@@ -252,7 +253,7 @@ export function DiagnosticsPanel({
             <Field label={translate(locale, "diagnostics.model")}>
                 {settings === null
                     ? translate(locale, "common.unknown")
-                    : translate(locale, `option.model.${settings.modelId}` as "option.model.tiny")}
+                    : modelDisplayName(locale, settings.modelId)}
             </Field>
             <Field label={translate(locale, "diagnostics.computeBackend")}>
                 {settings === null

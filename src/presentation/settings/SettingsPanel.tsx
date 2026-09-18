@@ -24,6 +24,7 @@ import type { StateStore } from "../../application/DictationController";
 import type { PluginSettings, SettingsPort } from "../../application/ports/SettingsPort";
 import type { SpeechCapabilities } from "../../application/ports/SpeechPort";
 import type { SetupProgressSnapshot } from "../../application/ports/SetupProgressPort";
+import type { ModelCatalogSnapshot } from "../../application/ports/ModelCatalogPort";
 import { LevelMeterStore } from "../../application/ports/LevelMeterPort";
 import type { PanelTranscriptSnapshot } from "../../application/ports/PanelTranscriptPort";
 import { translate, translateRuntimeHealth } from "../i18n/messages";
@@ -54,6 +55,18 @@ export interface SettingsPanelProps {
         readonly onPress: () => void;
         readonly onCopy: (text: string) => Promise<boolean>;
     };
+    /**
+     * Additive curated model catalog wiring (ADR-011): guarded catalog store
+     * + download handlers composed by the composition root. The catalog
+     * picker renders only when provided (§99 additive surface — never a
+     * fake control).
+     */
+    readonly modelCatalog?: {
+        readonly store: StateStore<ModelCatalogSnapshot>;
+        readonly load: () => Promise<void>;
+        readonly download: (modelId: string) => void;
+        readonly cancel: () => void;
+    };
 }
 
 const MAX_DURATION_MIN_SECONDS = 5;
@@ -73,6 +86,7 @@ export function SettingsPanel({
     diagnostics,
     locale = "en",
     dictation,
+    modelCatalog,
 }: SettingsPanelProps): React.ReactElement {
     const [value, setValue] = React.useState<PluginSettings | null>(null);
     const [saveError, setSaveError] = React.useState(false);
@@ -111,6 +125,18 @@ export function SettingsPanel({
         [dictation],
     );
     const dictationTranscript = React.useSyncExternalStore(subscribeTranscript, getTranscript);
+    // Additive ADR-011: the curated model catalog — same bound accessor
+    // pattern (§102); absent wiring renders no catalog picker.
+    const subscribeCatalog = React.useMemo(
+        () => (onChange: () => void) =>
+            modelCatalog?.store.subscribe(onChange) ?? (() => undefined),
+        [modelCatalog],
+    );
+    const getCatalog = React.useMemo(
+        () => () => modelCatalog?.store.getSnapshot() ?? null,
+        [modelCatalog],
+    );
+    const catalog = React.useSyncExternalStore(subscribeCatalog, getCatalog);
     // Shown while the runtime is setting up or failed; terminal `ready`
     // hides it again, and a disabled plugin shows no progress at all.
     const showSetup = value !== null && value.enabled && setup !== null && setup.step !== "ready";
@@ -143,6 +169,16 @@ export function SettingsPanel({
             cancelled = true;
         };
     }, [settings, diagnostics]);
+
+    // ADR-011: load the curated catalog once per panel mount; load failures
+    // leave the store empty and the picker reports the catalog as
+    // unavailable (§57: availability is reported, never assumed).
+    React.useEffect(() => {
+        if (modelCatalog === undefined) {
+            return;
+        }
+        void modelCatalog.load();
+    }, [modelCatalog]);
 
     const update = (change: Partial<PluginSettings>): void => {
         if (value === null) {
@@ -219,14 +255,19 @@ export function SettingsPanel({
             </PanelSection>
 
             <PanelSection title={translate(locale, "section.speech")}>
-                <PanelSectionRow>
-                    <ModelPicker
-                        value={value.modelId}
-                        locale={locale}
-                        installed={speech?.modelInstalled}
-                        onChange={(model) => update({ modelId: model })}
-                    />
-                </PanelSectionRow>
+                {modelCatalog !== undefined && catalog !== null ? (
+                    <PanelSectionRow>
+                        <ModelPicker
+                            value={value.modelId}
+                            locale={locale}
+                            language={value.language}
+                            catalog={catalog}
+                            onChange={(modelId) => update({ modelId })}
+                            onDownload={modelCatalog.download}
+                            onCancel={modelCatalog.cancel}
+                        />
+                    </PanelSectionRow>
+                ) : null}
                 <PanelSectionRow>
                     <LanguagePicker
                         value={value.language}

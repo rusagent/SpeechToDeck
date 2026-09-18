@@ -43,6 +43,15 @@ export const EN_MESSAGES = {
     "option.model.tiny": "Tiny (fastest)",
     "option.model.base": "Base (default)",
     "option.model.small": "Small (most accurate)",
+    "option.model.whisper-large-v3-turbo-q5_0": "Large v3 Turbo Q5_0",
+    "option.model.whisper-large-v3-turbo": "Large v3 Turbo",
+    "option.model.distil-small-en": "Distil Small (English)",
+    "option.model.distil-medium-en": "Distil Medium (English)",
+    "option.model.whisper-large-v3-turbo-german-q5_0": "Large v3 Turbo German Q5_0",
+    "option.model.whisper-large-v3-turbo-german-f16": "Large v3 Turbo German F16",
+    "option.model.whisper-large-v3-french-q5_0": "Large v3 French Q5_0",
+    "option.model.kotoba-whisper-v2.0-q5_0": "Kotoba v2.0 Japanese Q5_0",
+    "option.model.kotoba-whisper-v2.0-f16": "Kotoba v2.0 Japanese F16",
     "option.language.system": "System language",
     "option.language.auto": "Auto-detect",
     "option.output.direct-insert": "Direct insert",
@@ -59,6 +68,15 @@ export const EN_MESSAGES = {
     "hint.language.system": "Uses the Steam interface language.",
     "hint.language.auto": "Detects the spoken language automatically.",
     "hint.language.explicit": "Transcriptions are made in this language.",
+
+    "model.group.recommended": "Recommended",
+    "model.group.more": "More models",
+    "model.group.for": "For",
+    "model.action.use": "Use",
+    "model.action.inUse": "In use",
+    "model.action.download": "Download",
+    "model.action.cancel": "Cancel",
+    "model.catalog.unavailable": "The model catalog could not be loaded.",
 
     "common.available": "Available",
     "common.unavailable": "Unavailable",
@@ -184,6 +202,15 @@ export const DE_MESSAGES: Record<MessageKey, string> = {
     "option.model.tiny": "Tiny (am schnellsten)",
     "option.model.base": "Base (Standard)",
     "option.model.small": "Small (am genauesten)",
+    "option.model.whisper-large-v3-turbo-q5_0": "Large v3 Turbo Q5_0",
+    "option.model.whisper-large-v3-turbo": "Large v3 Turbo",
+    "option.model.distil-small-en": "Distil Small (Englisch)",
+    "option.model.distil-medium-en": "Distil Medium (Englisch)",
+    "option.model.whisper-large-v3-turbo-german-q5_0": "Large v3 Turbo Deutsch Q5_0",
+    "option.model.whisper-large-v3-turbo-german-f16": "Large v3 Turbo Deutsch F16",
+    "option.model.whisper-large-v3-french-q5_0": "Large v3 Französisch Q5_0",
+    "option.model.kotoba-whisper-v2.0-q5_0": "Kotoba v2.0 Japanisch Q5_0",
+    "option.model.kotoba-whisper-v2.0-f16": "Kotoba v2.0 Japanisch F16",
     "option.language.system": "Systemsprache",
     "option.language.auto": "Automatisch erkennen",
     "option.output.direct-insert": "Direkt einfügen",
@@ -200,6 +227,15 @@ export const DE_MESSAGES: Record<MessageKey, string> = {
     "hint.language.system": "Nutzt die Sprache der Steam-Oberfläche.",
     "hint.language.auto": "Erkennt die gesprochene Sprache automatisch.",
     "hint.language.explicit": "Transkriptionen werden in dieser Sprache erstellt.",
+
+    "model.group.recommended": "Empfohlen",
+    "model.group.more": "Weitere Modelle",
+    "model.group.for": "Für",
+    "model.action.use": "Verwenden",
+    "model.action.inUse": "Aktiv",
+    "model.action.download": "Herunterladen",
+    "model.action.cancel": "Abbrechen",
+    "model.catalog.unavailable": "Die Modell-Liste konnte nicht geladen werden.",
 
     "common.available": "Verfügbar",
     "common.unavailable": "Nicht verfügbar",
@@ -375,6 +411,32 @@ export const ERROR_MESSAGES: Record<Locale, Record<DictationErrorCode, string>> 
 
 export function translate(locale: Locale, key: MessageKey): string {
     return MESSAGES[locale][key];
+}
+
+/**
+ * Message keys of the curated catalog display names (ADR-011). Model names
+ * are product identifiers; the German locale only localizes the language
+ * adjectives. An id without a curated key (an older backend catalog) renders
+ * as the raw id instead of an empty string.
+ */
+const MODEL_NAME_KEYS: Record<string, MessageKey> = {
+    tiny: "option.model.tiny",
+    base: "option.model.base",
+    small: "option.model.small",
+    "whisper-large-v3-turbo-q5_0": "option.model.whisper-large-v3-turbo-q5_0",
+    "whisper-large-v3-turbo": "option.model.whisper-large-v3-turbo",
+    "distil-small-en": "option.model.distil-small-en",
+    "distil-medium-en": "option.model.distil-medium-en",
+    "whisper-large-v3-turbo-german-q5_0": "option.model.whisper-large-v3-turbo-german-q5_0",
+    "whisper-large-v3-turbo-german-f16": "option.model.whisper-large-v3-turbo-german-f16",
+    "whisper-large-v3-french-q5_0": "option.model.whisper-large-v3-french-q5_0",
+    "kotoba-whisper-v2.0-q5_0": "option.model.kotoba-whisper-v2.0-q5_0",
+    "kotoba-whisper-v2.0-f16": "option.model.kotoba-whisper-v2.0-f16",
+};
+
+export function modelDisplayName(locale: Locale, modelId: string): string {
+    const key = MODEL_NAME_KEYS[modelId];
+    return key === undefined ? modelId : translate(locale, key);
 }
 
 export function translateRuntimeStatus(locale: Locale, status: SpeechRuntimeStatus): string {

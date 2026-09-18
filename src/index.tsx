@@ -22,6 +22,7 @@ import { DeckySpeechAdapter } from "./infrastructure/decky/DeckySpeechAdapter";
 import { DeckySettingsAdapter } from "./infrastructure/decky/DeckySettingsAdapter";
 import type { SetupProgressStore } from "./application/ports/SetupProgressPort";
 import type { LevelMeterStore } from "./application/ports/LevelMeterPort";
+import type { ModelCatalogSnapshot } from "./application/ports/ModelCatalogPort";
 import type { PanelTranscriptSnapshot } from "./application/ports/PanelTranscriptPort";
 import { isRuntimeStatusReport, isSpeechCapabilities } from "./application/ports/SpeechPort";
 import { copyTextToClipboard } from "./infrastructure/system/PanelClipboard";
@@ -61,6 +62,13 @@ class PluginCompositionRoot implements Disposable {
         readonly transcript: StateStore<PanelTranscriptSnapshot | null>;
         readonly onPress: () => void;
         readonly onCopy: (text: string) => Promise<boolean>;
+    };
+    /** Additive curated model catalog wiring for the plugin panel (ADR-011). */
+    readonly modelCatalog: {
+        readonly store: StateStore<ModelCatalogSnapshot>;
+        readonly load: () => Promise<void>;
+        readonly download: (modelId: string) => void;
+        readonly cancel: () => void;
     };
 
     constructor(logger: Logger = new Logger("plugin.lifecycle")) {
@@ -153,6 +161,38 @@ class PluginCompositionRoot implements Disposable {
             onCopy: (text: string) => copyTextToClipboard(text),
         };
 
+        // ADR-011 model catalog: the guarded store side-channel plus the
+        // §30 download callables. Failures are logged with their detail and
+        // leave the picker's store untouched (the row returns to its
+        // pre-download action); nothing is silently swallowed.
+        this.modelCatalog = {
+            store: speechPort.modelCatalog,
+            load: async () => {
+                try {
+                    await speechPort.listModels();
+                } catch (error) {
+                    this.logger.warn("model catalog load failed", {
+                        detail: error instanceof Error ? error.message : String(error),
+                    });
+                }
+            },
+            download: (modelId: string) => {
+                void speechPort.downloadModel(modelId).catch((error: unknown) => {
+                    this.logger.warn("model download failed", {
+                        modelId,
+                        detail: error instanceof Error ? error.message : String(error),
+                    });
+                });
+            },
+            cancel: () => {
+                void speechPort.cancelModelDownload().catch((error: unknown) => {
+                    this.logger.warn("model download cancel failed", {
+                        detail: error instanceof Error ? error.message : String(error),
+                    });
+                });
+            },
+        };
+
         this.presenter = new MicrophoneControlPresenter(controller, keyboardHost, () =>
             controller?.handleMicrophonePressed(),
         );
@@ -210,6 +250,7 @@ export default definePlugin(() => {
                 setupProgress={compositionRoot.setupProgress}
                 diagnostics={compositionRoot.diagnostics}
                 dictation={compositionRoot.dictation}
+                modelCatalog={compositionRoot.modelCatalog}
             />
         ),
         onDismount: () => {

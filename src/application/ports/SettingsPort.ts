@@ -4,6 +4,13 @@
  * directly.
  */
 
+/**
+ * Model id format of the backend settings validator
+ * (json_settings_repository._MODEL_ID_RE): any curated-catalog id
+ * (ADR-011) matches; malformed ids are rejected before they are saved.
+ */
+const MODEL_ID_RE = /^[a-z0-9][a-z0-9._-]{0,63}$/;
+
 /** Plugin settings document (spec §54). */
 export interface PluginSettings {
     schemaVersion: 1;
@@ -12,7 +19,8 @@ export interface PluginSettings {
 
     computeBackend: "auto" | "vulkan" | "cpu";
 
-    modelId: "tiny" | "base" | "small";
+    /** A curated-catalog model id (ADR-011); format-checked by the guard. */
+    modelId: string;
 
     /** `"system"`/`"auto"` sentinels or any language tag string (spec §54). */
     language: string;
@@ -36,9 +44,8 @@ export function isPluginSettings(value: unknown): value is PluginSettings {
         (record["computeBackend"] === "auto" ||
             record["computeBackend"] === "vulkan" ||
             record["computeBackend"] === "cpu") &&
-        (record["modelId"] === "tiny" ||
-            record["modelId"] === "base" ||
-            record["modelId"] === "small") &&
+        typeof record["modelId"] === "string" &&
+        MODEL_ID_RE.test(record["modelId"]) &&
         typeof record["language"] === "string" &&
         typeof record["maxRecordingSeconds"] === "number" &&
         Number.isFinite(record["maxRecordingSeconds"]) &&

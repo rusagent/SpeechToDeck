@@ -29,6 +29,13 @@ import {
     isSetupProgressSnapshot,
 } from "../../application/ports/SetupProgressPort";
 import { LevelMeterStore, isRecordingLevelPayload } from "../../application/ports/LevelMeterPort";
+import type { CatalogModel } from "../../application/ports/ModelCatalogPort";
+import {
+    ModelCatalogStore,
+    isModelCatalogPayload,
+    isModelDownloadCompletePayload,
+    isModelDownloadProgressPayload,
+} from "../../application/ports/ModelCatalogPort";
 import { PanelTranscriptStore } from "../../application/ports/PanelTranscriptPort";
 import type { DeckyBackendClient } from "./DeckyBackendClient";
 
@@ -42,6 +49,9 @@ export const SPEECH_CALLABLES = {
     startRecording: "start_recording",
     stopRecording: "stop_recording",
     cancelRecording: "cancel_recording",
+    listModels: "list_models",
+    downloadModel: "download_model",
+    cancelModelDownload: "cancel_model_download",
 } as const;
 
 export const SPEECH_EVENTS = {
@@ -51,6 +61,8 @@ export const SPEECH_EVENTS = {
     runtimeStatus: "runtime_status",
     setupProgress: "setup_progress",
     recordingLevel: "recording_level",
+    modelDownloadProgress: "model_download_progress",
+    modelDownloadComplete: "model_download_complete",
 } as const;
 
 /** The four setup steps of the frozen `setup_progress` contract. */
@@ -133,6 +145,8 @@ export class DeckySpeechAdapter implements SpeechPort {
     private droppedSetupProgress = 0;
     /** Dropped `recording_level` payloads for the count-logged boundary guard (§99). */
     private droppedRecordingLevel = 0;
+    /** Dropped download-event payloads for the count-logged boundary guard (§99). */
+    private droppedModelDownload = 0;
 
     /**
      * Latest guarded `setup_progress` snapshot for the plugin panel. Setup
@@ -153,6 +167,13 @@ export class DeckySpeechAdapter implements SpeechPort {
      * (additive v0.2), including the backend clipboard outcome.
      */
     readonly panelTranscript = new PanelTranscriptStore();
+
+    /**
+     * Curated model catalog + download state (ADR-011): guarded `list_models`
+     * results and `model_download_*` events only — transport-level UI state
+     * for the ModelPicker (§102), never dictation events.
+     */
+    readonly modelCatalog = new ModelCatalogStore();
 
     constructor(
         private readonly backend: DeckyBackendClient,
@@ -180,6 +201,42 @@ export class DeckySpeechAdapter implements SpeechPort {
 
     async cancelRecording(sessionId: string): Promise<void> {
         await this.backend.call(SPEECH_CALLABLES.cancelRecording, sessionId);
+    }
+
+    /**
+     * Loads the curated model catalog into the store (ADR-011). The backend
+     * is the catalog authority (§48); an unexpected payload fails with a
+     * stable code instead of being passed on unvalidated.
+     */
+    async listModels(): Promise<readonly CatalogModel[]> {
+        const payload = await this.backend.call(SPEECH_CALLABLES.listModels);
+        if (!isModelCatalogPayload(payload)) {
+            throw new DictationError(
+                "INTERNAL_ERROR",
+                "list_models returned an unexpected payload",
+            );
+        }
+        this.modelCatalog.setModels(payload.models);
+        return payload.models;
+    }
+
+    /**
+     * Starts the single-flight model download (§52). The store's download
+     * state is fed by the live `model_download_progress` events and cleared
+     * on every settle path (complete, failure, cancellation) so a failed
+     * download never leaves a stuck progress row.
+     */
+    async downloadModel(modelId: string): Promise<void> {
+        try {
+            await this.backend.call(SPEECH_CALLABLES.downloadModel, modelId);
+        } finally {
+            this.modelCatalog.clearDownload();
+        }
+    }
+
+    /** Cancels the active download, if any (§52). */
+    async cancelModelDownload(): Promise<void> {
+        await this.backend.call(SPEECH_CALLABLES.cancelModelDownload);
     }
 
     subscribe(listener: SpeechEventListener): Disposable {
@@ -224,6 +281,12 @@ export class DeckySpeechAdapter implements SpeechPort {
             ),
             this.backend.subscribe(SPEECH_EVENTS.recordingLevel, (payload) =>
                 this.onRecordingLevel(payload),
+            ),
+            this.backend.subscribe(SPEECH_EVENTS.modelDownloadProgress, (payload) =>
+                this.onModelDownloadProgress(payload),
+            ),
+            this.backend.subscribe(SPEECH_EVENTS.modelDownloadComplete, (payload) =>
+                this.onModelDownloadComplete(payload),
             ),
         ];
     }
@@ -297,6 +360,28 @@ export class DeckySpeechAdapter implements SpeechPort {
             return;
         }
         this.levelMeter.publish(payload);
+    }
+
+    private onModelDownloadProgress(payload: unknown): void {
+        if (!isModelDownloadProgressPayload(payload)) {
+            this.droppedModelDownload += 1;
+            this.logger.warn("dropped model_download_progress payload: boundary guard failed", {
+                dropped: this.droppedModelDownload,
+            });
+            return;
+        }
+        this.modelCatalog.publishProgress(payload);
+    }
+
+    private onModelDownloadComplete(payload: unknown): void {
+        if (!isModelDownloadCompletePayload(payload)) {
+            this.droppedModelDownload += 1;
+            this.logger.warn("dropped model_download_complete payload: boundary guard failed", {
+                dropped: this.droppedModelDownload,
+            });
+            return;
+        }
+        this.modelCatalog.publishComplete(payload);
     }
 
     /**

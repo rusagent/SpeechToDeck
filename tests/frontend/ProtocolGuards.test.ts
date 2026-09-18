@@ -23,6 +23,12 @@ import {
     type TranscriptReadyPayload,
 } from "../../src/application/ports/SpeechPort";
 import { isRecordingLevelPayload } from "../../src/application/ports/LevelMeterPort";
+import {
+    isCatalogModel,
+    isModelCatalogPayload,
+    isModelDownloadCompletePayload,
+    isModelDownloadProgressPayload,
+} from "../../src/application/ports/ModelCatalogPort";
 import { isPluginSettings, type PluginSettings } from "../../src/application/ports/SettingsPort";
 
 const VALID_PAYLOAD: TranscriptReadyPayload = {
@@ -291,10 +297,23 @@ describe("isPluginSettings (§54)", () => {
         expect(isPluginSettings(structuredClone(VALID_SETTINGS))).toBe(true);
     });
 
+    it("accepts any well-formed curated catalog model id (ADR-011)", () => {
+        expect(
+            isPluginSettings({
+                ...VALID_SETTINGS,
+                modelId: "whisper-large-v3-turbo-q5_0",
+            }),
+        ).toBe(true);
+        expect(isPluginSettings({ ...VALID_SETTINGS, modelId: "kotoba-whisper-v2.0-f16" })).toBe(
+            true,
+        );
+    });
+
     it("rejects unknown union values, bad versions and invalid durations", () => {
         expect(isPluginSettings({ ...VALID_SETTINGS, schemaVersion: 2 })).toBe(false);
         expect(isPluginSettings({ ...VALID_SETTINGS, computeBackend: "quantum" })).toBe(false);
-        expect(isPluginSettings({ ...VALID_SETTINGS, modelId: "large" })).toBe(false);
+        expect(isPluginSettings({ ...VALID_SETTINGS, modelId: "Base;rm" })).toBe(false);
+        expect(isPluginSettings({ ...VALID_SETTINGS, modelId: "" })).toBe(false);
         expect(isPluginSettings({ ...VALID_SETTINGS, outputMode: "stream" })).toBe(false);
         expect(isPluginSettings({ ...VALID_SETTINGS, maxRecordingSeconds: 0 })).toBe(false);
         expect(isPluginSettings({ ...VALID_SETTINGS, maxRecordingSeconds: Number.NaN })).toBe(
@@ -345,5 +364,105 @@ describe("isDictationErrorCode (§68)", () => {
         }
         expect(isDictationErrorCode("SOMETHING_ELSE")).toBe(false);
         expect(isDictationErrorCode(42)).toBe(false);
+    });
+});
+
+describe("model catalog guards (§99, ADR-011)", () => {
+    const VALID_MODEL = {
+        id: "distil-small-en",
+        engine: "whisper",
+        multilingual: false,
+        filename: "ggml-distil-small.en.bin",
+        installed: false,
+        sizeBytes: 336191657,
+        languages: ["en"],
+        description: "English-only distilled model with the lowest latency.",
+    };
+
+    it("accepts a full catalog entry and entries without additive fields", () => {
+        expect(isCatalogModel(structuredClone(VALID_MODEL))).toBe(true);
+        expect(isCatalogModel({ ...VALID_MODEL, sizeBytes: undefined })).toBe(true);
+        expect(
+            isCatalogModel({
+                id: "base",
+                engine: "whisper",
+                multilingual: true,
+                filename: "ggml-base.bin",
+                installed: true,
+            }),
+        ).toBe(true);
+    });
+
+    it("rejects malformed catalog entries", () => {
+        expect(isCatalogModel(null)).toBe(false);
+        expect(isCatalogModel({ ...VALID_MODEL, id: "" })).toBe(false);
+        expect(isCatalogModel({ ...VALID_MODEL, installed: "yes" })).toBe(false);
+        expect(isCatalogModel({ ...VALID_MODEL, sizeBytes: "big" })).toBe(false);
+        expect(isCatalogModel({ ...VALID_MODEL, languages: "en" })).toBe(false);
+        expect(isCatalogModel({ ...VALID_MODEL, languages: [1] })).toBe(false);
+        expect(isCatalogModel({ ...VALID_MODEL, description: 42 })).toBe(false);
+    });
+
+    it("accepts a versioned list_models payload and rejects malformed ones", () => {
+        expect(isModelCatalogPayload({ protocolVersion: 1, models: [VALID_MODEL] })).toBe(true);
+        expect(isModelCatalogPayload({ protocolVersion: 2, models: [VALID_MODEL] })).toBe(false);
+        expect(isModelCatalogPayload({ protocolVersion: 1, models: "all" })).toBe(false);
+        expect(isModelCatalogPayload({ protocolVersion: 1, models: [{ id: 1 }] })).toBe(false);
+    });
+
+    it("guards model_download_progress payloads (totalBytes may be null)", () => {
+        expect(
+            isModelDownloadProgressPayload({
+                protocolVersion: 1,
+                modelId: "base",
+                bytesReceived: 1024,
+                totalBytes: 147951465,
+            }),
+        ).toBe(true);
+        expect(
+            isModelDownloadProgressPayload({
+                protocolVersion: 1,
+                modelId: "base",
+                bytesReceived: 0,
+                totalBytes: null,
+            }),
+        ).toBe(true);
+        expect(
+            isModelDownloadProgressPayload({
+                protocolVersion: 1,
+                modelId: "base",
+                bytesReceived: 0,
+            }),
+        ).toBe(false);
+        expect(
+            isModelDownloadProgressPayload({
+                protocolVersion: 1,
+                modelId: "",
+                bytesReceived: 0,
+                totalBytes: null,
+            }),
+        ).toBe(false);
+    });
+
+    it("guards model_download_complete payloads (sizeBytes optional/null)", () => {
+        expect(isModelDownloadCompletePayload({ protocolVersion: 1, modelId: "base" })).toBe(true);
+        expect(
+            isModelDownloadCompletePayload({
+                protocolVersion: 1,
+                modelId: "base",
+                sizeBytes: null,
+            }),
+        ).toBe(true);
+        expect(
+            isModelDownloadCompletePayload({ protocolVersion: 1, modelId: "base", sizeBytes: 12 }),
+        ).toBe(true);
+        expect(
+            isModelDownloadCompletePayload({
+                protocolVersion: 1,
+                modelId: "base",
+                sizeBytes: "12",
+            }),
+        ).toBe(false);
+        expect(isModelDownloadCompletePayload({ protocolVersion: 1 })).toBe(false);
     });
 });

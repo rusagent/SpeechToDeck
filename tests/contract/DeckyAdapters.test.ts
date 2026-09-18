@@ -158,6 +158,8 @@ describe("DeckySpeechAdapter", () => {
 
         expect(events).toEqual([]);
         expect(transport.removedListeners.map((entry) => entry.event).sort()).toEqual([
+            "model_download_complete",
+            "model_download_progress",
             "recording_level",
             "runtime_status",
             "setup_progress",
@@ -233,6 +235,119 @@ describe("DeckySpeechAdapter", () => {
 
         expect(adapter.panelTranscript.getSnapshot()).toBeNull();
         expect(events).toHaveLength(1);
+    });
+
+    it("loads the model catalog through list_models and fills the guarded store (ADR-011)", async () => {
+        const transport = new FakeDeckyTransport();
+        const adapter = new DeckySpeechAdapter(new DeckyBackendClient(transport));
+        transport.callResponses.set("list_models", {
+            protocolVersion: 1,
+            models: [
+                {
+                    id: "base",
+                    engine: "whisper",
+                    multilingual: true,
+                    filename: "ggml-base.bin",
+                    installed: true,
+                    sizeBytes: 147951465,
+                },
+                {
+                    id: "distil-small-en",
+                    engine: "whisper",
+                    multilingual: false,
+                    filename: "ggml-distil-small.en.bin",
+                    installed: false,
+                    sizeBytes: 336191657,
+                    languages: ["en"],
+                    description: "English-only distilled model with the lowest latency.",
+                },
+            ],
+        });
+
+        const models = await adapter.listModels();
+
+        expect(transport.calls.map((call) => call.route)).toEqual(["list_models"]);
+        expect(models).toHaveLength(2);
+        expect(adapter.modelCatalog.getSnapshot().models).toEqual(models);
+        expect(models[1]?.languages).toEqual(["en"]);
+    });
+
+    it("fails list_models with a stable code when the payload guard rejects", async () => {
+        const transport = new FakeDeckyTransport();
+        transport.callResponses.set("list_models", { protocolVersion: 1, models: "all" });
+        const adapter = new DeckySpeechAdapter(new DeckyBackendClient(transport));
+
+        await expect(adapter.listModels()).rejects.toMatchObject({ code: "INTERNAL_ERROR" });
+        expect(adapter.modelCatalog.getSnapshot().models).toEqual([]);
+    });
+
+    it("maps download/cancel onto the frozen callables and clears the download state on settle", async () => {
+        const transport = new FakeDeckyTransport();
+        transport.callResponses.set("download_model", { modelId: "base" });
+        transport.callResponses.set("cancel_model_download", { cancelled: true });
+        const adapter = new DeckySpeechAdapter(new DeckyBackendClient(transport));
+        adapter.modelCatalog.setModels([
+            {
+                id: "base",
+                engine: "whisper",
+                multilingual: true,
+                filename: "ggml-base.bin",
+                installed: false,
+            },
+        ]);
+
+        await adapter.downloadModel("base");
+        expect(transport.calls.map((call) => call.route)).toEqual(["download_model"]);
+
+        // A download failure still settles the store (no stuck progress row).
+        transport.callErrors.set("download_model", new DictationError("MODEL_DOWNLOAD_FAILED"));
+        await expect(adapter.downloadModel("base")).rejects.toMatchObject({
+            code: "MODEL_DOWNLOAD_FAILED",
+        });
+        expect(adapter.modelCatalog.getSnapshot().download).toBeNull();
+
+        await adapter.cancelModelDownload();
+        expect(transport.calls.map((call) => call.route)).toEqual([
+            "download_model",
+            "download_model",
+            "cancel_model_download",
+        ]);
+    });
+
+    it("feeds guarded model_download events into the catalog store and drops the rest", () => {
+        const transport = new FakeDeckyTransport();
+        const adapter = new DeckySpeechAdapter(new DeckyBackendClient(transport));
+        const speechEvents: string[] = [];
+        adapter.subscribe((event) => speechEvents.push(event.type));
+        adapter.modelCatalog.setModels([
+            {
+                id: "distil-small-en",
+                engine: "whisper",
+                multilingual: false,
+                filename: "d.bin",
+                installed: false,
+            },
+        ]);
+
+        transport.emit("model_download_progress", {
+            protocolVersion: 1,
+            modelId: "distil-small-en",
+            bytesReceived: 33619165,
+            totalBytes: 336191657,
+        });
+        transport.emit("model_download_progress", { garbage: true });
+        transport.emit("model_download_complete", {
+            protocolVersion: 1,
+            modelId: "distil-small-en",
+            sizeBytes: 336191657,
+        });
+        transport.emit("model_download_complete", { protocolVersion: 1 });
+
+        const snapshot = adapter.modelCatalog.getSnapshot();
+        expect(snapshot.download).toBeNull(); // settled by the complete event
+        expect(snapshot.models[0]?.installed).toBe(true);
+        // Download state stays out of the §29 dictation events (§102).
+        expect(speechEvents).toEqual([]);
     });
 
     it("initialize fails with a stable error when the payload guard rejects", async () => {
@@ -469,7 +584,10 @@ describe("DeckySettingsAdapter", () => {
     it("refuses to save a malformed settings document", async () => {
         const transport = new FakeDeckyTransport();
         const adapter = new DeckySettingsAdapter(new DeckyBackendClient(transport));
-        const malformed = { ...TEST_SETTINGS, modelId: "giant" } as unknown as typeof TEST_SETTINGS;
+        const malformed = {
+            ...TEST_SETTINGS,
+            modelId: "Giant;rm",
+        } as unknown as typeof TEST_SETTINGS;
 
         await expect(adapter.save(malformed)).rejects.toBeInstanceOf(Error);
         expect(transport.calls).toHaveLength(0);
