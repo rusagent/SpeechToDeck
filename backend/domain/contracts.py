@@ -78,7 +78,13 @@ DEFAULT_SETTINGS = Settings(
 
 @dataclass(frozen=True)
 class ModelInfo:
-    """One curated model from the committed manifest (spec §50)."""
+    """One curated model from the committed manifest (spec §50).
+
+    `languages` / `description` are the additive curated-catalog fields
+    (ADR-011): `languages` lists the language codes a specialized model was
+    built for (None for multilingual general models); `description` is one
+    short English sentence for the picker.
+    """
 
     id: str
     engine: str
@@ -87,6 +93,8 @@ class ModelInfo:
     download_url: str
     sha256: str
     size_bytes: int | None
+    languages: tuple[str, ...] | None = None
+    description: str | None = None
 
 
 @dataclass(frozen=True)

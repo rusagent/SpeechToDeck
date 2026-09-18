@@ -102,15 +102,40 @@ class FakeFetcher:
 def test_real_committed_manifest_loads() -> None:
     manifest = load_model_manifest(REAL_MODELS_MANIFEST)
     ids = [model.id for model in manifest.models]
-    assert ids == ["tiny", "base", "small"]  # curated v1 set (§48)
+    # Curated v1 set (§48) plus the curated per-language catalog (ADR-011).
+    assert ids == [
+        "tiny",
+        "base",
+        "small",
+        "whisper-large-v3-turbo-q5_0",
+        "whisper-large-v3-turbo",
+        "distil-small-en",
+        "distil-medium-en",
+        "whisper-large-v3-turbo-german-q5_0",
+        "whisper-large-v3-turbo-german-f16",
+        "whisper-large-v3-french-q5_0",
+        "kotoba-whisper-v2.0-q5_0",
+        "kotoba-whisper-v2.0-f16",
+    ]
     for model in manifest.models:
         assert model.engine == "whisper"
-        assert model.multilingual is True
         assert len(model.sha256) == 64
         assert model.sha256 == model.sha256.lower()
         assert model.download_url.startswith("https://")
         assert "/" not in model.filename
+        # ADR-011: size required and within the cap, optional fields consistent.
+        assert model.size_bytes is not None
+        assert 0 < model.size_bytes <= 2147483648
+        if model.languages is not None:
+            assert len(model.languages) > 0
+            assert all(code == code.lower() for code in model.languages)
+        if not model.multilingual:
+            # English-only models declare their language explicitly.
+            assert model.languages is not None and "en" in model.languages
     assert manifest.by_id("base") is not None
+    assert manifest.by_id("whisper-large-v3-turbo-q5_0") is not None
+    assert manifest.by_id("distil-small-en") is not None
+    assert manifest.by_id("distil-small-en").languages == ("en",)  # type: ignore[union-attr]
     assert manifest.by_id("nonexistent") is None
 
 
@@ -142,6 +167,27 @@ def base_model_payload(**overrides: object) -> dict[str, object]:
     return {"schemaVersion": 1, "models": models}
 
 
+def duplicate_filename_payload() -> dict[str, object]:
+    """ADR-011: two catalog entries sharing one local store name."""
+    entry: dict[str, object] = {
+        "id": "base",
+        "engine": "whisper",
+        "multilingual": True,
+        "filename": "g.bin",
+        "downloadUrl": "https://x/y",
+        "sha256": FAKE_DIGEST,
+        "sizeBytes": 1,
+    }
+    return {
+        "schemaVersion": 1,
+        "models": [
+            entry,
+            entry | {"id": "tiny", "filename": "g.bin"},
+            entry | {"id": "small", "filename": "s.bin"},
+        ],
+    }
+
+
 @pytest.mark.parametrize(
     ("payload", "expected_fragment"),
     [
@@ -160,6 +206,30 @@ def base_model_payload(**overrides: object) -> dict[str, object]:
         (base_model_payload(sha256="ab" * 10), "hex"),
         (base_model_payload(sizeBytes=0), "positive integer"),
         (base_model_payload(sizeBytes="big"), "positive integer"),
+        (base_model_payload(sizeBytes=2147483649), "cap"),
+        (base_model_payload(languages=[]), "non-empty array"),
+        (base_model_payload(languages="en"), "non-empty array"),
+        (base_model_payload(languages=["EN"]), "language codes"),
+        (base_model_payload(languages=["en_US"]), "language codes"),
+        (base_model_payload(description=""), "non-empty string"),
+        (base_model_payload(description="x" * 201), "characters"),
+        (
+            {
+                "schemaVersion": 1,
+                "models": [
+                    {
+                        "id": "base",
+                        "engine": "whisper",
+                        "multilingual": True,
+                        "filename": "g.bin",
+                        "downloadUrl": "https://x/y",
+                        "sha256": FAKE_DIGEST,
+                    }
+                ],
+            },
+            "sizeBytes",
+        ),
+        (duplicate_filename_payload(), "duplicate filename"),
         (base_model_payload(surprise="x"), "unknown"),
         (
             {
@@ -192,6 +262,48 @@ def test_manifest_rules_fail_closed(
     assert expected_fragment.lower() in str(excinfo.value.detail).lower() or (
         expected_fragment.lower() in str(excinfo.value).lower()
     )
+
+
+def test_manifest_parses_additive_catalog_fields(tmp_path: Path) -> None:
+    """ADR-011: languages/description parse; absent → None; null → invalid."""
+    entry: dict[str, object] = {
+        "id": "distil-small-en",
+        "engine": "whisper",
+        "multilingual": False,
+        "filename": "d.bin",
+        "downloadUrl": "https://x/d.bin",
+        "sha256": FAKE_DIGEST,
+        "sizeBytes": 1,
+        "languages": ["en"],
+        "description": "English-only distilled model.",
+    }
+    payload = {
+        "schemaVersion": 1,
+        "models": [
+            entry,
+            # The curated v1 set must stay present and stays general-purpose.
+            *(
+                {
+                    "id": model_id,
+                    "engine": "whisper",
+                    "multilingual": True,
+                    "filename": f"{model_id}.bin",
+                    "downloadUrl": f"https://x/{model_id}.bin",
+                    "sha256": FAKE_DIGEST,
+                    "sizeBytes": 1,
+                }
+                for model_id in ("tiny", "base", "small")
+            ),
+        ],
+    }
+    manifest = load_model_manifest(write_manifest(tmp_path, payload))
+    distil = manifest.by_id("distil-small-en")
+    base = manifest.by_id("base")
+    assert distil is not None and base is not None
+    assert distil.languages == ("en",)
+    assert distil.description == "English-only distilled model."
+    assert base.languages is None
+    assert base.description is None
 
 
 def test_duplicate_model_ids_fail_closed(tmp_path: Path) -> None:

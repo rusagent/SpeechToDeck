@@ -32,9 +32,25 @@ const unpinned = [];
 
 const SHA256_RE = /^[0-9a-f]{64}$/;
 const MODEL_ID_RE = /^[a-z0-9][a-z0-9._-]*$/;
+// Additive curated-catalog rules (ADR-011), mirrored exactly by
+// backend/infrastructure/model/model_manifest.py.
+const LANGUAGE_CODE_RE = /^[a-z]{2,8}(-[a-z0-9]{1,8})*$/;
+const MAX_DESCRIPTION_CHARS = 200;
+const MAX_MODEL_SIZE_BYTES = 2147483648;
 // Curated v1 model set (spec §48).
 const REQUIRED_MODEL_IDS = ["tiny", "base", "small"];
 const ALLOWED_ENGINES = new Set(["whisper"]);
+const ALLOWED_MODEL_FIELDS = new Set([
+    "id",
+    "engine",
+    "multilingual",
+    "filename",
+    "downloadUrl",
+    "sha256",
+    "sizeBytes",
+    "languages",
+    "description",
+]);
 
 function fail(message) {
     errors.push(message);
@@ -103,11 +119,17 @@ function validateModels() {
     }
 
     const seenIds = new Set();
+    const seenFilenames = new Set();
     models.forEach((model, index) => {
         const label = `${relativePath}: models[${index}]`;
         if (!isPlainObject(model)) {
             fail(`${label}: must be an object`);
             return;
+        }
+
+        const unknown = Object.keys(model).filter((field) => !ALLOWED_MODEL_FIELDS.has(field));
+        if (unknown.length > 0) {
+            fail(`${label}: unknown fields ${JSON.stringify(unknown.sort())}`);
         }
 
         if (typeof model.id !== "string" || !MODEL_ID_RE.test(model.id)) {
@@ -139,6 +161,12 @@ function validateModels() {
             fail(
                 `${label}.filename: must be a plain file name, got ${JSON.stringify(model.filename)}`,
             );
+        } else if (seenFilenames.has(model.filename)) {
+            // ADR-011: the filename is the local store name; two models sharing
+            // it would overwrite each other's artifact.
+            fail(`${label}.filename: duplicate filename ${JSON.stringify(model.filename)}`);
+        } else {
+            seenFilenames.add(model.filename);
         }
 
         if (typeof model.downloadUrl !== "string" || model.downloadUrl.length === 0) {
@@ -159,9 +187,35 @@ function validateModels() {
             fail(`${label}.sha256: must be 64 lowercase hex characters`);
         }
 
-        if (model.sizeBytes !== undefined) {
-            if (!Number.isInteger(model.sizeBytes) || model.sizeBytes <= 0) {
-                fail(`${label}.sizeBytes: must be a positive integer when present`);
+        if (model.sizeBytes === undefined) {
+            // ADR-011: required so the picker can show a human-readable size
+            // before download without network probes.
+            fail(`${label}.sizeBytes: is required`);
+        } else if (!Number.isInteger(model.sizeBytes) || model.sizeBytes <= 0) {
+            fail(`${label}.sizeBytes: must be a positive integer`);
+        } else if (model.sizeBytes > MAX_MODEL_SIZE_BYTES) {
+            fail(`${label}.sizeBytes: exceeds the ${MAX_MODEL_SIZE_BYTES} byte cap`);
+        }
+
+        if (model.languages !== undefined) {
+            const languages = model.languages;
+            if (
+                !Array.isArray(languages) ||
+                languages.length === 0 ||
+                !languages.every((code) => typeof code === "string" && LANGUAGE_CODE_RE.test(code))
+            ) {
+                fail(
+                    `${label}.languages: must be a non-empty array of lowercase language codes, ` +
+                        `got ${JSON.stringify(languages)}`,
+                );
+            }
+        }
+
+        if (model.description !== undefined) {
+            if (typeof model.description !== "string" || model.description.length === 0) {
+                fail(`${label}.description: must be a non-empty string when present`);
+            } else if (model.description.length > MAX_DESCRIPTION_CHARS) {
+                fail(`${label}.description: exceeds ${MAX_DESCRIPTION_CHARS} characters`);
             }
         }
     });

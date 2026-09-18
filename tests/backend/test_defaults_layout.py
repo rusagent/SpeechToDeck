@@ -86,7 +86,22 @@ def test_composition_loads_manifest_from_installed_layout(tmp_path: Path) -> Non
     root = tmp_path / "SpeechToDeck"
     _stage_flattened(root)
     app = compose(plugin_root=root, data_dir=tmp_path / "data")
-    assert {model.id for model in app.manifest.models} == {"tiny", "base", "small"}
+    # Curated v1 set (§48) plus the ADR-011 per-language catalog entries,
+    # loaded through the flattened installed layout.
+    assert {model.id for model in app.manifest.models} == {
+        "tiny",
+        "base",
+        "small",
+        "whisper-large-v3-turbo-q5_0",
+        "whisper-large-v3-turbo",
+        "distil-small-en",
+        "distil-medium-en",
+        "whisper-large-v3-turbo-german-q5_0",
+        "whisper-large-v3-turbo-german-f16",
+        "whisper-large-v3-french-q5_0",
+        "kotoba-whisper-v2.0-q5_0",
+        "kotoba-whisper-v2.0-f16",
+    }
 
 
 def test_remote_binary_entries_match_pinned_runtime_manifest() -> None:

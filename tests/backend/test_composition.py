@@ -156,9 +156,43 @@ def test_facade_fails_closed_against_unpinned_runtime(tmp_path: Path) -> None:
             assert capabilities["modelInstalled"] is True  # fake model installed below
 
             models = await plugin.list_models()
-            assert [m["id"] for m in models["models"]] == ["tiny", "base", "small"]
+            assert [m["id"] for m in models["models"]] == [
+                "tiny",
+                "base",
+                "small",
+                "whisper-large-v3-turbo-q5_0",
+                "whisper-large-v3-turbo",
+                "distil-small-en",
+                "distil-medium-en",
+                "whisper-large-v3-turbo-german-q5_0",
+                "whisper-large-v3-turbo-german-f16",
+                "whisper-large-v3-french-q5_0",
+                "kotoba-whisper-v2.0-q5_0",
+                "kotoba-whisper-v2.0-f16",
+            ]
             installed_flags = {m["id"]: m["installed"] for m in models["models"]}
-            assert installed_flags == {"tiny": False, "base": True, "small": False}
+            assert installed_flags == {
+                "tiny": False,
+                "base": True,
+                "small": False,
+                "whisper-large-v3-turbo-q5_0": False,
+                "whisper-large-v3-turbo": False,
+                "distil-small-en": False,
+                "distil-medium-en": False,
+                "whisper-large-v3-turbo-german-q5_0": False,
+                "whisper-large-v3-turbo-german-f16": False,
+                "whisper-large-v3-french-q5_0": False,
+                "kotoba-whisper-v2.0-q5_0": False,
+                "kotoba-whisper-v2.0-f16": False,
+            }
+            # ADR-011 additive payload fields: specialized models carry their
+            # languages and the curated description; legacy entries omit them.
+            distil = next(m for m in models["models"] if m["id"] == "distil-small-en")
+            assert distil["languages"] == ["en"]
+            assert distil["multilingual"] is False
+            assert isinstance(distil["description"], str) and distil["description"]
+            assert "languages" not in models["models"][0]  # tiny: general model
+            assert "description" not in models["models"][0]
 
             settings = await plugin.get_settings()
             assert settings["modelId"] == "base"  # §54 default

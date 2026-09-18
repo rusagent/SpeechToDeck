@@ -17,6 +17,14 @@ from backend.domain.errors import ManifestInvalidError
 SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
 MODEL_ID_RE = re.compile(r"^[a-z0-9][a-z0-9._-]*$")
 
+# Additive curated-catalog rules (ADR-011), mirrored exactly by
+# scripts/validate-manifests.mjs: lowercase BCP-47-ish language codes, a
+# short English description, a hard 2 GiB size cap and per-model filenames
+# unique across the catalog.
+LANGUAGE_CODE_RE = re.compile(r"^[a-z]{2,8}(-[a-z0-9]{1,8})*$")
+MAX_DESCRIPTION_CHARS = 200
+MAX_MODEL_SIZE_BYTES = 2147483648
+
 # Curated v1 model set (spec §48).
 REQUIRED_MODEL_IDS = ("tiny", "base", "small")
 ALLOWED_ENGINES = frozenset({"whisper"})
@@ -48,6 +56,7 @@ def _validate(models_raw: object) -> tuple[ModelInfo, ...]:
         raise ManifestInvalidError('model manifest "models" must be a non-empty array')
 
     seen_ids: set[str] = set()
+    seen_filenames: set[str] = set()
     models: list[ModelInfo] = []
 
     for index, entry in enumerate(models_raw):
@@ -79,6 +88,12 @@ def _validate(models_raw: object) -> tuple[ModelInfo, ...]:
         elif "/" in filename or "\\" in filename or ".." in filename:
             # §109: reject path traversal; model files live in the data dir only.
             errors.append(f"{label}.filename: must be a plain file name, got {filename!r}")
+        elif filename in seen_filenames:
+            # ADR-011: the filename is the local store name; two models sharing
+            # it would overwrite each other's artifact.
+            errors.append(f"{label}.filename: duplicate filename {filename!r}")
+        else:
+            seen_filenames.add(filename)
 
         download_url = entry.get("downloadUrl")
         if not isinstance(download_url, str) or len(download_url) == 0:
@@ -102,12 +117,46 @@ def _validate(models_raw: object) -> tuple[ModelInfo, ...]:
             errors.append(f"{label}.sha256: must be 64 lowercase hex characters")
 
         size_bytes: int | None = None
-        if "sizeBytes" in entry:
+        if "sizeBytes" not in entry:
+            # ADR-011: required so the picker can show a human-readable size
+            # before download without network probes.
+            errors.append(f"{label}.sizeBytes: is required")
+        else:
             raw_size = entry.get("sizeBytes")
             if not isinstance(raw_size, int) or isinstance(raw_size, bool) or raw_size <= 0:
-                errors.append(f"{label}.sizeBytes: must be a positive integer when present")
+                errors.append(f"{label}.sizeBytes: must be a positive integer")
+            elif raw_size > MAX_MODEL_SIZE_BYTES:
+                errors.append(f"{label}.sizeBytes: exceeds the {MAX_MODEL_SIZE_BYTES} byte cap")
             else:
                 size_bytes = raw_size
+
+        languages: tuple[str, ...] | None = None
+        if "languages" in entry:
+            raw_languages = entry["languages"]
+            if (
+                not isinstance(raw_languages, list)
+                or len(raw_languages) == 0
+                or not all(
+                    isinstance(code, str) and LANGUAGE_CODE_RE.fullmatch(code) is not None
+                    for code in raw_languages
+                )
+            ):
+                errors.append(
+                    f"{label}.languages: must be a non-empty array of lowercase "
+                    "language codes when present"
+                )
+            else:
+                languages = tuple(raw_languages)
+
+        description: str | None = None
+        if "description" in entry:
+            raw_description = entry["description"]
+            if not isinstance(raw_description, str) or len(raw_description) == 0:
+                errors.append(f"{label}.description: must be a non-empty string when present")
+            elif len(raw_description) > MAX_DESCRIPTION_CHARS:
+                errors.append(f"{label}.description: exceeds {MAX_DESCRIPTION_CHARS} characters")
+            else:
+                description = raw_description
 
         unknown = set(entry) - {
             "id",
@@ -117,6 +166,8 @@ def _validate(models_raw: object) -> tuple[ModelInfo, ...]:
             "downloadUrl",
             "sha256",
             "sizeBytes",
+            "languages",
+            "description",
         }
         if unknown:
             errors.append(f"{label}: unknown fields {sorted(unknown)!r}")
@@ -132,6 +183,8 @@ def _validate(models_raw: object) -> tuple[ModelInfo, ...]:
                 download_url=str(download_url),
                 sha256=str(sha256),
                 size_bytes=size_bytes,
+                languages=languages,
+                description=description,
             )
         )
 

@@ -27,6 +27,103 @@
             "downloadUrl": "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-small.bin",
             "sha256": "1be3a9b2063867b937e64e2ec7483364a79917e157fa98c5d94b5c1fffea987b",
             "sizeBytes": 487601967
+        },
+        {
+            "id": "whisper-large-v3-turbo-q5_0",
+            "engine": "whisper",
+            "multilingual": true,
+            "filename": "ggml-large-v3-turbo-q5_0.bin",
+            "downloadUrl": "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-large-v3-turbo-q5_0.bin",
+            "sha256": "394221709cd5ad1f40c46e6031ca61bce88931e6e088c188294c6d5a55ffa7e2",
+            "sizeBytes": 574041195,
+            "description": "Recommended primary model: near large-v3 accuracy at turbo speed, quantized for the Deck."
+        },
+        {
+            "id": "whisper-large-v3-turbo",
+            "engine": "whisper",
+            "multilingual": true,
+            "filename": "ggml-large-v3-turbo.bin",
+            "downloadUrl": "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-large-v3-turbo.bin",
+            "sha256": "1fc70f774d38eb169993ac391eea357ef47c88757ef72ee5943879b7e8e2bc69",
+            "sizeBytes": 1624555275,
+            "description": "Full-precision large-v3-turbo for the best general-purpose accuracy."
+        },
+        {
+            "id": "distil-small-en",
+            "engine": "whisper",
+            "multilingual": false,
+            "filename": "ggml-distil-small.en.bin",
+            "downloadUrl": "https://huggingface.co/distil-whisper/distil-small.en/resolve/main/ggml-distil-small.en.bin",
+            "sha256": "7691eb11167ab7aaf6b3e05d8266f2fd9ad89c550e433f86ac266ebdee6c970a",
+            "sizeBytes": 336191657,
+            "languages": ["en"],
+            "description": "English-only distilled model with the lowest latency."
+        },
+        {
+            "id": "distil-medium-en",
+            "engine": "whisper",
+            "multilingual": false,
+            "filename": "ggml-medium-32-2.en.bin",
+            "downloadUrl": "https://huggingface.co/distil-whisper/distil-medium.en/resolve/main/ggml-medium-32-2.en.bin",
+            "sha256": "ad53ccb618188b210550e98cc32bf5a13188d86635e395bb11115ed275d6e7aa",
+            "sizeBytes": 794018180,
+            "languages": ["en"],
+            "description": "English-only distilled model balancing accuracy and speed."
+        },
+        {
+            "id": "whisper-large-v3-turbo-german-q5_0",
+            "engine": "whisper",
+            "multilingual": true,
+            "filename": "ggml-primeline-de-turbo-q5_0.bin",
+            "downloadUrl": "https://huggingface.co/cstr/whisper-large-v3-turbo-german-ggml/resolve/main/ggml-model-q5_0.bin",
+            "sha256": "15e92e3db0993c52fffa781513eec9253475331c1be808f8fb409285c9d9d030",
+            "sizeBytes": 574041195,
+            "languages": ["de"],
+            "description": "German-specialized large-v3-turbo, quantized (Primeline)."
+        },
+        {
+            "id": "whisper-large-v3-turbo-german-f16",
+            "engine": "whisper",
+            "multilingual": true,
+            "filename": "ggml-primeline-de-turbo-f16.bin",
+            "downloadUrl": "https://huggingface.co/cstr/whisper-large-v3-turbo-german-ggml/resolve/main/ggml-model.bin",
+            "sha256": "6eb2e025198a6cbac7bdb1e86e278f5de002e583aae7bdfcf5183ef8da16decd",
+            "sizeBytes": 1624555275,
+            "languages": ["de"],
+            "description": "German-specialized large-v3-turbo at full precision (Primeline)."
+        },
+        {
+            "id": "whisper-large-v3-french-q5_0",
+            "engine": "whisper",
+            "multilingual": true,
+            "filename": "ggml-bofeng-fr-q5_0.bin",
+            "downloadUrl": "https://huggingface.co/bofenghuang/whisper-large-v3-french/resolve/main/ggml-model-q5_0.bin",
+            "sha256": "d8da7cb6cdadfac47829abf46fe8cd36fcfef06db5601bfd8acbcd40579010a5",
+            "sizeBytes": 1081140203,
+            "languages": ["fr"],
+            "description": "French-specialized large-v3 model, quantized."
+        },
+        {
+            "id": "kotoba-whisper-v2.0-q5_0",
+            "engine": "whisper",
+            "multilingual": true,
+            "filename": "ggml-kotoba-v2-q5_0.bin",
+            "downloadUrl": "https://huggingface.co/kotoba-tech/kotoba-whisper-v2.0-ggml/resolve/main/ggml-kotoba-whisper-v2.0-q5_0.bin",
+            "sha256": "4a3b92192b5d3578ff854a5876213e2e27af0c2d357492c2d14271e82c303658",
+            "sizeBytes": 537819875,
+            "languages": ["ja"],
+            "description": "Japanese-specialized whisper model, quantized (kotoba v2.0)."
+        },
+        {
+            "id": "kotoba-whisper-v2.0-f16",
+            "engine": "whisper",
+            "multilingual": true,
+            "filename": "ggml-kotoba-v2-f16.bin",
+            "downloadUrl": "https://huggingface.co/kotoba-tech/kotoba-whisper-v2.0-ggml/resolve/main/ggml-kotoba-whisper-v2.0.bin",
+            "sha256": "eff70a8a236e731abba774ba71e1f6d0fce53302137208c32207e694e0bf4546",
+            "sizeBytes": 1519521155,
+            "languages": ["ja"],
+            "description": "Japanese-specialized whisper model at full precision (kotoba v2.0)."
         }
     ]
 }

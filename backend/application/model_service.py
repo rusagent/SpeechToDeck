@@ -132,6 +132,8 @@ class ModelService:
 
 
 def _model_payload(info: ModelInfo, installed: bool) -> dict[str, object]:
+    """Wire shape for the `list_models` callable (§67: optional additive
+    fields are omitted when absent, matching the sizeBytes pattern)."""
     payload: dict[str, object] = {
         "id": info.id,
         "engine": info.engine,
@@ -141,4 +143,8 @@ def _model_payload(info: ModelInfo, installed: bool) -> dict[str, object]:
     }
     if info.size_bytes is not None:
         payload["sizeBytes"] = info.size_bytes
+    if info.languages is not None:
+        payload["languages"] = list(info.languages)
+    if info.description is not None:
+        payload["description"] = info.description
     return payload
