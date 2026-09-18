@@ -37,36 +37,53 @@ class AutoClock:
 
 
 class FakeLevelHub:
-    """Unix socket server that writes one prepared byte batch per connection
-    and closes (mirrors the hub's per-subscriber connections; a connection
-    with no prepared batch parks, as a hub without a capture does)."""
+    """Unix socket server that hands each connection the next prepared byte
+    batch (FIFO) and closes, mirroring the hub's per-subscriber connections.
+    A connection that arrives with no batch prepared parks, as a hub without
+    a capture does — and consumes nothing: delivery follows consumption
+    order, not the cumulative connection count, so a parked earlier-session
+    connection (one stopped before its capture began) cannot steal a later
+    session's frames."""
 
     def __init__(self, socket_path: Path) -> None:
         self.socket_path = socket_path
         self.batches: list[bytes] = []
         self.connections = 0
         self._server: asyncio.AbstractServer | None = None
+        self._handlers: set[asyncio.Task[None]] = set()
 
     async def start(self) -> None:
-        self._server = await asyncio.start_unix_server(self._handle, str(self.socket_path))
+        self._server = await asyncio.start_unix_server(self._accept, str(self.socket_path))
+
+    def _accept(self, reader: asyncio.StreamReader, writer: asyncio.StreamWriter) -> None:
+        # start_unix_server also accepts a plain callback; wrapping keeps the
+        # handler tasks known so stop() can cancel parked ones deterministically
+        # (3.12+ wait_closed() waits for handler tasks and would hang forever).
+        task = asyncio.get_running_loop().create_task(self._handle(reader, writer))
+        self._handlers.add(task)
+        task.add_done_callback(self._handlers.discard)
 
     async def _handle(self, reader: asyncio.StreamReader, writer: asyncio.StreamWriter) -> None:
         del reader
         self.connections += 1
         try:
-            batch = self.batches[self.connections - 1]
-        except IndexError:
-            await asyncio.sleep(3600)  # parked; asyncio.run cancels at teardown
-            return
-        try:
+            batch = self.batches.pop(0) if self.batches else None
+            if batch is None:
+                await asyncio.Event().wait()  # parked until hub.stop() cancels
+                return
             writer.write(batch)
             await writer.drain()
         finally:
+            # Also covers cancelled parked handlers: without this close the
+            # server transport stays open and 3.12+ wait_closed() hangs.
             writer.close()
 
     async def stop(self) -> None:
         if self._server is not None:
             self._server.close()
+            for task in list(self._handlers):
+                task.cancel()
+            await asyncio.gather(*self._handlers, return_exceptions=True)
             await self._server.wait_closed()
             self._server = None
 
@@ -277,6 +294,11 @@ def test_start_after_stop_gets_a_fresh_stream(tmp_path: Path) -> None:
         client = build_client(hub.socket_path, publisher, max_frames_per_event=6)
         try:
             await client.start()
+            # Session 1 starts before its capture exists: the hub parks the
+            # connection (CI's 3.11 wait_for always delivers it before the
+            # stop). Gate on it so the restart below deterministically follows
+            # a parked first-session connection, never a scheduler coin flip.
+            assert await wait_until(lambda: hub.connections >= 1)
             await asyncio.wait_for(client.stop(), 1.0)
 
             hub.batches = [b"".join(encode_frame(seq, 0.0, 0.2, -14.0) for seq in range(6))]
