@@ -8,23 +8,30 @@ no transcript was ever produced (3 recordings started, 0 transcribed).
 `child_environment` must re-expose the REAL session runtime dir under
 `PIPEWIRE_RUNTIME_DIR` (which libpipewire resolves before `XDG_RUNTIME_DIR`)
 while keeping the voxtype-state override intact.
+
+Second on-device pass (deck 2026-09-18 22:19): the installed first fix never
+reached the daemon — the Decky-loader-spawned plugin process itself carries
+NO `XDG_RUNTIME_DIR` (daemon env proved it: the key was absent while the new
+code was running). The session dir therefore falls back to the XDG-standard
+`/run/user/<uid>`, forwarded only when that directory really exists.
 """
 
 from pathlib import Path
 
 import pytest
-from backend.infrastructure.process.process_environment import child_environment
+from backend.infrastructure.process.process_environment import (
+    child_environment,
+    session_runtime_dir,
+)
 
 
-def test_child_environment_reexposes_session_runtime_dir_for_audio(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    """The real session runtime dir travels as PIPEWIRE_RUNTIME_DIR; the
-    voxtype state override of XDG_RUNTIME_DIR stays untouched."""
+def test_env_value_wins_for_audio_dir(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """The plugin process's real session runtime dir travels as
+    PIPEWIRE_RUNTIME_DIR; the voxtype state override stays untouched."""
     monkeypatch.setenv("XDG_RUNTIME_DIR", "/run/user/1000")
 
+    assert session_runtime_dir() == "/run/user/1000"
     env = child_environment(tmp_path)
-
     assert env["XDG_RUNTIME_DIR"] == str(tmp_path / "runtime")
     assert env["PIPEWIRE_RUNTIME_DIR"] == "/run/user/1000"
     assert env["HOME"] == str(tmp_path)
@@ -33,15 +40,43 @@ def test_child_environment_reexposes_session_runtime_dir_for_audio(
     assert "PATH" in env
 
 
-def test_child_environment_omits_audio_dir_without_a_session(
+def test_uid_fallback_when_loader_scrubs_the_environment(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """No invented paths: without a session runtime dir in the plugin process
-    (tests, CI) the audio key is simply absent — deterministic env either way."""
+    """The decky loader spawns the plugin without XDG_RUNTIME_DIR (on-device
+    finding 2026-09-18); the XDG-standard /run/user/<uid> fills in when it
+    actually exists."""
     monkeypatch.delenv("XDG_RUNTIME_DIR", raising=False)
+    monkeypatch.setattr("os.getuid", lambda: 4242)
+    base = tmp_path / "run" / "user"
+    (base / "4242").mkdir(parents=True)
 
-    env = child_environment(tmp_path)
+    assert session_runtime_dir(base=base) == str(base / "4242")
 
+
+def test_no_invented_session_dir(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """A nonexistent /run/user/<uid> yields nothing: the audio key is absent
+    rather than pointing children at a path that does not exist."""
+    monkeypatch.delenv("XDG_RUNTIME_DIR", raising=False)
+    monkeypatch.setattr("os.getuid", lambda: 4242)
+    base = tmp_path / "run" / "user"
+    base.mkdir(parents=True)
+
+    assert session_runtime_dir(base=base) is None
+    env = child_environment(tmp_path, session_base=base)
     assert "PIPEWIRE_RUNTIME_DIR" not in env
     assert env["XDG_RUNTIME_DIR"] == str(tmp_path / "runtime")
     assert set(env) == {"PATH", "HOME", "XDG_RUNTIME_DIR", "LANG", "LC_ALL"}
+
+
+def test_empty_environment_variable_is_not_forwarded(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """An empty XDG_RUNTIME_DIR (the loader's empty-string global pattern)
+    must not become an empty audio path; the uid fallback decides instead."""
+    monkeypatch.setenv("XDG_RUNTIME_DIR", "")
+    monkeypatch.setattr("os.getuid", lambda: 4242)
+    base = tmp_path / "run" / "user"
+    base.mkdir(parents=True)
+
+    assert session_runtime_dir(base=base) is None

@@ -198,7 +198,26 @@ def ensure_directories(paths: PluginPaths) -> None:
         os.chmod(directory, DIR_MODE)
 
 
-def child_environment(data_dir: Path) -> dict[str, str]:
+def session_runtime_dir(base: Path | None = None) -> str | None:
+    """The REAL user session runtime dir, for audio-server discovery only.
+
+    Precedence: the plugin process's own `XDG_RUNTIME_DIR`, then the
+    XDG-standard `/run/user/<uid>` when it actually exists. The fallback is
+    load-bearing on device: the Decky-loader-spawned plugin process carries
+    NO `XDG_RUNTIME_DIR` at all (daemon env proved it 2026-09-18 22:19 — the
+    first PIPEWIRE_RUNTIME_DIR fix never fired). `None` means "no session
+    known": callers must omit the audio path instead of inventing one.
+    """
+    from_env = os.environ.get("XDG_RUNTIME_DIR")
+    if from_env:
+        return from_env
+    candidate = (base or Path("/run/user")) / str(os.getuid())
+    if candidate.is_dir():
+        return str(candidate)
+    return None
+
+
+def child_environment(data_dir: Path, *, session_base: Path | None = None) -> dict[str, str]:
     """Minimal environment for native children (§40, §109).
 
     Only deterministic variables are forwarded; HOME points into the plugin
@@ -209,13 +228,13 @@ def child_environment(data_dir: Path) -> dict[str, str]:
     Audio-server exception (deck defect 2026-09-18): the daemon captures
     through ALSA's pipewire PCM plugin, and libpipewire resolves the session
     server socket (`pipewire-0`) from PIPEWIRE_RUNTIME_DIR, falling back to
-    XDG_RUNTIME_DIR. With only the override below the plugin had no reachable
+    XDG_RUNTIME_DIR. With only the override below the daemon had no reachable
     server at all — every recording failed with `snd_pcm_open: Host is down
-    (112)` before any level frame or transcript could exist. The plugin
-    process's REAL session runtime dir (systemd user units always provide it)
-    is therefore re-exposed under the audio-specific name; the voxtype state
-    override stays authoritative. Without one (tests, CI) the key is simply
-    absent — no invented paths.
+    (112)` before any level frame or transcript could exist. The REAL session
+    runtime dir (`session_runtime_dir`) is therefore re-exposed under the
+    audio-specific name while the voxtype state override stays authoritative.
+    Without a discoverable session dir (tests, CI) the key is simply absent —
+    no invented paths.
     """
     path_value = os.environ.get("PATH", "/usr/local/bin:/usr/bin:/bin")
     env = {
@@ -225,9 +244,9 @@ def child_environment(data_dir: Path) -> dict[str, str]:
         "LANG": "C.UTF-8",
         "LC_ALL": "C.UTF-8",
     }
-    session_runtime_dir = os.environ.get("XDG_RUNTIME_DIR")
-    if session_runtime_dir:
-        env["PIPEWIRE_RUNTIME_DIR"] = session_runtime_dir
+    session_dir = session_runtime_dir(session_base)
+    if session_dir is not None:
+        env["PIPEWIRE_RUNTIME_DIR"] = session_dir
     return env
 
 
