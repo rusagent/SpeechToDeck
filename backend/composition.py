@@ -779,6 +779,9 @@ def compose(
         publisher,
         resolver,
         model_path_for=model_path_for,
+        # ADR-011 language forcing: the config build resolves the selected
+        # model's multilingual flag from the loaded manifest.
+        model_info_for=manifest.by_id,
         on_unexpected_exit=on_runtime_lost,
         is_idle=lambda: not speech.has_pending_work(),
     )

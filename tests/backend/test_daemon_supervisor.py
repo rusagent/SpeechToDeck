@@ -198,6 +198,78 @@ def test_generated_daemon_config_maps_language_and_vad(tmp_path: Path) -> None:
     assert config["vad"]["enabled"] is False
 
 
+def test_daemon_config_forces_english_for_en_only_models() -> None:
+    """ADR-011 language forcing, all four branches: whisper .en-only models
+    (multilingual=false) cannot auto-detect, so the "system"/"auto" sentinels
+    resolve to "en" for them; explicit codes pass through; multilingual models
+    keep the legacy "system" → "auto" mapping."""
+    import tomllib
+
+    from backend.domain.contracts import Settings
+
+    cases = [
+        # (multilingual, language sentinel/code, expected daemon language)
+        (False, "system", "en"),
+        (False, "auto", "en"),
+        (False, "de", "de"),
+        (True, "system", "auto"),
+        (True, "auto", "auto"),
+        (True, "de", "de"),
+    ]
+    for multilingual, language, expected in cases:
+        settings = Settings(
+            schema_version=1,
+            enabled=True,
+            compute_backend="cpu",
+            model_id="base",
+            language=language,
+            max_recording_seconds=60,
+            vad_enabled=True,
+            output_mode="direct-insert",
+        )
+        toml = daemon_config_toml(
+            settings,
+            state_file=Path("/rt/state"),
+            output_file=Path("/rt/transcript.out"),
+            model_path=Path("/models/m.bin"),
+            model_multilingual=multilingual,
+        )
+        config = tomllib.loads(toml)
+        assert config["whisper"]["language"] == expected, (multilingual, language)
+
+
+def test_supervisor_resolves_multilingual_flag_for_config(tmp_path: Path) -> None:
+    """The supervisor feeds the selected model's manifest flag into the config
+    build (composition wires model_info_for=manifest.by_id)."""
+    import tomllib
+
+    from backend.domain.contracts import ModelInfo
+
+    async def scenario() -> None:
+        paths = await prepare_pinned(tmp_path)
+        publisher = FakeEventPublisher()
+
+        def model_info_for(model_id: str) -> ModelInfo:
+            return ModelInfo(
+                id=model_id,
+                engine="whisper",
+                multilingual=False,
+                filename=f"ggml-{model_id}.bin",
+                download_url="https://example.test/m.bin",
+                sha256="0" * 64,
+                size_bytes=1,
+            )
+
+        supervisor = make_supervisor(paths, publisher, model_info_for=model_info_for)
+        await supervisor.start(DEFAULT_SETTINGS)  # language="system"
+        assert supervisor.is_running()
+        config = tomllib.loads(paths.daemon_config.read_text(encoding="utf-8"))
+        assert config["whisper"]["language"] == "en"  # en-only model: system → en
+        await supervisor.stop()
+
+    asyncio.run(scenario())
+
+
 def test_start_run_stop_clean_with_log_drain(tmp_path: Path) -> None:
     async def scenario() -> None:
         paths = await prepare_pinned(tmp_path)

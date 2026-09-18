@@ -58,6 +58,7 @@ from backend.domain.contracts import (
     EVENT_RUNTIME_STATUS,
     PROTOCOL_VERSION_V1,
     EventPublisher,
+    ModelInfo,
     Settings,
 )
 from backend.domain.errors import RuntimeStartError, SpeechError
@@ -129,6 +130,11 @@ def daemon_preexec(parent_pid: int) -> Callable[[], None] | None:
 # loaded model manifest so downloads/checksums stay under our control).
 ModelPathResolver = Callable[[str], Path]
 
+# Resolved manifest info for the selected model (ADR-011 language forcing:
+# the config build needs the multilingual flag); None when the id is unknown
+# or the resolver is not wired (legacy behavior).
+ModelInfoResolver = Callable[[str], ModelInfo | None]
+
 
 class DaemonLog:
     """Small size-capped rotating log for daemon stdout/stderr (§39)."""
@@ -172,6 +178,7 @@ def daemon_config_toml(
     state_file: Path,
     output_file: Path,
     model_path: Path,
+    model_multilingual: bool | None = None,
 ) -> str:
     """Generate the daemon TOML for one start (verified upstream v1.0.1 keys).
 
@@ -188,6 +195,8 @@ def daemon_config_toml(
       and checksums under our ModelStore control);
     - `[whisper] language` — our "system" setting has no upstream equivalent,
       so it maps to "auto" at this adapter boundary; codes pass through;
+      English-only models (multilingual=false, ADR-011) cannot auto-detect,
+      so "system"/"auto" additionally resolves to "en" for them;
     - `[whisper] on_demand_loading = false` — the model stays loaded (§82);
     - `[whisper] eager_processing = false` — one-shot dictation only;
     - `[vad] enabled` — settings VAD toggle;
@@ -200,6 +209,12 @@ def daemon_config_toml(
     - `[hotkey] enabled = false` — recording is driven by our client only.
     """
     language = "auto" if settings.language == "system" else settings.language
+    # ADR-011 language forcing: whisper .en-only models (multilingual=false)
+    # cannot auto-detect, so the sentinels resolve to "en" for them. Explicit
+    # codes pass through unchanged; multilingual models are unaffected. None
+    # (model info unavailable) keeps the legacy mapping.
+    if language == "auto" and model_multilingual is False:
+        language = "en"
     lines = [
         f"engine = {_toml_string('whisper')}",
         f"state_file = {_toml_string(str(state_file))}",
@@ -240,6 +255,8 @@ def write_daemon_config(
     paths: PluginPaths,
     settings: Settings,
     model_path: Path,
+    *,
+    model_multilingual: bool | None = None,
 ) -> Path:
     """Write the generated daemon config atomically; return its path (§55)."""
     payload = daemon_config_toml(
@@ -247,6 +264,7 @@ def write_daemon_config(
         state_file=paths.status_file,
         output_file=paths.output_file,
         model_path=model_path,
+        model_multilingual=model_multilingual,
     )
     config_path = paths.daemon_config
     config_path.parent.mkdir(parents=True, exist_ok=True)
@@ -273,6 +291,7 @@ class SpeechDaemonSupervisor:
         resolver: RuntimeVariantResolver,
         *,
         model_path_for: ModelPathResolver,
+        model_info_for: ModelInfoResolver | None = None,
         on_unexpected_exit: Callable[[int | None], object] | None = None,
         is_idle: Callable[[], bool] | None = None,
         shutdown_timeout: float = SHUTDOWN_TIMEOUT_S,
@@ -286,6 +305,7 @@ class SpeechDaemonSupervisor:
         self._publisher = publisher
         self._resolver = resolver
         self._model_path_for = model_path_for
+        self._model_info_for = model_info_for
         self._on_unexpected_exit = on_unexpected_exit
         self._is_idle = is_idle or (lambda: True)
         self._shutdown_timeout = shutdown_timeout
@@ -343,9 +363,18 @@ class SpeechDaemonSupervisor:
         """Config generation, variant resolution, presence + digest check, and
         the digest-verified private executable copy (§53: source AND copy)."""
         # The config exists before resolution: the §47 auto probe runs the
-        # candidate binary against exactly this configuration.
+        # candidate binary against exactly this configuration. The selected
+        # model's multilingual flag drives the ADR-011 language forcing in the
+        # config build (English-only models cannot auto-detect).
+        model_info = (
+            self._model_info_for(settings.model_id) if self._model_info_for is not None else None
+        )
         config_path = await asyncio.to_thread(
-            write_daemon_config, self._paths, settings, self._model_path_for(settings.model_id)
+            write_daemon_config,
+            self._paths,
+            settings,
+            self._model_path_for(settings.model_id),
+            model_multilingual=None if model_info is None else model_info.multilingual,
         )
         resolved = await self._resolver.resolve(settings.compute_backend, config_path=config_path)
         if not resolved.binary.is_file():
