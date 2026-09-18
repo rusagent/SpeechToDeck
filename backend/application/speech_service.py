@@ -11,6 +11,11 @@ Transcript handling stays minimal (§43): trim, reject NUL, enforce the §78
 size bound. Transcript text is never logged and never persisted (§73).
 Cancellation is first-class (§72): it discards the result, removes the active
 session and emits no transcript.
+
+v0.2 additive: after a successful transcription a bounded best-effort
+system-clipboard write runs through the ClipboardWriter port; its outcome
+travels as the additive `transcript_ready` "clipboard" field
+("ok" | "failed" | "skipped") and can never fail the transcription (§106).
 """
 
 from __future__ import annotations
@@ -27,6 +32,8 @@ from backend.domain.contracts import (
     EVENT_SPEECH_STATUS,
     EVENT_TRANSCRIPT_READY,
     PROTOCOL_VERSION_V1,
+    ClipboardStatus,
+    ClipboardWriter,
     EventPublisher,
     Settings,
     SpeechRuntime,
@@ -52,6 +59,11 @@ LOGGER = logging.getLogger("dictation.session")
 ACK_TIMEOUT_S = 2.0  # §71: record start/stop acknowledgement
 DEFAULT_TRANSCRIPT_GRACE_S = 30.0  # added to max recording for the final wait (§71)
 MAX_TRANSCRIPT_BYTES = 16 * 1024  # §78
+# Additive v0.2 clipboard write bound: the writer has its own internal
+# timeout; this outer bound guarantees the transcript event is never delayed
+# by more than this, whatever the writer does.
+CLIPBOARD_WRITE_TIMEOUT_S = 6.0
+_CLIPBOARD_STATUSES: tuple[str, ...] = ("ok", "failed", "skipped")
 _SESSION_ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$")
 
 # Sentinel resolved into the pending-delivery future when a session ends by
@@ -107,6 +119,8 @@ class SpeechApplicationService:
         transcript_grace_seconds: float = DEFAULT_TRANSCRIPT_GRACE_S,
         max_transcript_bytes: int = MAX_TRANSCRIPT_BYTES,
         clock: Callable[[], float] = time.monotonic,
+        clipboard_writer: ClipboardWriter | None = None,
+        clipboard_timeout: float = CLIPBOARD_WRITE_TIMEOUT_S,
     ) -> None:
         self._runtime = runtime
         self._sessions = sessions
@@ -116,6 +130,11 @@ class SpeechApplicationService:
         self._transcript_grace = transcript_grace_seconds
         self._max_transcript_bytes = max_transcript_bytes
         self._clock = clock
+        # Additive v0.2: best-effort system-clipboard write after a
+        # successful transcription. Unwired (or unavailable) → the
+        # transcript_ready event reports "skipped" and the flow is unchanged.
+        self._clipboard_writer = clipboard_writer
+        self._clipboard_timeout = clipboard_timeout
         self._operation_lock = asyncio.Lock()
         self._pending_delivery: asyncio.Future[object] | None = None
         self._shutting_down = False
@@ -431,12 +450,39 @@ class SpeechApplicationService:
                 "computeBackend": backend,
             },
         }
+        # Additive v0.2 (§67 optional field): best-effort system-clipboard
+        # write BEFORE the event so the payload carries the honest outcome.
+        # Contained (§106): a clipboard failure is reported, never raised —
+        # the transcription itself has already succeeded.
+        payload["clipboard"] = await self._copy_transcript_to_clipboard(text)
         await self._sessions.clear(session.session_id)
         self._active_session_id = None
         self.counters.recordings_completed += 1
         self.counters.note_transcription(transcription_ms)
         await self._publisher.publish(EVENT_TRANSCRIPT_READY, payload)
         await self._publish_state("ready", session_id=None)
+
+    async def _copy_transcript_to_clipboard(self, text: str) -> ClipboardStatus:
+        """Bounded, contained system-clipboard write (v0.2, additive).
+
+        "skipped" without a wired writer; the writer maps its own failure
+        modes to statuses, and anything unexpected (raise, hang past the
+        outer bound) degrades to "failed". The text is handed to the writer
+        only — never logged (§73).
+        """
+        writer = self._clipboard_writer
+        if writer is None:
+            return "skipped"
+        try:
+            status = await asyncio.wait_for(writer.write_text(text), self._clipboard_timeout)
+        except asyncio.CancelledError:
+            raise
+        except BaseException:
+            LOGGER.warning("clipboard write crashed; reported as failed")
+            return "failed"
+        if status not in _CLIPBOARD_STATUSES:
+            return "failed"
+        return status
 
     async def _transcription_timeout(self) -> float:
         """§71: final transcription bounded by max-recording/model policy."""

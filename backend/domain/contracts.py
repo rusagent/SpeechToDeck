@@ -27,6 +27,11 @@ EVENT_RUNTIME_STATUS = "runtime_status"
 # §82 startup path progress (frozen frontend contract, see
 # backend/application/setup_progress.py).
 EVENT_SETUP_PROGRESS = "setup_progress"
+# Additive v0.2 event (IMPLEMENTATION_STATUS): live audio-level vectors
+# coalesced from the daemon's audio.sock broadcast while a recording session
+# is active (§61 gate). Pure presentation feedback — never part of the
+# dictation control flow; older frontends ignore it.
+EVENT_RECORDING_LEVEL = "recording_level"
 
 # §44/§54 defaults.
 DEFAULT_MAX_RECORDING_SECONDS = 60
@@ -140,3 +145,26 @@ class TranscriptSink(Protocol):
     async def on_transcript(self, result: TranscriptResult) -> None: ...
 
     async def on_transcript_error(self, error: SpeechError) -> None: ...
+
+
+# Outcome of the additive v0.2 system-clipboard write that follows a
+# successful transcription: "ok" (written), "failed" (attempted, not
+# written), "skipped" (not attempted — no writer wired or no usable binary).
+ClipboardStatus = Literal["ok", "failed", "skipped"]
+
+
+@runtime_checkable
+class ClipboardWriter(Protocol):
+    """System-clipboard writer for finished transcripts (v0.2, additive).
+
+    Best-effort by contract: implementations map every expected failure mode
+    to a `ClipboardStatus` instead of raising, because a clipboard failure
+    must never fail the transcription itself (the transcript is still
+    delivered and shown for manual copy).
+    """
+
+    async def write_text(self, text: str) -> ClipboardStatus: ...
+
+    def is_available(self) -> bool:
+        """Read-only diagnostics probe: can this writer attempt a copy?"""
+        ...

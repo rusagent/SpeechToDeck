@@ -6,10 +6,11 @@ Uses the §91 FakeSpeechRuntime: deterministic, no hardware.
 from __future__ import annotations
 
 import asyncio
+import dataclasses
 
 import pytest
 from backend.application.speech_service import SpeechApplicationService
-from backend.domain.contracts import DEFAULT_SETTINGS, Settings
+from backend.domain.contracts import DEFAULT_SETTINGS, ClipboardStatus, Settings
 from backend.domain.errors import (
     InvalidSessionIdError,
     InvalidTranscriptError,
@@ -28,8 +29,36 @@ READY = "transcript_ready"
 ERROR = "speech_error"
 
 
+class FakeClipboardWriter:
+    """ClipboardWriter double recording the handed-over text (§73 oracle:
+    the writer must receive the NORMALIZED transcript, never the raw one)."""
+
+    def __init__(
+        self,
+        status: ClipboardStatus = "ok",
+        *,
+        error: BaseException | None = None,
+        hang_s: float = 0.0,
+    ) -> None:
+        self.status = status
+        self.error = error
+        self.hang_s = hang_s
+        self.texts: list[str] = []
+
+    def is_available(self) -> bool:
+        return True
+
+    async def write_text(self, text: str) -> ClipboardStatus:
+        self.texts.append(text)
+        if self.error is not None:
+            raise self.error
+        if self.hang_s:
+            await asyncio.sleep(self.hang_s)
+        return self.status
+
+
 class Harness:
-    def __init__(self, settings: Settings | None = None, **kwargs: float) -> None:
+    def __init__(self, settings: Settings | None = None, **kwargs: object) -> None:
         self.publisher = FakeEventPublisher()
         self.runtime = FakeSpeechRuntime()
         self.current_settings = settings or DEFAULT_SETTINGS
@@ -232,7 +261,10 @@ def test_stop_acknowledgement_timeout_clears_session() -> None:
 
 def test_final_transcription_timeout() -> None:
     async def scenario() -> None:
-        harness = Harness(transcript_grace_seconds=0.1)
+        # Small max-recording so the bounded §71 wait (max-recording + grace)
+        # stays fast; the timeout mapping is identical at any duration.
+        settings = dataclasses.replace(DEFAULT_SETTINGS, max_recording_seconds=2)
+        harness = Harness(settings=settings, transcript_grace_seconds=0.1)
         await harness.service.start_recording("session-1")
         with pytest.raises(TranscriptionTimeoutError):
             await harness.service.stop_recording("session-1")  # nothing ever emitted
@@ -286,3 +318,90 @@ def test_transcript_without_waiting_stop_is_discarded() -> None:
         assert harness.publisher.payloads(READY) == []
 
     asyncio.run(scenario())
+
+
+# ── v0.2 additive clipboard leg (transcript_ready "clipboard" field) ────────
+
+
+def _run_transcript_scenario(harness: Harness, text: str = "  hello world  ") -> None:
+    async def scenario() -> None:
+        await harness.service.start_recording("session-1")
+        stop_task = asyncio.get_running_loop().create_task(
+            harness.service.stop_recording("session-1")
+        )
+        await asyncio.sleep(0.05)
+        await harness.runtime.emit_transcript(text)
+        await asyncio.wait_for(stop_task, 2.0)
+
+    asyncio.run(scenario())
+
+
+def test_clipboard_ok_travels_in_transcript_ready() -> None:
+    writer = FakeClipboardWriter("ok")
+    harness = Harness(clipboard_writer=writer)
+    _run_transcript_scenario(harness)
+
+    ready = harness.publisher.payloads(READY)
+    assert len(ready) == 1
+    assert ready[0]["clipboard"] == "ok"
+    # The writer received the §43-normalized text, never the raw payload.
+    assert writer.texts == ["hello world"]
+    # The dictation flow is otherwise unchanged.
+    states = [p["state"] for p in harness.publisher.payloads(EVENTS)]
+    assert states == ["recording", "transcribing", "ready"]
+
+
+def test_clipboard_writer_crash_never_fails_the_transcription() -> None:
+    writer = FakeClipboardWriter("ok", error=RuntimeError("loader socket gone"))
+    harness = Harness(clipboard_writer=writer)
+    _run_transcript_scenario(harness)
+
+    ready = harness.publisher.payloads(READY)
+    assert len(ready) == 1
+    assert ready[0]["clipboard"] == "failed"  # contained (§106), reported
+    assert ready[0]["text"] == "hello world"  # the transcript still delivered
+    states = [p["state"] for p in harness.publisher.payloads(EVENTS)]
+    assert states == ["recording", "transcribing", "ready"]
+    assert harness.publisher.payloads(ERROR) == []
+
+
+def test_clipboard_timeout_maps_to_failed() -> None:
+    writer = FakeClipboardWriter("ok", hang_s=5.0)
+    harness = Harness(clipboard_writer=writer, clipboard_timeout=0.05)
+    _run_transcript_scenario(harness)
+
+    ready = harness.publisher.payloads(READY)
+    assert ready[0]["clipboard"] == "failed"
+    assert ready[0]["text"] == "hello world"
+
+
+def test_unavailable_writer_reports_skipped() -> None:
+    writer = FakeClipboardWriter("skipped")
+    harness = Harness(clipboard_writer=writer)
+    _run_transcript_scenario(harness)
+    assert harness.publisher.payloads(READY)[0]["clipboard"] == "skipped"
+
+
+def test_unwired_clipboard_reports_skipped_and_changes_nothing_else() -> None:
+    # Default (no writer wired): the frozen transcript_ready core is intact,
+    # only the additive field reports the skipped backend leg.
+    harness = Harness()
+    _run_transcript_scenario(harness)
+
+    ready = harness.publisher.payloads(READY)
+    assert len(ready) == 1
+    assert ready[0]["clipboard"] == "skipped"
+    payload = dict(ready[0])
+    payload.pop("clipboard")
+    assert set(payload) == {"protocolVersion", "sessionId", "text", "metrics"}
+
+
+def test_empty_transcript_writes_no_clipboard() -> None:
+    writer = FakeClipboardWriter("ok")
+    harness = Harness(clipboard_writer=writer)
+    _run_transcript_scenario(harness, text="   ")  # §77 empty-speech path
+
+    assert writer.texts == []  # nothing copied
+    assert harness.publisher.payloads(READY) == []
+    states = [p["state"] for p in harness.publisher.payloads(EVENTS)]
+    assert states == ["recording", "transcribing", "ready"]

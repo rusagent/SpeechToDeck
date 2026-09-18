@@ -26,6 +26,7 @@ from backend.application.speech_service import SpeechApplicationService
 from backend.domain.contracts import (
     EVENT_RUNTIME_STATUS,
     PROTOCOL_VERSION_V1,
+    ClipboardWriter,
     EventPublisher,
     Settings,
 )
@@ -38,11 +39,13 @@ from backend.domain.errors import (
     TransientModelDownloadError,
 )
 from backend.domain.session import SpeechSessionCoordinator
+from backend.infrastructure.clipboard.xclip_writer import XclipClipboardWriter
 from backend.infrastructure.model.model_manifest import ModelManifest, load_model_manifest
 from backend.infrastructure.model.model_store import ModelHttpFetcher, UrllibModelFetcher
 from backend.infrastructure.process.cdp_client import CdpClient
 from backend.infrastructure.process.cdp_diagnostics import CdpDiagnostics
 from backend.infrastructure.process.daemon_supervisor import SpeechDaemonSupervisor
+from backend.infrastructure.process.level_socket_client import LevelSocketClient
 from backend.infrastructure.process.process_environment import (
     PluginPaths,
     ensure_directories,
@@ -148,6 +151,8 @@ class Application:
         manifest: ModelManifest,
         resolver: RuntimeVariantResolver,
         setup_progress: SetupProgressReporter,
+        level_client: LevelSocketClient,
+        clipboard_writer: ClipboardWriter | None = None,
         cdp_diagnostics: CdpDiagnostics | None = None,
     ) -> None:
         self.paths = paths
@@ -166,6 +171,13 @@ class Application:
         # the user's "Allow Remote CEF Debugging" toggle. Never functional
         # surface — unavailability degrades into the get_status report (§105).
         self.cdp_diagnostics = cdp_diagnostics
+        # v0.2 additive presentation surface (§61 gate): the audio.sock level
+        # stream runs ONLY while a recording session is active and is fully
+        # contained (§106) — it can never affect the dictation flow.
+        self.level_client = level_client
+        # v0.2 additive best-effort clipboard leg; None keeps the legacy
+        # behavior (transcript_ready reports "skipped").
+        self.clipboard_writer = clipboard_writer
         self._cdp_report: dict[str, object] = dict(CDP_REPORT_NOT_PROBED)
         self._cdp_task: asyncio.Task[None] | None = None
         self._started = False
@@ -377,6 +389,7 @@ class Application:
                 self._cdp_task.cancel()
             # 1-2. stop accepting sessions; cancel any active recording (§38).
             await self.speech.shutdown()
+            await self._stop_level_stream()
             try:
                 await self.client.cancel_recording()
             except SpeechError as exc:
@@ -471,6 +484,17 @@ class Application:
             # read-only facts behind the user's CEF-debugging toggle. The §99
             # frontend guard ignores the field when an older backend omits it.
             "cdpDiagnostics": dict(self._cdp_report),
+            # Additive v0.2 dictation-flow facts (§67 optional field) for the
+            # panel's diagnostics row: the backend clipboard leg reports its
+            # writer availability; "unavailable" means the frontend
+            # execCommand copy is the primary clipboard path.
+            "dictationFlow": {
+                "clipboard": (
+                    "xclip"
+                    if self.clipboard_writer is not None and self.clipboard_writer.is_available()
+                    else "unavailable"
+                )
+            },
         }
 
     async def get_settings(self) -> dict[str, object]:
@@ -532,6 +556,7 @@ class Application:
         """Disable: stop the runtime in the §38 order (the plugin stays up)."""
         # 1-2. stop accepting sessions; cancel any active recording.
         await self.speech.shutdown()
+        await self._stop_level_stream()
         try:
             await self.client.cancel_recording()
         except SpeechError as exc:
@@ -589,15 +614,45 @@ class Application:
                 "selected model is not installed", detail=f"id={settings.model_id}"
             )
         await self.speech.start_recording(session_id)
+        # §61 gate: the audio.sock stream runs only while a recording session
+        # is active. Contained (§106): a stream failure never fails the start.
+        await self._start_level_stream()
         return {"sessionId": session_id}
 
     async def stop_recording(self, session_id: str) -> dict[str, object]:
-        await self.speech.stop_recording(session_id)
+        try:
+            await self.speech.stop_recording(session_id)
+        finally:
+            # The session ends with the stop outcome (§61); the stream stops
+            # even when the stop failed.
+            await self._stop_level_stream()
         return {"sessionId": session_id}
 
     async def cancel_recording(self, session_id: str) -> dict[str, object]:
-        await self.speech.cancel_recording(session_id)
+        try:
+            await self.speech.cancel_recording(session_id)
+        finally:
+            await self._stop_level_stream()
         return {"sessionId": session_id}
+
+    # ── v0.2 audio-level stream gate (§61/§106) ──────────────────────────────
+
+    async def _start_level_stream(self) -> None:
+        """Start the audio.sock stream after an acknowledged recording start.
+
+        Fully contained: the visualization is additive surface, so any start
+        failure is logged and the recording result is untouched.
+        """
+        try:
+            await self.level_client.start()
+        except Exception as exc:
+            LOGGER.info("audio-level stream start failed: %s", type(exc).__name__)
+
+    async def _stop_level_stream(self) -> None:
+        try:
+            await self.level_client.stop()
+        except Exception as exc:
+            LOGGER.info("audio-level stream stop failed: %s", type(exc).__name__)
 
     async def list_models(self) -> dict[str, object]:
         models = await self.models.list_models()
@@ -669,20 +724,35 @@ def compose(
     watcher = StatusFileWatcher(paths.native_runtime_dir)
     client = VoxtypeClient(paths, resolver)
     settings_provider: Callable[[], Awaitable[Settings]] = settings_repository.load
+    # v0.2 clipboard leg: the loader-placed bin/xclip (remote_binary pin or
+    # manual install). The pin decision (v0.2.0: skipped — no trustworthy
+    # pinned upstream binary) lives in IMPLEMENTATION_STATUS.md; the writer
+    # reports "skipped" until the binary exists and the frontend execCommand
+    # copy is the primary clipboard path meanwhile.
+    clipboard_writer = XclipClipboardWriter(paths.bin_dir / "xclip", staging_dir=paths.runtime_dir)
     speech = SpeechApplicationService(
         client,
         SpeechSessionCoordinator(),
         publisher,
         settings_provider,
+        clipboard_writer=clipboard_writer,
     )
     client.transcript_sink = speech
+    # v0.2 live level stream: additive presentation events while a recording
+    # session is active (§61); fully contained (§106).
+    level_client = LevelSocketClient(paths.audio_socket, publisher)
+
+    async def on_runtime_lost(exit_code: int | None) -> None:
+        """Daemon loss ends any recording session — and its level stream."""
+        await speech.notify_runtime_lost(exit_code)
+        await level_client.stop()
 
     supervisor = SpeechDaemonSupervisor(
         paths,
         publisher,
         resolver,
         model_path_for=model_path_for,
-        on_unexpected_exit=speech.notify_runtime_lost,
+        on_unexpected_exit=on_runtime_lost,
         is_idle=lambda: not speech.has_pending_work(),
     )
     monitor = RuntimeStatusMonitor(watcher, publisher)
@@ -705,5 +775,7 @@ def compose(
         manifest=manifest,
         resolver=resolver,
         setup_progress=setup_progress,
+        level_client=level_client,
+        clipboard_writer=clipboard_writer,
         cdp_diagnostics=cdp_diagnostics,
     )

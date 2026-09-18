@@ -211,6 +211,10 @@ def test_full_pipeline_with_real_fixture_daemon(tmp_path: Path) -> None:
 
             started = await app.start_recording("sess-1")
             assert started == {"sessionId": "sess-1"}
+            # §61 gate (v0.2): the audio.sock level stream runs only while a
+            # recording session is active — started with the acknowledged
+            # start, stopped with the session end (no socket needed here).
+            assert app.level_client.is_running
             assert await wait_until(
                 lambda: (
                     app.supervisor.is_running()
@@ -220,6 +224,7 @@ def test_full_pipeline_with_real_fixture_daemon(tmp_path: Path) -> None:
             )
 
             await app.stop_recording("sess-1")
+            assert not app.level_client.is_running
             assert await wait_until(
                 lambda: any(
                     p.get("sessionId") == "sess-1" for p in publisher.payloads("transcript_ready")
@@ -231,14 +236,20 @@ def test_full_pipeline_with_real_fixture_daemon(tmp_path: Path) -> None:
             )
             assert payload["protocolVersion"] == 1
             assert payload["text"] == "hello world"
+            # Additive v0.2 clipboard leg: the fixture layout has no bin/xclip,
+            # so the backend reports the skipped leg (frontend copy is primary).
+            assert payload["clipboard"] == "skipped"
             metrics = payload["metrics"]
             assert metrics["modelId"] == "base"
             assert metrics["computeBackend"] in ("cpu", "vulkan", "auto")
             assert "audioDurationMs" in metrics and "transcriptionDurationMs" in metrics
 
-            # §72 through the full stack: cancel emits no transcript.
+            # §72 through the full stack: cancel emits no transcript and also
+            # ends the level stream (§61).
             await app.start_recording("sess-2")
+            assert app.level_client.is_running
             await app.cancel_recording("sess-2")
+            assert not app.level_client.is_running
             assert not [
                 p for p in publisher.payloads("transcript_ready") if p.get("sessionId") == "sess-2"
             ]

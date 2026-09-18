@@ -36,6 +36,9 @@ OUTPUT_SIDECAR_SUFFIX = ".done"
 DAEMON_CONFIG_NAME = "daemon.toml"
 DAEMON_LOG_NAME = "daemon.log"
 SETTINGS_FILENAME = "settings.json"
+# Live audio-level broadcast socket of the pinned runtime (upstream
+# levels.rs `default_socket_path`: `$XDG_RUNTIME_DIR/voxtype/audio.sock`).
+AUDIO_SOCKET_FILENAME = "audio.sock"
 
 DEFAULTS_DIRNAME = "defaults"
 
@@ -149,6 +152,16 @@ class PluginPaths:
     def output_sidecar_file(self) -> Path:
         """Completion sidecar the daemon writes after the transcript itself."""
         return self.native_runtime_dir / (OUTPUT_FILENAME + OUTPUT_SIDECAR_SUFFIX)
+
+    @property
+    def audio_socket(self) -> Path:
+        """Daemon's audio-level broadcast socket (upstream levels.rs).
+
+        `Config::runtime_dir()` is `$XDG_RUNTIME_DIR/voxtype` and children get
+        `XDG_RUNTIME_DIR` pointed at the plugin runtime dir, so this mirrors
+        the upstream `default_socket_path()` exactly.
+        """
+        return self.native_runtime_dir / AUDIO_SOCKET_FILENAME
 
     @property
     def daemon_config(self) -> Path:
