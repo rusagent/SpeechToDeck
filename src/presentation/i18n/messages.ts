@@ -141,6 +141,10 @@ export const EN_MESSAGES = {
     "mic.label.error": "Voice input error — details in the plugin panel",
 
     "dictation.level.label": "Live microphone level",
+    "dictation.level.style": "Visualizer",
+    "dictation.level.style.heatmap": "Magma heat",
+    "dictation.level.style.classic": "Classic bars",
+    "dictation.level.style.mirror": "Mirror",
     "dictation.transcript.label": "Transcript",
     "dictation.clipboard.copied": "Copied — open the Steam keyboard (STEAM+X) and press Paste.",
     "dictation.clipboard.failed": "Copying failed — use “Copy again”.",
@@ -279,6 +283,10 @@ export const DE_MESSAGES: Record<MessageKey, string> = {
     "mic.label.error": "Fehler bei der Spracheingabe — Details im Plugin-Panel",
 
     "dictation.level.label": "Live-Mikrofonpegel",
+    "dictation.level.style": "Darstellung",
+    "dictation.level.style.heatmap": "Magma-Hitze",
+    "dictation.level.style.classic": "Klassische Balken",
+    "dictation.level.style.mirror": "Spiegel",
     "dictation.transcript.label": "Transkript",
     "dictation.clipboard.copied":
         "Kopiert — öffne die Steam-Tastatur (STEAM+X) und drücke Einfügen.",
