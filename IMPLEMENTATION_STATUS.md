@@ -1,5 +1,116 @@
 # IMPLEMENTATION_STATUS
 
+## v0.2.0 — owner-designed product pivot: QAM dictation card (big mic button + live level strip) → local transcript → system clipboard → Steam-keyboard Paste
+
+### The v0.2 flow (owner design)
+
+The plugin panel now LEADS with a dictation card: a BIG microphone button, a
+live 24-bar level strip while recording, and — after stop — the transcript
+preview with its clipboard status and a "copy again" action. The deliverable
+is the SYSTEM clipboard: the user copies, opens the Steam virtual keyboard
+(STEAM+X), and presses the keyboard's own Paste key into any text field
+(primary target: the Steam Chat input). The keyboard-injection path (v0.1.7
+tab-bridge) stays in the codebase unchanged and remains honestly degraded:
+its native overlay surface is still unreachable on device, and the v0.2 flow
+does not depend on it.
+
+### Live audio levels — the daemon's own surface (audio.sock)
+
+Discovery (research lane, source-verified at the pinned tag): voxtype v1.0.1
+broadcasts audio levels unconditionally while the daemon runs —
+`src/audio/levels.rs`: 10 ms windows at 100 Hz, one 16-byte frame per window
+over `$XDG_RUNTIME_DIR/voxtype/audio.sock`,
+`#[repr(C)] struct AudioFrame { seq: u32, min: f32, max: f32, peak_dbfs: f32 }`,
+per-field native byte order, no handshake, multiple subscribers, slow
+consumers dropped after a 300 ms queue. Only the OSD child process is config-
+gated; the socket is NOT (daemon.rs:2710-2725), so no daemon.toml change was
+needed. Our socket path is `<data_dir>/runtime/voxtype/audio.sock`
+(`PluginPaths.audio_socket`; children get `XDG_RUNTIME_DIR` pointed there).
+
+- `backend/infrastructure/process/level_frames.py` — the verified wire
+  parser with sanity validation (finite values, min ≤ max within ±1,
+  peak_dbfs within the documented −120 dBFS clamp). Wrong byte order,
+  truncation and corruption are dropped and counted, never rendered.
+- `backend/infrastructure/process/level_socket_client.py` — asyncio client
+  coalescing frames into additive `recording_level` event vectors at 15 Hz
+  (`{protocolVersion: 1, kind: "recording_level", seq, frames: [[min, max,
+peakDbfs] × k]}`, k = 6–8, ≈ 300 B/event) with bounded-backoff reconnect
+  (hub respawn / slow-consumer drop, upstream issue #391) and full §106
+  containment. §61 gate: started ONLY after an acknowledged recording start
+  and stopped on stop/cancel/disable/dispose/runtime loss (composed
+  `on_unexpected_exit`). This is a live LEVEL meter — the envelope of
+  exactly the audio whisper hears — not an FFT; product copy says "level",
+  never "spectrum".
+- Frontend: `LevelMeterStore` (24-bar rolling window, one bar per frame,
+  amplitude = max(|min|, |max|)) fed by a §99-guarded adapter subscription;
+  transport-level UI state, never part of the §8 dictation machine.
+
+### Clipboard strategy (transcript → system clipboard)
+
+- PRIMARY (frontend): `PanelClipboard.copyTextToClipboard` — the
+  SharedJSContext `execCommand('copy')` pattern proven shipped by the
+  snippets plugin (hidden input + focus + select + copy;
+  `navigator.clipboard.writeText` fallback). The dictation card runs it
+  automatically when the backend leg did not already copy, reports the
+  outcome, and offers "copy again".
+- SECONDARY (backend): `XclipClipboardWriter` — `bin/xclip -selection
+clipboard -t text/plain -i <staging file>` with DISPLAY read from
+  `/run/user/1000/gamescope-environment` (fallback `:0`) and
+  XAUTHORITY `/home/deck/.Xauthority` when present (DeckyClipboard
+  pattern; no sudo needed — the loader already drops the plugin to the
+  host user). Argument array only, bounded timeout, staging file under
+  `<data_dir>/runtime` with 0600, transcript text never logged (§73).
+  **Pin decision (owner fork, resolved): NO `remote_binary` entry was
+  added.** Upstream xclip (astrand/xclip) publishes no prebuilt release
+  binaries; the only bundled binary in the audited ecosystem is an
+  unofficial third-party build (DeckyClipboard `bin/xclip`, sha256
+  `1a757a1ae88441c9fc6101c0750d86a1afb5cb7b2073a0ed98967c41dc292d20` at
+  its sole tag 7c5c970) behind a raw repository URL — not a trustworthy
+  pinned source for an executed artifact, and inventing or adopting that
+  pin was explicitly out of bounds. The writer is fully implemented and
+  activates automatically when `bin/xclip` exists; until then the backend
+  leg reports `clipboard: "skipped"` and the frontend copy is primary.
+- `transcript_ready` (frozen core unchanged) gained the ADDITIVE optional
+  field `clipboard: "ok" | "failed" | "skipped"`; `get_status` gained the
+  additive `dictationFlow.clipboard` diagnostics fact. Older frontends/
+  backends ignore both (§99 guards updated).
+
+### Panel press path (additive, semantics preserved)
+
+`DictationController.handlePanelMicrophonePressed()` is a second entry into
+the SAME serialized press path (§10 mutex, §8 state machine, §11 stale
+protection). With no keyboard context it starts a clipboard-flow session
+(`keyboardContextId: null`): the §12 suppression retains the transcript for
+the panel (never inserted), and a keyboard appearing/closing can never
+switch or cancel the session. The keyboard-mount press semantics are
+byte-for-byte unchanged (a context-less keyboard press is still ignored).
+
+### Diagnostics
+
+The Diagnostics section gained the additive "Dictation flow" row (backend
+running / clipboard state) fed by the guarded `dictationFlow` status field.
+
+### Live-verify on device (offline validation limit)
+
+- The Steam keyboard's Paste key reading the copy written by the panel CEF
+  (`execCommand`) — expected to work per shipped-plugin evidence, but a
+  2023 gamescope regression (#916) shows this must be live-verified.
+- End-to-end QAM flow latency (panel over the OSK, keyboard context
+  lifecycle during QAM use).
+- The backend xclip leg stays "skipped" until a trustworthy pinned binary
+  exists or one is installed manually.
+
+### Suite delta
+
+Backend 157 → 183 tests (level parser against recorded fixtures incl. the
+guarded byte-swapped stream, level client coalescing/cadence/reconnect/
+containment/restart defect, clipboard status mapping incl. timeout/empty-
+speech, full-pipeline §61 gate). Frontend 271 → 301 tests (guards, stores,
+adapter subscriptions, panel press flow, DictationCard, visual harness
+dictation states). No existing test weakened; one pre-existing accidental
+60 s wait in the transcription-timeout test shrunk to the identical
+assertion at a 2 s budget.
+
 ## v0.1.8 — on-device mount fix: the CEF keyboard container reports `offsetWidth` 0 while visible, so the bootstrap trusts the `VirtualKeyboardVisible` class token alone and the 250 ms poll re-runs `window.__stdKbEvaluate` as the §61 self-heal
 
 ## v0.1.7 — tab-bridge keyboard architecture (replaces the dead registry-mount)

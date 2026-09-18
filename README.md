@@ -1,31 +1,62 @@
 # SpeechToDeck
 
-A Steam Deck plugin that adds a microphone button to the Steam virtual
-keyboard. Speech is transcribed **locally** and the final transcript is
-inserted as **one complete payload** — no cloud services, no live streaming,
-no automatic submit.
+A Steam Deck plugin for local voice dictation. A BIG dictation button in the
+QuickAccess panel records your voice, transcribes it **locally**, shows a
+**live level strip** while recording, and copies the finished transcript to
+the **system clipboard** — paste it anywhere with the Steam virtual
+keyboard's own Paste key (open the keyboard with STEAM+X, press Paste). No
+cloud services, no audio leaves the device, no automatic submit.
 
 ## How it works
 
-- A mic button is mounted into the Steam virtual keyboard through a strict
-  anti-corruption layer; all undocumented Steam internals stay inside
+- **v0.2 dictation flow (QAM panel):** open the plugin panel, press the big
+  microphone button, speak, press again to stop. The 24-bar strip renders
+  the live microphone envelope streamed from the native runtime's own
+  `audio.sock` broadcast (10 ms frames coalesced to 15 Hz event vectors) —
+  a real level meter, not a spectrum. After stop the transcript appears in
+  the panel with its clipboard status and a "copy again" button. The panel
+  flow works with or without the Steam keyboard open: its transcript is
+  never auto-inserted anywhere.
+- A mic button is also mounted into the Steam virtual keyboard through a
+  strict anti-corruption layer; all undocumented Steam internals stay inside
   `src/infrastructure/steam/`. The mount works without changing any Steam
   settings — no "Allow Remote CEF Debugging" toggle is required. Optionally
   enabling that toggle (Decky settings) enriches the plugin's diagnostics
   panel with cross-view facts (whether the Steam keyboard view is reachable
   and showing); the dictation feature itself never depends on it.
-- Recording flows through an explicit state machine (a discriminated union, no
-  boolean flag soup): record full utterance → stop → transcribe → insert one
-  complete string via clipboard + one paste action.
+- Recording flows through an explicit state machine (a discriminated union,
+  no boolean flag soup): record full utterance → stop → transcribe →
+  clipboard → you paste.
 - A persistent native STT daemon (pinned Voxtype runtime over whisper.cpp,
-  CPU or Vulkan) keeps the model warm; the Decky Python backend supervises it.
+  CPU or Vulkan) keeps the model warm; the Decky Python backend supervises it
+  and forwards the daemon's live audio-level broadcast while a recording is
+  active.
 - Models (whisper tiny / base / small, multilingual) are downloaded at runtime
   and verified against `defaults/models.json` SHA-256 digests.
 
+## Clipboard
+
+After a successful transcription the transcript is copied to the system
+clipboard so the Steam keyboard's Paste key can insert it:
+
+- **Primary:** the panel's own copy path (hidden-input `execCommand("copy")`
+  in the QuickAccess browser context), reported in the panel with a
+  "copy again" fallback.
+- **Secondary (backend):** an `xclip` writer for the Game Mode XWayland
+  server (DISPLAY from the gamescope environment, XAUTHORITY from the deck
+  user's Xauthority). It activates when `bin/xclip` exists; v0.2.0 does NOT
+  pin a third-party-compiled binary (no trustworthy upstream release
+  artifact exists), so the backend leg reports `skipped` until one is
+  provided. See `IMPLEMENTATION_STATUS.md` for the decision record.
+- The `transcript_ready` event carries the additive `clipboard` field
+  (`ok` / `failed` / `skipped`); a clipboard failure never loses the
+  transcript — it stays in the panel for manual copy.
+
 ## Status
 
-Scaffold phase: tooling, manifests, and CI exist; `src/` and `backend/`
-implementation and the Phase-0 hardware spikes are pending.
+v0.2.0 (owner-designed QAM dictation flow). Implementation status, design
+decisions and on-device open points: see
+[IMPLEMENTATION_STATUS.md](IMPLEMENTATION_STATUS.md).
 
 ## Development quickstart
 
