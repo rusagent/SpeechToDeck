@@ -6,9 +6,11 @@
  * keyboard mount (§75: the active indicator appears only after the start
  * acknowledgement and ends with the stop), presses going through the
  * controller's panel press path (§10 mutex, §8 machine, §11 stale
- * protection — all unchanged). While `recording`, a 24-bar level strip
+ * protection — all unchanged). While `recording`, the LevelVisualizer
  * renders ONLY the real received `recording_level` frames (live amplitude
- * envelope from the daemon's audio.sock — a level meter, not an FFT).
+ * envelope from the daemon's audio.sock — a level meter, not an FFT) in the
+ * user-selected style (heatmap default, classic, mirror; frontend-local
+ * choice persisted under `speechtodeck.`).
  * After a settled flow, the transcript preview plus the clipboard status
  * line and a "copy again" action: the transcript travels to the Steam
  * keyboard's Paste key (STEAM+X on-screen keyboard) via the system
@@ -29,6 +31,7 @@ import type { DictationState } from "../../domain/DictationState";
 import { LevelMeterStore } from "../../application/ports/LevelMeterPort";
 import type { PanelTranscriptSnapshot } from "../../application/ports/PanelTranscriptPort";
 import { CodeChip } from "./DiagnosticsPanel";
+import { LevelVisualizer } from "./LevelVisualizer";
 
 export interface DictationCardProps {
     /** Controller store snapshot (the §8 state union drives everything). */
@@ -46,30 +49,9 @@ export interface DictationCardProps {
 }
 
 const BIG_BUTTON_SIZE = 72;
-const BAR_COUNT = 24;
 const PREVIEW_MAX_CHARS = 140;
 /** Panel copy outcome; null before the auto-copy for the current transcript. */
 const COPY_IDLE: "copied" | "failed" | "copying" | null = null;
-
-/** Motion styles, injected once; off under `prefers-reduced-motion`. */
-const CARD_MOTION_STYLES = `
-.speechtodeck-level-bar { transition: height 90ms linear; }
-@media (prefers-reduced-motion: reduce) {
-    .speechtodeck-level-bar { transition: none; }
-}
-`;
-
-let cardStylesInjected = false;
-
-function injectCardStyles(): void {
-    if (cardStylesInjected || typeof document === "undefined") {
-        return;
-    }
-    const element = document.createElement("style");
-    element.textContent = CARD_MOTION_STYLES;
-    document.head.append(element);
-    cardStylesInjected = true;
-}
 
 function truncatePreview(text: string): string {
     return text.length > PREVIEW_MAX_CHARS ? `${text.slice(0, PREVIEW_MAX_CHARS)}…` : text;
@@ -85,54 +67,6 @@ function transcriptVisible(state: DictationState): boolean {
     );
 }
 
-function LevelStrip({
-    bars,
-    label,
-}: {
-    bars: readonly number[];
-    label: string;
-}): React.ReactElement {
-    return (
-        <div
-            role="img"
-            aria-label={label}
-            data-level-strip="true"
-            style={{
-                display: "flex",
-                alignItems: "flex-end",
-                gap: 2,
-                height: 44,
-                padding: "3px 6px",
-                borderRadius: 6,
-                background: "rgba(25, 28, 34, 0.85)",
-                border: "1px solid rgba(255, 255, 255, 0.25)",
-                marginTop: 8,
-            }}
-        >
-            {Array.from({ length: BAR_COUNT }, (_, index) => {
-                const bar = bars[index] ?? 0;
-                return (
-                    <div
-                        key={index}
-                        aria-hidden="true"
-                        className="speechtodeck-level-bar"
-                        data-level-bar={index}
-                        data-level-value={bar.toFixed(2)}
-                        style={{
-                            flex: 1,
-                            minWidth: 2,
-                            height: `${Math.max(4, Math.round(bar * 100))}%`,
-                            background:
-                                bar > 0.75 ? "rgba(255, 92, 92, 0.9)" : "rgba(255, 255, 255, 0.55)",
-                            borderRadius: 2,
-                        }}
-                    />
-                );
-            })}
-        </div>
-    );
-}
-
 export function DictationCard({
     state,
     levelMeter,
@@ -141,7 +75,6 @@ export function DictationCard({
     onCopy,
     locale = "en",
 }: DictationCardProps): React.ReactElement {
-    injectCardStyles();
     const button = microphoneButtonModel(state);
     const recording = state.kind === "recording";
 
@@ -209,12 +142,7 @@ export function DictationCard({
                         size={BIG_BUTTON_SIZE}
                     />
                 </div>
-                {recording ? (
-                    <LevelStrip
-                        bars={levels.bars}
-                        label={translate(locale, "dictation.level.label")}
-                    />
-                ) : null}
+                {recording ? <LevelVisualizer bars={levels.bars} locale={locale} /> : null}
                 {state.kind === "error" ? (
                     // Inline error details (§68 diagnosability): the stable
                     // code chip plus the mapped text right where the press
