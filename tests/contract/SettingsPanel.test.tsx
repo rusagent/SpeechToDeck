@@ -331,6 +331,10 @@ describe("SettingsPanel", () => {
             />,
         );
 
+        // §108: the row label is a localized string (EN "Backend version" /
+        // DE "Backend-Version"), not the raw protocol-field literal; the
+        // data-* hook stays stable for the hardening lane's contract.
+        expect(await screen.findByText("Backend version")).not.toBeNull();
         expect(await screen.findByText("0.2.3")).not.toBeNull();
         expect(container.querySelector("[data-backend-version]")).not.toBeNull();
     });

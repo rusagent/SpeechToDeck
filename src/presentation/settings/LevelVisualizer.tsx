@@ -155,13 +155,23 @@ function barColor(amplitude: number): string {
     return amplitude > 0.75 ? "rgba(255, 92, 92, 0.9)" : "rgba(255, 255, 255, 0.55)";
 }
 
+/**
+ * The dictation card's shared dark-panel surface fragment: ONE palette
+ * source for the strip frame, the style picker, the transcript preview and
+ * the copy controls, so every inset panel of the card reads as the same
+ * surface (visually identical to the previous per-element literals).
+ */
+export const DARK_PANEL_SURFACE: React.CSSProperties = {
+    background: "rgba(25, 28, 34, 0.85)",
+    border: "1px solid rgba(255, 255, 255, 0.25)",
+    borderRadius: 6,
+};
+
 const STRIP_BASE_STYLE: React.CSSProperties = {
+    ...DARK_PANEL_SURFACE,
     display: "flex",
     height: 44,
     padding: "3px 6px",
-    borderRadius: 6,
-    background: "rgba(25, 28, 34, 0.85)",
-    border: "1px solid rgba(255, 255, 255, 0.25)",
     marginTop: 8,
     position: "relative",
 };
@@ -352,18 +362,48 @@ const STRIPS: Record<
     mirror: MirrorStrip,
 };
 
+/** The compact picker row beneath the button/strip area (always visible). */
+const STYLE_PICKER_ROW_STYLE: React.CSSProperties = {
+    display: "flex",
+    alignItems: "center",
+    gap: 6,
+    marginTop: 6,
+    fontSize: 11,
+};
+
+/** The style select: the shared dark-panel surface in a compact control. */
+const STYLE_PICKER_SELECT_STYLE: React.CSSProperties = {
+    ...DARK_PANEL_SURFACE,
+    flex: 1,
+    minWidth: 0,
+    padding: "3px 6px",
+    color: "#ffffff",
+    fontSize: 11,
+};
+
 export interface LevelVisualizerProps {
     /** Real amplitudes 0..1 from the guarded LevelMeterStore window (§73). */
     readonly bars: readonly number[];
+    /**
+     * Whether the live strip renders. The card shows the strip only while
+     * `recording`; the style picker row stays visible in every state so the
+     * style can be chosen before a recording starts.
+     */
+    readonly showStrip?: boolean;
     readonly locale?: Locale;
 }
 
 /**
- * The dictation card's level visualizer: the strip in the selected style plus
- * the compact style picker. The choice persists frontend-local; it never
- * touches the backend settings schema.
+ * The dictation card's level visualizer: the strip in the selected style
+ * (rendered only when `showStrip`, default true) plus the compact style
+ * picker, which is always visible. The choice persists frontend-local; it
+ * never touches the backend settings schema.
  */
-export function LevelVisualizer({ bars, locale = "en" }: LevelVisualizerProps): React.ReactElement {
+export function LevelVisualizer({
+    bars,
+    showStrip = true,
+    locale = "en",
+}: LevelVisualizerProps): React.ReactElement {
     injectVisualizerStyles();
     const [style, setStyle] = React.useState<VisualizerStyle>(() => loadLevelStyle(safeStorage()));
 
@@ -386,16 +426,10 @@ export function LevelVisualizer({ bars, locale = "en" }: LevelVisualizerProps): 
     const Strip = STRIPS[style];
     return (
         <div data-level-visualizer="true">
-            <Strip bars={bars} label={translate(locale, "dictation.level.label")} />
-            <div
-                style={{
-                    display: "flex",
-                    alignItems: "center",
-                    gap: 6,
-                    marginTop: 6,
-                    fontSize: 11,
-                }}
-            >
+            {showStrip ? (
+                <Strip bars={bars} label={translate(locale, "dictation.level.label")} />
+            ) : null}
+            <div style={STYLE_PICKER_ROW_STYLE}>
                 <label
                     htmlFor="speechtodeck-level-style"
                     style={{ opacity: 0.7, whiteSpace: "nowrap" }}
@@ -407,16 +441,7 @@ export function LevelVisualizer({ bars, locale = "en" }: LevelVisualizerProps): 
                     data-level-style-picker="true"
                     value={style}
                     onChange={(event) => selectStyle(event.target.value)}
-                    style={{
-                        flex: 1,
-                        minWidth: 0,
-                        padding: "3px 6px",
-                        borderRadius: 6,
-                        border: "1px solid rgba(255, 255, 255, 0.25)",
-                        background: "rgba(25, 28, 34, 0.85)",
-                        color: "#ffffff",
-                        fontSize: 11,
-                    }}
+                    style={STYLE_PICKER_SELECT_STYLE}
                 >
                     {STYLE_VALUES.map((value) => (
                         <option key={value} value={value}>

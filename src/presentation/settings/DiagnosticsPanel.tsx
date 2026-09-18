@@ -120,15 +120,6 @@ function CapabilityRow(props: {
     );
 }
 
-/**
- * Label of the additive backend-version row. This lane may not touch
- * `i18n/messages.ts` (a parallel lane owns it), so the row is labeled with
- * the stable protocol field name until the key lands there — the same
- * sanitize-by-construction reasoning as the §68 CodeChip: a fixed protocol
- * identifier, never interpolated prose.
- */
-const BACKEND_VERSION_LABEL = "backendVersion";
-
 export function DiagnosticsPanel({
     state,
     settings,
@@ -272,7 +263,7 @@ export function DiagnosticsPanel({
                       )}
             </Field>
             {speech !== null && speech.backendVersion !== undefined && (
-                <Field label={BACKEND_VERSION_LABEL}>
+                <Field label={translate(locale, "diagnostics.backendVersion")}>
                     <span data-backend-version="true" style={{ opacity: 0.85, fontSize: 12 }}>
                         {speech.backendVersion}
                     </span>

@@ -6,15 +6,20 @@
  * keyboard mount (§75: the active indicator appears only after the start
  * acknowledgement and ends with the stop), presses going through the
  * controller's panel press path (§10 mutex, §8 machine, §11 stale
- * protection — all unchanged). While `recording`, the LevelVisualizer
- * renders ONLY the real received `recording_level` frames (live amplitude
- * envelope from the daemon's audio.sock — a level meter, not an FFT) in the
- * user-selected style (heatmap default, classic, mirror; frontend-local
- * choice persisted under `speechtodeck.`).
+ * protection — all unchanged). While `recording`, the LevelVisualizer's
+ * strip renders ONLY the real received `recording_level` frames (live
+ * amplitude envelope from the daemon's audio.sock — a level meter, not an
+ * FFT) in the user-selected style (heatmap default, classic, mirror;
+ * frontend-local choice persisted under `speechtodeck.`); the compact
+ * style-picker row beneath it stays visible in EVERY state so the style
+ * can be chosen before a recording starts.
  * After a settled flow, the transcript preview plus the clipboard status
  * line and a "copy again" action: the transcript travels to the Steam
  * keyboard's Paste key (STEAM+X on-screen keyboard) via the system
  * clipboard.
+ *
+ * The card's inset panels (strip frame, picker, transcript preview, copy
+ * controls) share one dark-panel surface palette (`DARK_PANEL_SURFACE`).
  *
  * §61: the strip's height transitions run only while events arrive (bars
  * re-render on publishes, never on a timer) and are disabled under
@@ -31,7 +36,7 @@ import type { DictationState } from "../../domain/DictationState";
 import { LevelMeterStore } from "../../application/ports/LevelMeterPort";
 import type { PanelTranscriptSnapshot } from "../../application/ports/PanelTranscriptPort";
 import { CodeChip } from "./DiagnosticsPanel";
-import { LevelVisualizer } from "./LevelVisualizer";
+import { DARK_PANEL_SURFACE, LevelVisualizer } from "./LevelVisualizer";
 
 export interface DictationCardProps {
     /** Controller store snapshot (the §8 state union drives everything). */
@@ -142,7 +147,8 @@ export function DictationCard({
                         size={BIG_BUTTON_SIZE}
                     />
                 </div>
-                {recording ? <LevelVisualizer bars={levels.bars} locale={locale} /> : null}
+                {/* Strip only while recording; the style picker is always visible. */}
+                <LevelVisualizer bars={levels.bars} showStrip={recording} locale={locale} />
                 {state.kind === "error" ? (
                     // Inline error details (§68 diagnosability): the stable
                     // code chip plus the mapped text right where the press
@@ -167,11 +173,9 @@ export function DictationCard({
                         <div
                             data-transcript-preview="true"
                             style={{
+                                ...DARK_PANEL_SURFACE,
                                 marginTop: 2,
                                 padding: "5px 8px",
-                                borderRadius: 6,
-                                background: "rgba(25, 28, 34, 0.85)",
-                                border: "1px solid rgba(255, 255, 255, 0.25)",
                                 fontSize: 13,
                                 lineHeight: 1.4,
                                 whiteSpace: "pre-wrap",
@@ -201,11 +205,13 @@ export function DictationCard({
                             onClick={copyAgain}
                             aria-label={translate(locale, "dictation.copyAgain")}
                             style={{
+                                ...DARK_PANEL_SURFACE,
+                                // Deliberate emphasis: the action button keeps
+                                // its slightly brighter border over the shared
+                                // surface (unchanged from the previous style).
+                                border: "1px solid rgba(255, 255, 255, 0.35)",
                                 marginTop: 6,
                                 padding: "5px 12px",
-                                borderRadius: 6,
-                                border: "1px solid rgba(255, 255, 255, 0.35)",
-                                background: "rgba(25, 28, 34, 0.85)",
                                 color: "#ffffff",
                                 fontSize: 12,
                                 cursor: "pointer",

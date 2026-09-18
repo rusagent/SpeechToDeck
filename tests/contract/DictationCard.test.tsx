@@ -118,6 +118,9 @@ describe("DictationCard", () => {
         const strip = document.querySelector("[data-level-strip]");
         expect(strip).not.toBeNull();
         expect(document.querySelectorAll("[data-level-bar]")).toHaveLength(24);
+        // The compact style picker is ALWAYS visible (not a recording-only
+        // control): it rides beneath the strip while recording.
+        expect(document.querySelector("[data-level-style-picker]")).not.toBeNull();
         // Before any event: the window is the all-zero idle snapshot.
         expect(
             strip?.querySelector('[data-level-bar="23"]')?.getAttribute("data-level-value"),
@@ -135,6 +138,20 @@ describe("DictationCard", () => {
             strip?.querySelector('[data-level-bar="22"]')?.getAttribute("data-level-value"),
         ).toBe("0.50");
         expect(strip?.getAttribute("aria-label")).toBe("Live microphone level");
+    });
+
+    it("keeps the style picker visible before a recording starts", async () => {
+        await renderCard(
+            READY,
+            new LevelMeterStore(),
+            new FakeSnapshotStore<PanelTranscriptSnapshot | null>(null),
+        );
+
+        // A user picks the visualizer style BEFORE starting a recording: the
+        // compact picker row renders in every state, while the strip itself
+        // still appears only while recording.
+        expect(document.querySelector("[data-level-style-picker]")).not.toBeNull();
+        expect(document.querySelector("[data-level-strip]")).toBeNull();
     });
 
     it("hides the strip once the flow leaves recording and shows the transcript block", async () => {
@@ -160,6 +177,8 @@ describe("DictationCard", () => {
             view.rerender(<DictationCard {...props(READY)} />);
         });
         expect(document.querySelector("[data-level-strip]")).toBeNull();
+        // The picker row survives the transition out of recording: always visible.
+        expect(document.querySelector("[data-level-style-picker]")).not.toBeNull();
         const block = document.querySelector("[data-transcript-block]");
         expect(block).not.toBeNull();
         expect(block?.querySelector("[data-transcript-preview]")?.textContent).toBe("hello world");
