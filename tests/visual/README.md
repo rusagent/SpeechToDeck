@@ -41,6 +41,20 @@ titled section so it fills the frame. Writes JPEG screenshots
 ≤80KB) to `.tmp/ui-visual/` and prints the numeric `data-overflow-x`
 probe for 390px and 768px page widths.
 
+### Download-modal representation (v0.2.5)
+
+The real download modal is a fullscreen Steam overlay: the on-device CDP
+capture (v0.2.5) measured `ModalOverlayContent` at the full 854px
+browserview width, with the dialog box drawn by `ModalRoot` (Steam's
+GenericDialogModal) centered inside. A 410px QAM column crop cannot contain
+that surface, so `panel-modal-en` (`modalShot`) captures the whole overlay
+window at a representative 640px width instead: the ModalRoot dialog box —
+title header, body, footer — over the dimmed page, with Steam's close icon
+above it. It is a representative crop of a fullscreen surface, not the QAM
+column; the stand-in mirrors the verified real structure (fullscreen
+overlay, raw node mount, `closeModal` dismissal funnel) rather than a
+freehand card.
+
 ## States
 
 `index.html?case=panel|mic&locale=en|de&state=ready|recording|error&scroll=<Section>`

@@ -205,32 +205,73 @@
         0% { left: -30%; }
         100% { left: 100%; }
     }
-    /* Steam modal frame emulated for the harness (showModal): dimmed page
-       overlay, centered card on the dark surface, title header. The card
-       matches the QAM column width so the capture crop shows it whole. */
+    /* Steam modal host emulated for the harness (showModal + ModalRoot),
+       mirroring the REAL structure verified on device (CDP DOM capture,
+       v0.2.5) and in the Steam client bundle: showModal mounts its node RAW
+       into a fullscreen ModalOverlayContent; ModalRoot (Steam's
+       GenericDialogModal) draws the centered dialog box with the DialogHeader
+       title, DialogBody content and DialogFooter buttons. Esc, the X close
+       icon and a background mousedown all funnel into the same closeModal
+       callback. The visible title is rendered by the modal content
+       (DialogHeader) — showModal's strTitle only becomes the overlay's
+       aria-label, exactly like real Steam. */
     .decky-modal-overlay {
         position: fixed;
         inset: 0;
-        background: rgba(0, 0, 0, 0.55);
+        background: rgba(0, 0, 0, 0.6);
         display: flex;
         align-items: center;
         justify-content: center;
         z-index: 1000;
     }
-    .decky-modal {
-        width: 380px;
-        max-width: calc(100vw - 24px);
+    .decky-modal-position {
+        position: relative;
+        display: flex;
+    }
+    .decky-modal-dialog {
+        width: 480px;
+        max-width: calc(100vw - 48px);
         background: #1b1d22;
         border: 1px solid rgba(255, 255, 255, 0.12);
-        border-radius: 6px;
-        padding: 12px 14px;
+        border-radius: 4px;
+        padding: 14px 16px 16px;
         box-sizing: border-box;
     }
-    .decky-modal-title {
+    .decky-modal-dismiss {
+        position: absolute;
+        top: -26px;
+        right: -2px;
+        padding: 2px 10px;
+        background: none;
+        border: none;
+        color: rgba(255, 255, 255, 0.6);
+        font: inherit;
+        font-size: 15px;
+        line-height: 1.2;
+        cursor: pointer;
+    }
+    .decky-modal-dismiss:hover { color: #eef0f2; }
+    .decky-modal-header {
         font-weight: 600;
-        font-size: 14px;
+        font-size: 15px;
         color: #eef0f2;
-        margin-bottom: 8px;
+        margin: 0 0 10px;
+    }
+    .decky-modal-body { min-width: 0; }
+    .decky-modal-bodytext {
+        margin: 0 0 8px;
+        color: #dfe3e6;
+        overflow-wrap: anywhere;
+    }
+    .decky-modal-footer {
+        display: flex;
+        justify-content: flex-end;
+        gap: 8px;
+        margin-top: 12px;
+    }
+    .decky-modal-footer .decky-button {
+        width: auto;
+        min-width: 96px;
     }
     .mic-row {
         display: flex;
@@ -402,30 +443,106 @@
     }
 
     /**
+     * Steam modal structure stand-ins (v0.2.5 on-device fix). The REAL
+     * components resolve from Steam's webpack runtime at loader time
+     * (@decky/ui dist/components/Modal.js + Dialog.js); on the device the
+     * loader-injected DFL global exposes exactly these names (runtime-probed
+     * via CDP). The emulations below mirror the verified real DOM:
+     *
+     * - ModalRoot (= Steam's GenericDialogModal) draws the centered dialog
+     *   box and funnels EVERY dismissal (X close icon, background mousedown,
+     *   Esc in the real client) into the ONE closeModal callback; Steam does
+     *   not close the modal itself, the callback must do it.
+     * - DialogHeader/DialogBody/DialogBodyText/DialogFooter are the Steam
+     *   dialog divs the modal content composes (same skeleton Steam's own
+     *   ConfirmModal renders).
+     * - DialogButton is the secondary dialog button (Steam's "Cancel" style).
+     *
+     * data-* props are forwarded so contract markers and harness geometry
+     * survive into the emulated DOM.
+     */
+    function ModalRoot(props) {
+        const { children, className, closeModal, ...rest } = props;
+        const dismiss = typeof closeModal === "function" ? closeModal : undefined;
+        return h(
+            "div",
+            {
+                ...rest,
+                className: className ? `${className} decky-modal-position` : "decky-modal-position",
+                "data-modal-root": "true",
+                onMouseDown: (ev) => {
+                    // Real ModalPosition: mousedown outside the dialog dismisses
+                    // unless bDisableBackgroundDismiss (same funnel as Esc/X).
+                    if (
+                        ev.currentTarget !== ev.target ||
+                        props.bDisableBackgroundDismiss === true
+                    ) {
+                        return;
+                    }
+                    if (dismiss) {
+                        dismiss();
+                    }
+                },
+            },
+            h(
+                "button",
+                { className: "decky-modal-dismiss", "aria-label": "Close", onClick: dismiss },
+                "✕",
+            ),
+            h("div", { className: "decky-modal-dialog", role: "dialog" }, children),
+        );
+    }
+
+    function dialogDiv(className) {
+        return function DialogPart(props) {
+            const { children, className: extra, ...rest } = props;
+            return h(
+                "div",
+                { ...rest, className: extra ? `${className} ${extra}` : className },
+                children,
+            );
+        };
+    }
+
+    const DialogHeader = dialogDiv("decky-modal-header");
+    const DialogBody = dialogDiv("decky-modal-body");
+    const DialogBodyText = dialogDiv("decky-modal-bodytext");
+    const DialogFooter = dialogDiv("decky-modal-footer");
+
+    function DialogButton(props) {
+        const { children, className: extra, ...rest } = props;
+        return h(
+            "button",
+            {
+                type: "button",
+                ...rest,
+                className: extra ? `decky-button ${extra}` : "decky-button",
+            },
+            children,
+        );
+    }
+
+    /**
      * Emulated Steam modal host for the harness: renders the given React node
-     * in an overlay card outside #visual-root, exactly the boundary the real
-     * showModal draws around a modal body. fnOnClose fires on every close
-     * (ours or the harness window), like the Steam contract the panel relies
-     * on for dismissal-cancels-download.
+     * RAW into a fullscreen overlay outside #visual-root — exactly the
+     * boundary the real showModal provides (it adds no chrome of its own; the
+     * dialog box is drawn by the ModalRoot inside the node). strTitle becomes
+     * the overlay's aria-label; fnOnClose fires on every close (ours or the
+     * harness window), like the Steam contract the panel relies on for
+     * dismissal-cancels-download.
      */
     function showModal(node, _parent, props) {
         const overlay = document.createElement("div");
         overlay.className = "decky-modal-overlay";
-        const card = document.createElement("div");
-        card.className = "decky-modal";
+        overlay.setAttribute("data-modal-overlay", "true");
         const title = props && props.strTitle;
         if (typeof title === "string" && title.length > 0) {
-            const header = document.createElement("div");
-            header.className = "decky-modal-title";
-            header.textContent = title;
-            card.appendChild(header);
+            overlay.setAttribute("aria-label", title);
         }
-        const body = document.createElement("div");
-        body.setAttribute("data-modal-body", "true");
-        card.appendChild(body);
-        overlay.appendChild(card);
+        const host = document.createElement("div");
+        overlay.appendChild(host);
         document.body.appendChild(overlay);
-        const container = window.ReactDOM.createRoot(body);
+        const container = window.ReactDOM.createRoot(host);
         container.render(node);
         let closed = false;
         return {
@@ -455,6 +572,12 @@
         DropdownItem,
         ProgressBar,
         ButtonItem,
+        ModalRoot,
+        DialogHeader,
+        DialogBody,
+        DialogBodyText,
+        DialogFooter,
+        DialogButton,
         showModal,
     };
 })();

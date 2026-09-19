@@ -63,6 +63,19 @@ vi.mock("@decky/ui", async () => {
                     ? { "data-nprogress": String(props.nProgress) }
                     : {}),
             }),
+        // Steam modal structure (v0.2.5 on-device fix): the download modal
+        // renders ModalRoot + the dialog primitives. The smoke test only
+        // captures the modal node (showModal below), so plain divs suffice.
+        ModalRoot: (props: { children?: Children }) => h("div", null, props.children),
+        DialogHeader: (props: { children?: Children }) => h("div", null, props.children),
+        DialogBody: (props: { children?: Children }) => h("div", null, props.children),
+        DialogBodyText: (props: Record<string, unknown> & { children?: Children }) => {
+            const { children, ...rest } = props;
+            return h("div", rest, children);
+        },
+        DialogFooter: (props: { children?: Children }) => h("div", null, props.children),
+        DialogButton: (props: { onClick?: () => void; children?: Children }) =>
+            h("button", { onClick: props.onClick }, props.children),
         showModal: (node: Children) => {
             modalCapture.current = { node, closed: false };
             return {

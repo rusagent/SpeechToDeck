@@ -189,6 +189,36 @@ function overflowProbe(width, query) {
     console.log(`overflow probe at ${width}px: ${match?.[0] ?? "marker missing"}`);
 }
 
+// Download modal (v0.2.5 on-device fix): the REAL surface is a fullscreen
+// Steam overlay — the on-device CDP capture measured ModalOverlayContent at
+// the full 854px browserview width with the dialog box drawn by ModalRoot
+// centered inside — so a 410px QAM column crop cannot contain it. The honest
+// representation captures the whole overlay window at a representative 640px
+// width (within the wave-visual-read long-edge limit): the ModalRoot dialog
+// box on the dimmed page, plus Steam's X close icon above it. The geometry
+// pass doubles as the sentinel that the modal actually opened.
+function modalShot(name, query, width = 640, height = 450) {
+    const geometry = readGeometry(query, height);
+    findRegion(geometry, "downloadModal");
+    const png = path.join(out, `${name}.png`);
+    const jpg = path.join(out, `${name}.jpg`);
+    execFileSync(
+        chrome,
+        chromeArgs(`${width},${height}`, [
+            `--screenshot=${png}`,
+            `file://${root}/tests/visual/index.html?${query}`,
+        ]),
+        { stdio: "ignore" },
+    );
+    execFileSync(
+        magick,
+        [png, "-crop", `${width}x${height}+0+0`, "+repage", "-strip", "-quality", "42", jpg],
+        { stdio: "ignore" },
+    );
+    rmSync(png);
+    console.log(`${name} ${width}x${height} ${statSync(jpg).size} bytes`);
+}
+
 // Store listing asset: the real settings panel (EN, top sections) at 2x
 // device scale, JPEG quality 75 (store assets are not bound by the
 // wave-visual-read review limits; target < 150KB). Committed under assets/.
@@ -259,14 +289,13 @@ shot("dictation-transcript-de", "case=dictation&dictation=transcript&locale=de",
 // Language → Model over a canned list_models snapshot (concrete language
 // "de"), then the REAL download modal opened through the production
 // openModelDownloadModal path with the single-flight download live at 40%
-// (determinate bar + percent + Cancel in the emulated Steam modal frame).
+// (ModalRoot dialog box: title header, description, percent + determinate
+// bar, Cancel in the footer — captured fullscreen-overlay style via
+// modalShot).
 shot("panel-speech-en", "case=panel&catalog=ready&language=de&locale=en", {
     sectionTitle: "Speech",
 });
-shot("panel-modal-en", "case=panel&catalog=modal&language=de&locale=en", {
-    region: "downloadModal",
-    height: 320,
-});
+modalShot("panel-modal-en", "case=panel&catalog=modal&language=de&locale=en");
 storeShot();
 
 // Numeric overflow checks at the acceptance widths (no bitmaps needed).

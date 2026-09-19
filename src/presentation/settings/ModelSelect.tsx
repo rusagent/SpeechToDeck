@@ -22,7 +22,17 @@
  */
 
 import * as React from "react";
-import { ButtonItem, DropdownItem, ProgressBar, showModal } from "@decky/ui";
+import {
+    DialogBody,
+    DialogBodyText,
+    DialogButton,
+    DialogFooter,
+    DialogHeader,
+    DropdownItem,
+    ModalRoot,
+    ProgressBar,
+    showModal,
+} from "@decky/ui";
 import type { DropdownOption } from "@decky/ui";
 import type { StateStore } from "../../application/DictationController";
 import type { CatalogModel, ModelCatalogSnapshot } from "../../application/ports/ModelCatalogPort";
@@ -133,22 +143,43 @@ function ModelDownloadModal({
         }
     }, [snapshot, model.id, onComplete]);
 
+    // v0.2.5 on-device fix: the modal body MUST be Steam's modal structure.
+    // showModal mounts its ReactNode RAW into the fullscreen
+    // ModalOverlayContent (verified on device via CDP and in the Steam client
+    // bundle, steamui chunk~2dcc5aaf7.js module 35376/46701): a bare div
+    // renders as an unstyled strip at the screen's top-left corner. ModalRoot
+    // (Steam's GenericDialogModal, resolved by the loader's DFL global —
+    // runtime-verified on device) draws the centered dialog box; the visible
+    // title header comes from DialogHeader, the same component Steam's own
+    // ConfirmModal title path renders (the showModal strTitle only feeds the
+    // overlay's aria-label and pop-out windows — no header element is ever
+    // created from it).
+    //
+    // Cancel wiring: GenericDialogModal asserts `closeModal || onCancel` and
+    // funnels EVERY dismissal (Esc key, X close icon, background mousedown)
+    // through `onCancel() || closeModal()`. Only `closeModal` is passed, so
+    // the dismiss handler runs exactly once; Steam does not close the modal
+    // for us, the handler does (via the settled-flagged paths below). While
+    // the download runs any dismissal cancels it and persists nothing; in the
+    // error state dismissal just closes.
     if (failureDetail !== undefined) {
         return (
-            <div data-model-modal="error">
-                <p style={{ margin: "0 0 8px" }}>{translate(locale, "model.modal.failed")}</p>
-                {failureDetail !== null && failureDetail.length > 0 ? (
-                    <p
-                        data-model-error-detail="true"
-                        style={{ margin: "0 0 8px", opacity: 0.75, fontSize: 12 }}
-                    >
-                        {failureDetail}
-                    </p>
-                ) : null}
-                <ButtonItem onClick={onDismissRequest}>
-                    {translate(locale, "model.modal.close")}
-                </ButtonItem>
-            </div>
+            <ModalRoot closeModal={onDismissRequest}>
+                <DialogHeader>{modelDisplayName(locale, model.id)}</DialogHeader>
+                <DialogBody data-model-modal="error">
+                    <DialogBodyText>{translate(locale, "model.modal.failed")}</DialogBodyText>
+                    {failureDetail !== null && failureDetail.length > 0 ? (
+                        <DialogBodyText data-model-error-detail="true">
+                            {failureDetail}
+                        </DialogBodyText>
+                    ) : null}
+                    <DialogFooter>
+                        <DialogButton onClick={onDismissRequest}>
+                            {translate(locale, "model.modal.close")}
+                        </DialogButton>
+                    </DialogFooter>
+                </DialogBody>
+            </ModalRoot>
         );
     }
 
@@ -159,41 +190,48 @@ function ModelDownloadModal({
     const percent = download?.percent ?? null;
     const size = model.sizeBytes === undefined ? null : formatSize(model.sizeBytes);
     return (
-        <div data-model-modal="download">
-            <p style={{ margin: "0 0 8px" }}>
-                {size !== null ? `${size} · ` : ""}
-                {model.description ?? ""}
-            </p>
-            {percent !== null ? (
-                <p data-model-percent="true" style={{ margin: "0 0 8px" }}>
-                    {percent}%
-                </p>
-            ) : (
-                <p style={{ margin: "0 0 8px", opacity: 0.75, fontSize: 12 }}>
-                    {translate(locale, "model.modal.preparing")}
-                </p>
-            )}
-            <ProgressBar
-                indeterminate={percent === null}
-                {...(percent !== null ? { nProgress: percent } : {})}
-            />
-            <ButtonItem onClick={onCancelRequest}>
-                {translate(locale, "model.modal.cancel")}
-            </ButtonItem>
-        </div>
+        <ModalRoot closeModal={onCancelRequest}>
+            <DialogHeader>{modelDisplayName(locale, model.id)}</DialogHeader>
+            <DialogBody data-model-modal="download">
+                <DialogBodyText>
+                    {size !== null ? `${size} · ` : ""}
+                    {model.description ?? ""}
+                </DialogBodyText>
+                {percent !== null ? (
+                    <DialogBodyText data-model-percent="true">{percent}%</DialogBodyText>
+                ) : (
+                    <DialogBodyText>{translate(locale, "model.modal.preparing")}</DialogBodyText>
+                )}
+                <ProgressBar
+                    indeterminate={percent === null}
+                    {...(percent !== null ? { nProgress: percent } : {})}
+                />
+                <DialogFooter>
+                    <DialogButton onClick={onCancelRequest}>
+                        {translate(locale, "model.modal.cancel")}
+                    </DialogButton>
+                </DialogFooter>
+            </DialogBody>
+        </ModalRoot>
     );
 }
 
 /**
  * Opens the download modal for one not-installed model and starts nothing by
  * itself — the caller starts the download. Every settle path is funneled
- * through a single settled flag so Steam's own dismissal (Esc, close icon)
- * and our programmatic close cannot double-fire the cancel:
+ * through a single settled flag so Steam's own dismissal (Esc, close icon,
+ * background click — all routed by ModalRoot's closeModal funnel) and our
+ * programmatic close cannot double-fire the cancel:
  *
  * - complete → close the modal, THEN persist (restart fires once);
  * - Cancel button → cancel the download, persist nothing, close;
  * - failure → error state (backend detail), Close just closes;
  * - any other dismissal while the download runs → cancel, persist nothing.
+ *
+ * strTitle is still passed to showModal even though Steam never renders a
+ * header from it: it feeds the modal overlay's aria-label (and a pop-out
+ * window title, should the dialog ever pop out). The visible header is the
+ * DialogHeader the modal body renders.
  */
 export function openModelDownloadModal(params: {
     readonly model: CatalogModel;

@@ -81,12 +81,32 @@ vi.mock("@decky/ui", async () => {
                 ),
             );
         },
-        ButtonItem: (props: { disabled?: boolean; onClick?: () => void; children?: Children }) =>
+        // Steam modal structure (the v0.2.5 on-device fix): ModalRoot is
+        // Steam's GenericDialogModal — it draws the dialog box and funnels
+        // EVERY dismissal (Esc key, X close icon, background mousedown) into
+        // the ONE closeModal callback. The mock exposes that funnel as the
+        // [data-modal-dismiss] probe surface; the dialog primitives render
+        // plain divs, forwarding data-* contract markers.
+        ModalRoot: (props: { closeModal?: () => void; children?: Children }) =>
             h(
-                "button",
-                { disabled: props.disabled === true, onClick: props.onClick },
+                "div",
+                { "data-modal-root": true },
+                h("button", {
+                    "data-modal-dismiss": true,
+                    onClick: () => props.closeModal?.(),
+                }),
                 props.children,
             ),
+        DialogHeader: (props: { children?: Children }) =>
+            h("div", { "data-modal-header": true }, props.children),
+        DialogBody: (props: { children?: Children }) => h("div", null, props.children),
+        DialogBodyText: (props: Record<string, unknown> & { children?: Children }) => {
+            const { children, ...rest } = props;
+            return h("div", rest, children);
+        },
+        DialogFooter: (props: { children?: Children }) => h("div", null, props.children),
+        DialogButton: (props: { onClick?: () => void; children?: Children }) =>
+            h("button", { onClick: props.onClick }, props.children),
         ProgressBar: (props: { indeterminate?: boolean; nProgress?: number }) =>
             h("div", {
                 role: "progressbar",
@@ -270,6 +290,14 @@ describe("ModelSelect", () => {
         const modal = lastModal();
         render(modal.node);
 
+        // The title is rendered by the modal content (DialogHeader) — real
+        // Steam never creates a header from the showModal strTitle, so the
+        // raw-div modal shipped in v0.2.5 had NO title element at all.
+        expect(
+            screen.getByText("Large v3 Turbo Q5_0", { selector: "[data-modal-header]" }),
+        ).not.toBeNull();
+        expect(document.querySelector("[data-modal-root]")).not.toBeNull();
+
         await act(async () => {
             store.publishProgress({
                 protocolVersion: 1,
@@ -346,13 +374,28 @@ describe("ModelSelect", () => {
             screen.getByRole("button", { name: "Large v3 Turbo Q5_0 · 574 MB · Recommended" }),
         );
         const modal = lastModal();
+        render(modal.node);
 
-        act(() => {
-            modal.props.fnOnClose?.();
-        });
+        // ModalRoot is Steam's dismissal funnel: Esc key, the X close icon
+        // and a background mousedown all end in the ONE closeModal callback
+        // (Steam client bundle, GenericDialogModal/ModalPosition). The mock
+        // exposes it as the [data-modal-dismiss] probe surface.
+        const dismiss = document.querySelector("[data-modal-dismiss]");
+        expect(dismiss).not.toBeNull();
+        fireEvent.click(dismiss!);
 
         expect(onCancel).toHaveBeenCalledTimes(1);
         expect(onChange).not.toHaveBeenCalled();
+        expect(modal.close).toHaveBeenCalledTimes(1);
+        expectSelectedLabel("Base (default) · 148 MB");
+
+        // The fnOnClose backstop (Steam teardown not routed through
+        // closeModal) must not double-fire the cancel after the funnel
+        // already settled the modal.
+        act(() => {
+            modal.props.fnOnClose?.();
+        });
+        expect(onCancel).toHaveBeenCalledTimes(1);
     });
 
     it("a failed download switches the modal to the error state with the backend detail and reverts the label", async () => {

@@ -722,7 +722,9 @@ if (
         });
         // Named sub-section regions for targeted crops (the Speech section
         // with the Language → Model dropdowns is smaller than the whole
-        // panel, and the modal overlay lives outside #visual-root).
+        // panel, and the modal overlay lives outside #visual-root). The modal
+        // region is the dialog BOX drawn by ModalRoot, not the fullscreen
+        // overlay (real Steam's ModalOverlayContent spans the whole screen).
         const catalogBlock = document.querySelector<HTMLElement>("[data-model-select]");
         const regions: { name: string; top: number; height: number }[] = [];
         if (catalogBlock) {
@@ -733,7 +735,7 @@ if (
                 height: Math.round(blockRect.height),
             });
         }
-        const modalCard = document.querySelector<HTMLElement>(".decky-modal");
+        const modalCard = document.querySelector<HTMLElement>(".decky-modal-dialog");
         if (modalCard) {
             const modalRect = modalCard.getBoundingClientRect();
             regions.push({
