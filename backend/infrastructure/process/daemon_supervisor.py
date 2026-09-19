@@ -196,9 +196,13 @@ def _effective_language(settings_language: str, model_info: ModelInfo | None) ->
        (multilingual=false) → "en" (ADR-011 fallback, unchanged: .en
        checkpoints cannot auto-detect and cannot honor other languages).
     3. Otherwise the legacy mapping: "system" → "auto" (our sentinel has no
-       upstream equivalent), explicit tags pass through. Covers multilingual
-       general models, models declaring several languages (the user picks
-       among them), and the unwired/unknown-model case.
+       upstream equivalent), explicit tags pass through. settings.language
+       applies whenever no single language is declared — multilingual
+       general models, models declaring several languages, and the
+       unwired/unknown-model case. The shipped catalog has no multi-language
+       entry (every declared-language model pins exactly one), and the
+       frontend hides its Language picker for ANY declared-language model,
+       so no shipped surface offers this choice today.
     """
     language = "auto" if settings_language == "system" else settings_language
     if model_info is None:

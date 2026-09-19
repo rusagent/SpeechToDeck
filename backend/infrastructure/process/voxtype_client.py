@@ -76,11 +76,13 @@ def final_wait_budget(recorded_seconds: float, floor_s: float) -> float:
 
     max(floor, recorded_seconds * STOP_TIME_FACTOR): short recordings keep
     their exact current bound (the floor), longer ones get transcription
-    headroom proportional to what was actually recorded. Deliberately kept
-    at or below the application watchdog's scaled budget (which adds its
-    30 s grace) so the upstream exit-4 timeout stays the primary reporter.
-    Deterministic in `recorded_seconds`; strictly bounded at every length
-    (§71: no wait is unbounded).
+    headroom proportional to what was actually recorded. From 45 s recorded
+    upward this stays at or below the application watchdog's scaled budget
+    (which adds its 30 s grace), so the upstream exit-4 timeout remains the
+    primary reporter; below 45 s the 120 s floor exceeds the watchdog's
+    90 s floor, which fires first — the historical v0.2.x relationship,
+    kept by the floors on purpose. Deterministic in `recorded_seconds`;
+    strictly bounded at every length (§71: no wait is unbounded).
     """
     return max(floor_s, recorded_seconds * STOP_TIME_FACTOR)
 

@@ -119,9 +119,9 @@ transcribing`) via a plain write on every state change; the backend
   consumers). No JSON, no error word — errors come from record outcomes.
 - writes the final transcript to `output.file_path` **atomically** (sibling
   temp + rename) with exactly one trailing `\n`, then writes the completion
-  sidecar `<output>.done` (`{"status": "ok"|"empty"|"error", "chars": N}`
-    - `\n`) atomically and LAST. Empty speech writes ONLY the sidecar — no
-      transcript file.
+  sidecar `<output>.done` (`{"status": "ok"|"empty"|"error", "chars": N}` +
+  `\n`) atomically and LAST. Empty speech writes ONLY the sidecar — no
+  transcript file.
 - handles SIGTERM gracefully (exit 0 after deleting the state file); the
   supervisor escalates to SIGKILL for the whole process group only after a
   bounded wait (§38/§71).
@@ -146,8 +146,10 @@ bin/<variant> --config <generated.toml> record cancel
   `max(120 s, 2 × recorded)` — short recordings keep the historical 120 s
   floor, long ones get transcription headroom instead of a bogus timeout.
   The application-level watchdog scales too (`max(90 s, 2 × recorded +
-  30 s)`), staying above the CLI budget so upstream exit 4 remains the
-  primary timeout path.
+30 s)`); from 45 s recorded upward it stays above the CLI budget so
+  upstream exit 4 remains the primary timeout path, while below 45 s its
+  90 s floor fires before the CLI's 120 s floor — the historical v0.2.x
+  relationship.
 - `record cancel` writes a cancel trigger file in the runtime dir; the
   daemon observes it and returns to idle without producing output (§72).
 - Control signals are SIGUSR1 (start) / SIGUSR2 (stop); the CLI locates the

@@ -65,9 +65,11 @@ DEFAULT_TRANSCRIPT_GRACE_S = 30.0  # added to the final-wait budget (§71)
 # the exact historical v0.2.x budget (60 s cap + 30 s grace), so short
 # recordings keep their current bound; the factor ≈ twice real time is
 # generous headroom for whisper transcription of long audio. Still strictly
-# bounded at every recording length (§71: no wait is unbounded), and it
-# keeps a grace-width margin above the CLI's own `--timeout` so the
-# upstream exit-4 path stays the primary timeout reporter.
+# bounded at every recording length (§71: no wait is unbounded). From 45 s
+# recorded upward it keeps a grace-width margin above the CLI's own
+# `--timeout` so the upstream exit-4 path stays the primary timeout
+# reporter; below 45 s the 90 s floor fires before the CLI's 120 s floor —
+# the historical v0.2.x watchdog-first relationship, kept on purpose.
 TRANSCRIPTION_WATCHDOG_FLOOR_S = 90.0  # = 60 s v0.2.x cap + 30 s grace
 TRANSCRIPTION_TIME_FACTOR = 2.0
 MAX_TRANSCRIPT_BYTES = 16 * 1024  # §78

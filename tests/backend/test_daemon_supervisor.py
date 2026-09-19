@@ -246,7 +246,7 @@ def test_daemon_config_effective_language_matrix() -> None:
         (distil_en, "de", "en"),  # en-only: explicit code cannot be honored
         (distil_en, "system", "en"),
         (en_undeclared, "system", "en"),  # ADR-011 fallback, unchanged
-        (multi, "system", "auto"),  # several languages: the user picks
+        (multi, "system", "auto"),  # several languages: settings.language honored
         (multi, "de", "de"),
         (None, "system", "auto"),  # unwired/unknown model: legacy mapping
         (None, "de", "de"),
