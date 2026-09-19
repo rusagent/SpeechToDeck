@@ -416,6 +416,10 @@ export class DictationController implements Disposable, StateStore<DictationStat
     }
 
     private onRuntimeStatus(status: SpeechRuntimeStatus): void {
+        if (status === "ready") {
+            this.clearStaleErrorOnRuntimeReady();
+            return;
+        }
         if (status !== "crashed") {
             this.logger.info("runtime status", { status });
             return;
@@ -430,6 +434,22 @@ export class DictationController implements Disposable, StateStore<DictationStat
             sessionId: session.sessionId,
             error: new DictationError("RUNTIME_CRASHED"),
         });
+    }
+
+    /**
+     * On-device 2026-09-19: a press during a daemon restart window (settings
+     * changes restart the daemon, ~4 s unavailability) left a standing
+     * recoverable error on the card even after the runtime reported ready
+     * again. A `runtime_status` ready report clears that staleness through
+     * the machine's ERROR_DISMISSED edge: fatal errors stay (the machine
+     * rejects the edge for them, §69) and a NEW failing press still produces
+     * its own error state — only staleness clears, never honesty.
+     */
+    private clearStaleErrorOnRuntimeReady(): void {
+        this.logger.info("runtime status", { status: "ready" });
+        if (this.state.kind === "error") {
+            this.apply({ type: "ERROR_DISMISSED" });
+        }
     }
 
     // ── State adoption and effect dispatch ──

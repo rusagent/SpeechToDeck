@@ -9,6 +9,7 @@ import { DICTATION_ERROR_CODES } from "../../src/domain/DictationError";
 import {
     DE_MESSAGES,
     EN_MESSAGES,
+    ERROR_MESSAGES,
     MESSAGES,
     detectLocale,
     translateError,
@@ -26,6 +27,21 @@ describe("i18n dictionaries", () => {
         for (const [, dictionary] of Object.entries(MESSAGES)) {
             for (const [key, value] of Object.entries(dictionary)) {
                 expect(value.trim().length, `${key} in ${dictionary}`).toBeGreaterThan(0);
+            }
+        }
+    });
+
+    it("contains no em-dash in any locale string (owner decision: regular dashes)", () => {
+        // Sweep guard for the 2026-09-19 owner demand; covers both the
+        // general dictionaries and the §68 error texts.
+        for (const [locale, dictionary] of Object.entries(MESSAGES)) {
+            for (const [key, value] of Object.entries(dictionary)) {
+                expect(value, `${key} (${locale})`).not.toContain("—");
+            }
+        }
+        for (const [locale, texts] of Object.entries(ERROR_MESSAGES)) {
+            for (const [code, text] of Object.entries(texts)) {
+                expect(text, `${code} (${locale})`).not.toContain("—");
             }
         }
     });

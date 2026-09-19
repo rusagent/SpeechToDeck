@@ -473,6 +473,70 @@ describe("speech failures during a session (§68/§69)", () => {
     });
 });
 
+describe("stale error auto-clear on runtime ready (on-device 2026-09-19)", () => {
+    // On-device defect: a press during a daemon restart window left a
+    // standing recoverable error on the card even after the runtime was
+    // ready again; nothing ever cleared it.
+    async function pressFailureError(rig: TestRig): Promise<void> {
+        await startReady(rig);
+        await rig.controller.handleMicrophonePressed();
+        await flush();
+        rig.speech.rejectStart("id-1", new Error("daemon restarting"));
+        await flush();
+        expect(rig.controller.getSnapshot()).toMatchObject({
+            kind: "error",
+            recoverable: true,
+            error: { code: "RECORDING_START_FAILED" },
+        });
+    }
+
+    it("clears a standing recoverable error when the runtime reports ready again", async () => {
+        const rig = createTestRig();
+        await pressFailureError(rig);
+
+        rig.speech.emitStatus("ready");
+        await flush();
+        expect(rig.controller.getSnapshot().kind).toBe("ready");
+
+        // Only the STALE error clears: a NEW failing press produces its own
+        // error state again (never honesty).
+        await rig.controller.handleMicrophonePressed();
+        await flush();
+        rig.speech.rejectStart("id-2", new Error("still broken"));
+        await flush();
+        expect(rig.controller.getSnapshot()).toMatchObject({
+            kind: "error",
+            recoverable: true,
+            error: { code: "RECORDING_START_FAILED" },
+        });
+    });
+
+    it("keeps a fatal error when the runtime reports ready again (§69)", async () => {
+        const rig = createTestRig();
+        await startReady(rig);
+        await startRecording(rig);
+        rig.speech.emitStatus("crashed");
+        await flush();
+        expect(rig.controller.getSnapshot()).toMatchObject({
+            kind: "error",
+            recoverable: false,
+            error: { code: "RUNTIME_CRASHED" },
+        });
+
+        rig.speech.emitStatus("ready");
+        await flush();
+        expect(rig.controller.getSnapshot().kind).toBe("error");
+    });
+
+    it("keeps the standing error while no ready event arrives", async () => {
+        const rig = createTestRig();
+        await pressFailureError(rig);
+
+        await flush();
+        expect(rig.controller.getSnapshot().kind).toBe("error");
+    });
+});
+
 describe("state store (§102) and dispose (§83)", () => {
     function withSubscription(rig: TestRig): { states: string[]; unsubscribe: () => void } {
         const states: string[] = [];

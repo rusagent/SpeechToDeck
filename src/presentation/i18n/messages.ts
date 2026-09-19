@@ -52,7 +52,7 @@ export const EN_MESSAGES = {
 
     "hint.backend.auto": "Checks for Vulkan and uses the CPU when Vulkan is unavailable.",
     "hint.backend.vulkan":
-        "Vulkan is required. If it fails, an error is shown — no silent switch to CPU.",
+        "Vulkan is required. If it fails, an error is shown - no silent switch to CPU.",
     "hint.backend.cpu": "Uses the CPU only.",
     "hint.language.system": "Uses the Steam interface language.",
     "hint.language.auto": "Detects the spoken language automatically.",
@@ -88,9 +88,12 @@ export const EN_MESSAGES = {
     "setup.errorUnknown": "An unexpected setup error occurred.",
 
     "mic.label.ready": "Start voice input",
-    "mic.label.recording": "Recording — press to stop",
+    "mic.label.recording": "Recording - press to stop",
     "mic.label.processing": "Processing…",
-    "mic.label.error": "Voice input error — details in the plugin panel",
+    // The concrete §68 code chip plus the mapped text render right on the
+    // card's error line; the label stays generic (the old wording pointed to
+    // the removed Diagnostics section, 40768ed).
+    "mic.label.error": "Voice input error",
 
     "dictation.level.label": "Live microphone level",
     "dictation.level.style": "Visualizer",
@@ -98,8 +101,8 @@ export const EN_MESSAGES = {
     "dictation.level.style.classic": "Classic bars",
     "dictation.level.style.mirror": "Mirror",
     "dictation.transcript.label": "Transcript",
-    "dictation.clipboard.copied": "Copied — open the Steam keyboard (STEAM+X) and press Paste.",
-    "dictation.clipboard.failed": "Copying failed — use “Copy again”.",
+    "dictation.clipboard.copied": "Copied - open the Steam keyboard (STEAM+X) and press Paste.",
+    "dictation.clipboard.failed": "Copying failed - use “Copy again”.",
     "dictation.copyAgain": "Copy again",
     "dictation.copying": "Copying…",
 } as const;
@@ -146,7 +149,7 @@ export const DE_MESSAGES: Record<MessageKey, string> = {
 
     "hint.backend.auto": "Prüft Vulkan und nutzt die CPU, wenn Vulkan nicht verfügbar ist.",
     "hint.backend.vulkan":
-        "Vulkan ist erforderlich. Schlägt es fehl, wird ein Fehler angezeigt — kein stiller Wechsel zu CPU.",
+        "Vulkan ist erforderlich. Schlägt es fehl, wird ein Fehler angezeigt - kein stiller Wechsel zu CPU.",
     "hint.backend.cpu": "Nutzt nur die CPU.",
     "hint.language.system": "Nutzt die Sprache der Steam-Oberfläche.",
     "hint.language.auto": "Erkennt die gesprochene Sprache automatisch.",
@@ -182,9 +185,9 @@ export const DE_MESSAGES: Record<MessageKey, string> = {
     "setup.errorUnknown": "Es ist ein unerwarteter Setup-Fehler aufgetreten.",
 
     "mic.label.ready": "Spracheingabe starten",
-    "mic.label.recording": "Aufnahme läuft — zum Beenden drücken",
+    "mic.label.recording": "Aufnahme läuft - zum Beenden drücken",
     "mic.label.processing": "Verarbeitung…",
-    "mic.label.error": "Fehler bei der Spracheingabe — Details im Plugin-Panel",
+    "mic.label.error": "Fehler bei der Spracheingabe",
 
     "dictation.level.label": "Live-Mikrofonpegel",
     "dictation.level.style": "Darstellung",
@@ -193,8 +196,8 @@ export const DE_MESSAGES: Record<MessageKey, string> = {
     "dictation.level.style.mirror": "Spiegel",
     "dictation.transcript.label": "Transkript",
     "dictation.clipboard.copied":
-        "Kopiert — öffne die Steam-Tastatur (STEAM+X) und drücke Einfügen.",
-    "dictation.clipboard.failed": "Kopieren fehlgeschlagen — benutze „Erneut kopieren“.",
+        "Kopiert - öffne die Steam-Tastatur (STEAM+X) und drücke Einfügen.",
+    "dictation.clipboard.failed": "Kopieren fehlgeschlagen - benutze „Erneut kopieren“.",
     "dictation.copyAgain": "Erneut kopieren",
     "dictation.copying": "Kopieren…",
 } as const;

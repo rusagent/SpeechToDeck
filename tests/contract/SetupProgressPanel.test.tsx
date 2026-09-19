@@ -64,8 +64,9 @@ describe("SetupProgressPanel", () => {
         expect(screen.getByRole("listitem", { name: "Load model" })).toBe(steps[3]);
         expect(steps[1]?.textContent).toContain("37%");
         expect(steps[1]?.getAttribute("aria-current")).toBe("step");
-        // Description line: current labelKey + detailKey text.
-        expect(screen.getByText("Model — Downloading…")).not.toBeNull();
+        // Description line: current labelKey + detailKey text (regular dash,
+        // owner em-dash sweep 2026-09-19).
+        expect(screen.getByText("Model - Downloading…")).not.toBeNull();
         // Overall percent: completed(1) × 25 + 37/4 = 34 (render-only).
         const bar = screen.getByRole("progressbar");
         expect(bar.getAttribute("aria-valuenow")).toBe("34");

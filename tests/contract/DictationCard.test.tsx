@@ -107,6 +107,19 @@ describe("DictationCard", () => {
         expect(details?.textContent).toContain("The speech runtime is not available.");
     });
 
+    it("never points to the removed diagnostics section from the error state", async () => {
+        await renderCard(
+            ERROR,
+            new LevelMeterStore(),
+            new FakeSnapshotStore<PanelTranscriptSnapshot | null>(null),
+        );
+
+        // The old generic mic label promised "details in the plugin panel" —
+        // a section removed in 40768ed. The card carries the detail itself.
+        expect(document.body.textContent).not.toContain("plugin panel");
+        expect(document.querySelector("[data-dictation-error]")).not.toBeNull();
+    });
+
     it("renders the level strip with real published frames while recording", async () => {
         const store = new LevelMeterStore();
         await renderCard(

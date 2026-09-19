@@ -286,7 +286,7 @@ export function SetupProgressPanel({
                 }}
             >
                 {translate(locale, snapshot.labelKey)}
-                {detail !== null ? ` — ${detail}` : ""}
+                {detail !== null ? ` - ${detail}` : ""}
             </div>
 
             {failed && errorMessage !== null ? (
