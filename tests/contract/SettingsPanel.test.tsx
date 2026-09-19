@@ -144,7 +144,12 @@ describe("SettingsPanel", () => {
         expect(container.querySelector('[data-panel-title="Diagnostics"]')).toBeNull();
     });
 
-    it("orders the Speech section Language → Model when the catalog is wired", async () => {
+    // v0.2.6 rework: the Speech section reads Model → (conditional) Language.
+    // The picker renders ONLY while the selected model does not pin a
+    // language itself (unloaded catalog, unknown id, or general model); a
+    // language-specific selection hides it. The persisted `language` value is
+    // never rewritten.
+    it("orders the Speech section Model → Language for a general catalog model", async () => {
         const store = new ModelCatalogStore();
         store.setModels([
             {
@@ -177,8 +182,81 @@ describe("SettingsPanel", () => {
         );
         const languageIndex = dropdowns.indexOf("Language");
         const modelIndex = dropdowns.indexOf("Model");
-        expect(languageIndex).toBeGreaterThanOrEqual(0);
-        expect(modelIndex).toBeGreaterThan(languageIndex);
+        expect(modelIndex).toBeGreaterThanOrEqual(0);
+        expect(languageIndex).toBeGreaterThan(modelIndex);
+    });
+
+    it("hides the Language picker while the selected model is language-specific", async () => {
+        const store = new ModelCatalogStore();
+        store.setModels([
+            {
+                id: "distil-small-en",
+                engine: "whisper",
+                multilingual: false,
+                filename: "ggml-distil-small.en.bin",
+                installed: true,
+                languages: ["en"],
+            },
+        ]);
+        const modelCatalog = {
+            store,
+            load: async () => undefined,
+            download: () => undefined,
+            cancel: () => undefined,
+        };
+        const settings = new FakeSettingsPort();
+        settings.value = { ...settings.value, modelId: "distil-small-en", language: "de" };
+        const { container } = render(
+            <SettingsPanel
+                settings={settings}
+                store={new FakeStateStore({ kind: "booting" })}
+                setupProgress={fakeSetupStore()}
+                diagnostics={fakeDiagnostics()}
+                modelCatalog={modelCatalog}
+            />,
+        );
+        await screen.findByText(/Enable plugin/);
+
+        expect(container.querySelector('[data-dropdown="Model"]')).not.toBeNull();
+        expect(container.querySelector('[data-dropdown="Language"]')).toBeNull();
+    });
+
+    it("keeps the Language picker for an unknown model id and restores its prior value", async () => {
+        // An older backend catalog without the persisted model id counts as
+        // "not in the catalog": the picker stays, still bound to the
+        // persisted language (never cleared).
+        const store = new ModelCatalogStore();
+        store.setModels([
+            {
+                id: "base",
+                engine: "whisper",
+                multilingual: true,
+                filename: "ggml-base.bin",
+                installed: true,
+            },
+        ]);
+        const modelCatalog = {
+            store,
+            load: async () => undefined,
+            download: () => undefined,
+            cancel: () => undefined,
+        };
+        const settings = new FakeSettingsPort();
+        settings.value = { ...settings.value, modelId: "unknown-legacy-model", language: "fr" };
+        const { container } = render(
+            <SettingsPanel
+                settings={settings}
+                store={new FakeStateStore({ kind: "booting" })}
+                setupProgress={fakeSetupStore()}
+                diagnostics={fakeDiagnostics()}
+                modelCatalog={modelCatalog}
+            />,
+        );
+        await screen.findByText(/Enable plugin/);
+
+        const language = container.querySelector('[data-dropdown="Language"]');
+        expect(language).not.toBeNull();
+        expect(language?.textContent).toContain("fr");
     });
 
     it("rerenders the dictation card from controller-store state changes (§102)", async () => {

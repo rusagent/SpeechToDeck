@@ -68,18 +68,30 @@ describe("ModelCatalogStore", () => {
         expect(store.getSnapshot().download).toEqual({ modelId: "distil-small-en", percent: null });
     });
 
-    it("marks the completed model installed and clears the download state", () => {
+    // v0.2.6 honest completion (on-device finding): the throttled progress
+    // stream plus the old complete-clears-download semantics meant faster
+    // downloads closed the modal from a stale lower frame. Completion now
+    // keeps a final percent-100 snapshot alongside the install flip so the
+    // modal can show the full bar during its completion hold.
+    it("marks the completed model installed and keeps the final 100% download state", () => {
         const store = new ModelCatalogStore();
         store.setModels([...MODELS]);
         store.publishProgress(progress("distil-small-en", 10, 200));
 
         store.publishComplete({ protocolVersion: 1, modelId: "distil-small-en", sizeBytes: 12 });
 
-        expect(store.getSnapshot().download).toBeNull();
+        expect(store.getSnapshot().download).toEqual({
+            modelId: "distil-small-en",
+            percent: 100,
+        });
         const distil = store.getSnapshot().models.find((model) => model.id === "distil-small-en");
         const base = store.getSnapshot().models.find((model) => model.id === "base");
         expect(distil?.installed).toBe(true);
         expect(base?.installed).toBe(true); // unchanged entry keeps its state
+
+        // The final frame exists even without a preceding progress payload.
+        store.publishComplete({ protocolVersion: 1, modelId: "base", sizeBytes: 12 });
+        expect(store.getSnapshot().download).toEqual({ modelId: "base", percent: 100 });
     });
 
     it("clears the download state on failure paths and is a no-op without one", () => {

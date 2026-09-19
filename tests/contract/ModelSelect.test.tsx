@@ -8,9 +8,10 @@
  * problem that read like repeated network failures. Oracle: the new
  * two-dropdown flow persists only installed selections, opens the download
  * modal for not-installed ones (dropdown stays bound to the persisted
- * model), drives live progress through the guarded store, closes the modal
- * before persisting a completed download, and distinguishes cancel (no
- * persist) from failure (backend detail in the error state).
+ * model), drives live progress through the guarded store, holds the full
+ * 100% bar on completion and closes the modal before persisting, and
+ * distinguishes cancel (no persist) from failure (backend detail in the
+ * error state).
  */
 
 import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
@@ -46,6 +47,8 @@ vi.mock("@decky/ui", async () => {
         // a selection moves it; WITH `controlled: true` the displayed value
         // ALWAYS derives from selectedOption — so a cancelled or failed
         // download (which persists nothing) snaps the rendered label back.
+        // Optgroup labels (entries without `data`) render as marked headers
+        // so the grouping contract is queryable.
         DropdownItem: (props: {
             label: string;
             rgOptions: GroupEntry[];
@@ -63,21 +66,30 @@ vi.mock("@decky/ui", async () => {
                 "div",
                 { "data-dropdown": props.label },
                 h("span", { "data-selected": true }, selected ? selected.label : String(value)),
-                flat.map((option: GroupEntry) =>
-                    h(
-                        "button",
-                        {
-                            key: String(option.data),
-                            "data-model-option": String(option.data),
-                            onClick: () => {
-                                if (props.controlled !== true) {
-                                    state[1](option.data);
-                                }
-                                props.onChange?.(option);
-                            },
-                        },
-                        option.label,
-                    ),
+                props.rgOptions.map((group: GroupEntry, groupIndex: number) =>
+                    group.data !== undefined
+                        ? null
+                        : h(
+                              "div",
+                              { key: `group-${groupIndex}`, "data-group": group.label },
+                              h("span", { "data-group-label": true }, group.label),
+                              (group.options ?? []).map((option: GroupEntry) =>
+                                  h(
+                                      "button",
+                                      {
+                                          key: String(option.data),
+                                          "data-model-option": String(option.data),
+                                          onClick: () => {
+                                              if (props.controlled !== true) {
+                                                  state[1](option.data);
+                                              }
+                                              props.onChange?.(option);
+                                          },
+                                      },
+                                      option.label,
+                                  ),
+                              ),
+                          ),
                 ),
             );
         },
@@ -175,6 +187,26 @@ function seedStore(store: ModelCatalogStore): void {
             sizeBytes: 574_041_195,
             languages: ["de"],
         }),
+        model({
+            id: "distil-small-en",
+            engine: "whisper",
+            multilingual: false,
+            filename: "ggml-distil-small.en.bin",
+            sizeBytes: 336_191_657,
+            languages: ["en"],
+        }),
+        model({
+            id: "whisper-large-v3-french-q5_0",
+            filename: "ggml-bofeng-fr-q5_0.bin",
+            sizeBytes: 1_081_140_203,
+            languages: ["fr"],
+        }),
+        model({
+            id: "kotoba-whisper-v2.0-q5_0",
+            filename: "ggml-kotoba-v2-q5_0.bin",
+            sizeBytes: 537_819_875,
+            languages: ["ja"],
+        }),
     ]);
 }
 
@@ -184,17 +216,11 @@ interface Handlers {
     onCancel?: () => void;
 }
 
-function renderSelect(
-    store: ModelCatalogStore,
-    language = "de",
-    locale: Locale = "en",
-    handlers: Handlers = {},
-) {
+function renderSelect(store: ModelCatalogStore, locale: Locale = "en", handlers: Handlers = {}) {
     return render(
         <ModelSelect
             value="base"
             locale={locale}
-            language={language}
             store={store}
             onChange={handlers.onChange ?? (() => undefined)}
             onDownload={handlers.onDownload ?? (() => undefined)}
@@ -222,22 +248,57 @@ describe("ModelSelect", () => {
         seedStore(store);
         renderSelect(store);
 
-        // General group carries the localized name + decimal size; the two
-        // turbo picks carry the localized "Recommended" suffix.
+        // The General group carries the localized name + decimal size; the
+        // two turbo picks carry the localized "Recommended" suffix.
         expect(screen.getByText("Tiny (fastest) · 78 MB")).not.toBeNull();
         expect(screen.getByText("Large v3 Turbo Q5_0 · 574 MB · Recommended")).not.toBeNull();
-        // The concrete language selection ("de") appends the specialized group.
+        // Every language group renders, labeled with its native endonym.
         expect(screen.getByText("Large v3 Turbo German Q5_0 · 574 MB")).not.toBeNull();
+        expect(screen.getByText("Distil Small (English) · 336 MB")).not.toBeNull();
+        expect(screen.getByText("Large v3 French Q5_0 · 1.1 GB")).not.toBeNull();
+        expect(screen.getByText("Kotoba v2.0 Japanese Q5_0 · 538 MB")).not.toBeNull();
         // The controlled value renders as the persisted model's label.
         expectSelectedLabel("Base (default) · 148 MB");
     });
 
-    it("omits the language group for the system/auto sentinels", () => {
+    it("groups General first, then one native-labeled group per language (catalog order)", () => {
         const store = new ModelCatalogStore();
         seedStore(store);
-        renderSelect(store, "system");
+        renderSelect(store);
 
-        expect(screen.queryByText("Large v3 Turbo German Q5_0 · 574 MB")).toBeNull();
+        // Fixed groups: General (models WITHOUT `languages`) first, then the
+        // language groups with locale-invariant native endonyms.
+        const groupLabels = Array.from(document.querySelectorAll("[data-group-label]")).map(
+            (node) => node.textContent,
+        );
+        expect(groupLabels).toEqual(["General", "Deutsch", "English", "Français", "日本語"]);
+
+        // Grouping keys off `languages` presence, NEVER the `multilingual`
+        // flag: the general catalog models are multilingual:true and stay in
+        // General, while the multilingual de/fr/ja specialists land in their
+        // language groups (the German specialist is multilingual:true too).
+        const generalGroup = document.querySelector('[data-group="General"]');
+        expect(generalGroup?.querySelector('[data-model-option="base"]')).not.toBeNull();
+        expect(
+            generalGroup?.querySelector('[data-model-option="whisper-large-v3-turbo-german-q5_0"]'),
+        ).toBeNull();
+        expect(
+            document.querySelector(
+                '[data-group="Deutsch"] [data-model-option="whisper-large-v3-turbo-german-q5_0"]',
+            ),
+        ).not.toBeNull();
+    });
+
+    it("lists every language group regardless of the language setting", () => {
+        const store = new ModelCatalogStore();
+        seedStore(store);
+        // The persisted language is the "system" sentinel — irrelevant to the
+        // catalog: the old per-language filtering (which hid the specialists
+        // behind a concrete language selection) is gone.
+        renderSelect(store);
+
+        expect(screen.getByText("Large v3 Turbo German Q5_0 · 574 MB")).not.toBeNull();
+        expect(screen.getByText("Kotoba v2.0 Japanese Q5_0 · 538 MB")).not.toBeNull();
     });
 
     it("persists update({modelId}) immediately for an installed model", () => {
@@ -245,7 +306,7 @@ describe("ModelSelect", () => {
         seedStore(store);
         const onChange = vi.fn();
         const onDownload = vi.fn();
-        renderSelect(store, "de", "en", { onChange, onDownload });
+        renderSelect(store, "en", { onChange, onDownload });
 
         fireEvent.click(screen.getByRole("button", { name: "Tiny (fastest) · 78 MB" }));
 
@@ -260,7 +321,7 @@ describe("ModelSelect", () => {
         seedStore(store);
         const onChange = vi.fn();
         const onDownload = vi.fn();
-        renderSelect(store, "de", "en", { onChange, onDownload });
+        renderSelect(store, "en", { onChange, onDownload });
 
         fireEvent.click(
             screen.getByRole("button", { name: "Large v3 Turbo Q5_0 · 574 MB · Recommended" }),
@@ -278,58 +339,126 @@ describe("ModelSelect", () => {
         expectSelectedLabel("Base (default) · 148 MB");
     });
 
-    it("shows live progress in the modal and closes it before persisting on completion", async () => {
-        const store = new ModelCatalogStore();
-        seedStore(store);
-        const onChange = vi.fn();
-        const onDownload = vi.fn();
-        renderSelect(store, "de", "en", { onChange, onDownload });
-        fireEvent.click(
-            screen.getByRole("button", { name: "Large v3 Turbo Q5_0 · 574 MB · Recommended" }),
-        );
-        const modal = lastModal();
-        render(modal.node);
+    // v0.2.6 honest completion (on-device finding): the old atomic
+    // complete-nulls-download-and-flips-installed path closed the modal
+    // before any 100% frame painted, and the throttled progress stream let
+    // faster downloads finish from a stale lower frame. Completion now holds
+    // the full bar for a fixed delay before the close-then-persist order.
+    it("shows live progress, holds the full 100% bar on completion, then closes before persisting", async () => {
+        vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+        try {
+            const store = new ModelCatalogStore();
+            seedStore(store);
+            const onChange = vi.fn();
+            const onDownload = vi.fn();
+            renderSelect(store, "en", { onChange, onDownload });
+            fireEvent.click(
+                screen.getByRole("button", { name: "Large v3 Turbo Q5_0 · 574 MB · Recommended" }),
+            );
+            const modal = lastModal();
+            render(modal.node);
 
-        // The title is rendered by the modal content (DialogHeader) — real
-        // Steam never creates a header from the showModal strTitle, so the
-        // raw-div modal shipped in v0.2.5 had NO title element at all.
-        expect(
-            screen.getByText("Large v3 Turbo Q5_0", { selector: "[data-modal-header]" }),
-        ).not.toBeNull();
-        expect(document.querySelector("[data-modal-root]")).not.toBeNull();
+            // The title is rendered by the modal content (DialogHeader) — real
+            // Steam never creates a header from the showModal strTitle, so the
+            // raw-div modal shipped in v0.2.5 had NO title element at all.
+            expect(
+                screen.getByText("Large v3 Turbo Q5_0", { selector: "[data-modal-header]" }),
+            ).not.toBeNull();
+            expect(document.querySelector("[data-modal-root]")).not.toBeNull();
 
-        await act(async () => {
-            store.publishProgress({
-                protocolVersion: 1,
-                modelId: "whisper-large-v3-turbo-q5_0",
-                bytesReceived: 229_616_478,
-                totalBytes: 574_041_195,
+            await act(async () => {
+                store.publishProgress({
+                    protocolVersion: 1,
+                    modelId: "whisper-large-v3-turbo-q5_0",
+                    bytesReceived: 229_616_478,
+                    totalBytes: 574_041_195,
+                });
             });
-        });
-        expect(screen.getByText("40%", { selector: "[data-model-percent]" })).not.toBeNull();
-        expect(document.querySelector('[data-nprogress="40"]')).not.toBeNull();
+            expect(screen.getByText("40%", { selector: "[data-model-percent]" })).not.toBeNull();
+            expect(document.querySelector('[data-nprogress="40"]')).not.toBeNull();
 
-        // model_download_complete: the modal closes automatically AND THEN
-        // the selection persists (restart fires once).
-        await act(async () => {
-            store.publishComplete({
-                protocolVersion: 1,
-                modelId: "whisper-large-v3-turbo-q5_0",
-                sizeBytes: 574_041_195,
+            // model_download_complete: the install state flips and the store
+            // keeps the final percent-100 snapshot — the modal shows the full
+            // bar and does NOT close (nor persist) immediately anymore. The
+            // settled download cannot be cancelled anymore.
+            await act(async () => {
+                store.publishComplete({
+                    protocolVersion: 1,
+                    modelId: "whisper-large-v3-turbo-q5_0",
+                    sizeBytes: 574_041_195,
+                });
             });
-        });
-        expect(modal.close).toHaveBeenCalledTimes(1);
-        expect(onChange).toHaveBeenCalledTimes(1);
-        expect(onChange).toHaveBeenCalledWith("whisper-large-v3-turbo-q5_0");
-        expect(modal.close.mock.invocationCallOrder[0]).toBeLessThan(
-            onChange.mock.invocationCallOrder[0]!,
-        );
+            expect(modal.close).not.toHaveBeenCalled();
+            expect(onChange).not.toHaveBeenCalled();
+            expect(screen.getByText("100%", { selector: "[data-model-percent]" })).not.toBeNull();
+            expect(document.querySelector('[data-nprogress="100"]')).not.toBeNull();
+            expect(screen.queryByRole("button", { name: "Cancel" })).toBeNull();
+
+            // After the fixed completion hold the modal closes and THEN the
+            // selection persists (restart fires once).
+            await act(async () => {
+                await vi.advanceTimersByTimeAsync(500);
+            });
+            expect(modal.close).toHaveBeenCalledTimes(1);
+            expect(onChange).toHaveBeenCalledTimes(1);
+            expect(onChange).toHaveBeenCalledWith("whisper-large-v3-turbo-q5_0");
+            expect(modal.close.mock.invocationCallOrder[0]).toBeLessThan(
+                onChange.mock.invocationCallOrder[0]!,
+            );
+        } finally {
+            vi.useRealTimers();
+        }
+    });
+
+    it("dismissal during the completion hold completes instead of cancelling", async () => {
+        vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+        try {
+            const store = new ModelCatalogStore();
+            seedStore(store);
+            const onChange = vi.fn();
+            const onCancel = vi.fn();
+            renderSelect(store, "en", { onChange, onCancel });
+            fireEvent.click(
+                screen.getByRole("button", { name: "Large v3 Turbo Q5_0 · 574 MB · Recommended" }),
+            );
+            const modal = lastModal();
+            render(modal.node);
+
+            await act(async () => {
+                store.publishComplete({
+                    protocolVersion: 1,
+                    modelId: "whisper-large-v3-turbo-q5_0",
+                    sizeBytes: 574_041_195,
+                });
+            });
+
+            // ModalRoot is Steam's dismissal funnel (Esc/X/background click).
+            // During the hold it routes to the completion path — the download
+            // settled, so a dismissal must close + persist, never cancel.
+            const dismiss = document.querySelector("[data-modal-dismiss]");
+            expect(dismiss).not.toBeNull();
+            fireEvent.click(dismiss!);
+
+            expect(onCancel).not.toHaveBeenCalled();
+            expect(modal.close).toHaveBeenCalledTimes(1);
+            expect(onChange).toHaveBeenCalledTimes(1);
+            expect(onChange).toHaveBeenCalledWith("whisper-large-v3-turbo-q5_0");
+
+            // The hold timer after the settled completion is a no-op.
+            await act(async () => {
+                await vi.advanceTimersByTimeAsync(500);
+            });
+            expect(modal.close).toHaveBeenCalledTimes(1);
+            expect(onChange).toHaveBeenCalledTimes(1);
+        } finally {
+            vi.useRealTimers();
+        }
     });
 
     it("shows the indeterminate preparing state before the first progress frame", async () => {
         const store = new ModelCatalogStore();
         seedStore(store);
-        renderSelect(store, "de", "en", {
+        renderSelect(store, "en", {
             onDownload: () => undefined,
         });
         fireEvent.click(
@@ -346,7 +475,7 @@ describe("ModelSelect", () => {
         seedStore(store);
         const onChange = vi.fn();
         const onCancel = vi.fn();
-        renderSelect(store, "de", "en", { onChange, onCancel });
+        renderSelect(store, "en", { onChange, onCancel });
         fireEvent.click(
             screen.getByRole("button", { name: "Large v3 Turbo Q5_0 · 574 MB · Recommended" }),
         );
@@ -369,7 +498,7 @@ describe("ModelSelect", () => {
         seedStore(store);
         const onChange = vi.fn();
         const onCancel = vi.fn();
-        renderSelect(store, "de", "en", { onChange, onCancel });
+        renderSelect(store, "en", { onChange, onCancel });
         fireEvent.click(
             screen.getByRole("button", { name: "Large v3 Turbo Q5_0 · 574 MB · Recommended" }),
         );
@@ -403,7 +532,7 @@ describe("ModelSelect", () => {
         seedStore(store);
         const onChange = vi.fn();
         const onCancel = vi.fn();
-        renderSelect(store, "de", "en", { onChange, onCancel });
+        renderSelect(store, "en", { onChange, onCancel });
         fireEvent.click(
             screen.getByRole("button", { name: "Large v3 Turbo Q5_0 · 574 MB · Recommended" }),
         );

@@ -1,11 +1,15 @@
 /**
- * ModelSelect (spec §48/§54/§80, ADR-011; v0.2.5 redesign) — the curated
- * model catalog as a plain two-control flow: the LanguagePicker dropdown
- * above (rendered by SettingsPanel), the model dropdown below. Options are
- * always the general/multilingual catalog models plus — when the language
- * selection is a concrete language — the models specialized for it, labeled
- * with the localized name and human-readable size (the two recommended turbo
- * picks carry the localized "Recommended" suffix).
+ * ModelSelect (spec §48/§54/§80, ADR-011; v0.2.6 rework) — the curated model
+ * catalog as one dropdown over ALL catalog models in fixed groups: the
+ * "General" group (models WITHOUT `languages`) plus one group per language
+ * with native labels (Deutsch, English, Français, 日本語 — locale-invariant
+ * endonyms; the keys exist in both dictionaries for the parity gate).
+ * Grouping keys off the `languages` field's presence, NEVER the
+ * `multilingual` flag (the de/fr/ja specialists are multilingual:true).
+ * Options carry the localized name and human-readable size; the two
+ * recommended turbo picks carry the localized "Recommended" suffix. The
+ * LanguagePicker is a separate control rendered below by SettingsPanel and
+ * only while the selected model does not pin a language itself.
  *
  * Selecting an INSTALLED model persists `update({modelId})` immediately (the
  * existing restart lifecycle does the rest). Selecting a NOT-INSTALLED model
@@ -13,12 +17,16 @@
  * dropdown stays bound to the previously selected model (`selectedOption`
  * mirrors the persisted settings value) while the download runs. The modal
  * shows size, description and the live download percent from the
- * ModelCatalogStore, closes itself on `model_download_complete` (persistence
- * happens after the close, so the restart fires once), and its Cancel — or
- * any dismissal — cancels the download and persists nothing. Failures flip
- * the modal to an error state carrying the backend detail string. The
- * backend runs one download at a time (§52); the open modal blocks any
- * second start by construction.
+ * ModelCatalogStore. Completion is honest: the store keeps a final
+ * percent-100 snapshot when the install state flips, the modal holds the
+ * full bar for a short fixed delay (so the 100% frame is actually seen —
+ * the throttled progress stream previously meant faster downloads closed
+ * the modal from a lower frame), and only then closes; persistence happens
+ * after the close, so the restart fires once. While downloading, the
+ * Cancel — or any dismissal — cancels the download and persists nothing.
+ * Failures flip the modal to an error state carrying the backend detail
+ * string. The backend runs one download at a time (§52); the open modal
+ * blocks any second start by construction.
  */
 
 import * as React from "react";
@@ -37,8 +45,7 @@ import type { DropdownOption } from "@decky/ui";
 import type { StateStore } from "../../application/DictationController";
 import type { CatalogModel, ModelCatalogSnapshot } from "../../application/ports/ModelCatalogPort";
 import { modelDisplayName, translate } from "../i18n/messages";
-import type { Locale } from "../i18n/messages";
-import { LANGUAGE_SENTINELS } from "./LanguagePicker";
+import type { Locale, MessageKey } from "../i18n/messages";
 import { FieldHint } from "./FieldHint";
 
 /** General-purpose models the catalog highlights as recommended (ADR-011). */
@@ -46,6 +53,31 @@ const RECOMMENDED_MODEL_IDS: readonly string[] = [
     "whisper-large-v3-turbo-q5_0",
     "whisper-large-v3-turbo",
 ];
+
+/**
+ * Native endonyms for the curated language groups (ADR-011): the SAME
+ * string in every UI locale — a language group is labeled in its own
+ * language, not the UI's. A catalog language without a curated key renders
+ * as the raw code instead of an empty label.
+ */
+const LANGUAGE_GROUP_KEYS: Record<string, MessageKey> = {
+    de: "model.group.lang.de",
+    en: "model.group.lang.en",
+    fr: "model.group.lang.fr",
+    ja: "model.group.lang.ja",
+};
+
+function languageGroupLabel(locale: Locale, code: string): string {
+    const key = LANGUAGE_GROUP_KEYS[code];
+    return key === undefined ? code : translate(locale, key);
+}
+
+/**
+ * How long the completed modal holds the full 100% bar before it closes
+ * (and the selection persists). Long enough to be seen, short enough not
+ * to feel like a second wait.
+ */
+const COMPLETION_HOLD_MS = 500;
 
 /**
  * Fully-controlled dropdown flag (see the DropdownItem usage below). Spread
@@ -78,8 +110,6 @@ export interface ModelSelectProps {
     /** Selected model id (a curated catalog id, persisted via settings). */
     readonly value: string;
     readonly locale: Locale;
-    /** Current language selection; a concrete tag enables the language group. */
-    readonly language: string;
     /** Live catalog + download state (the adapter's guarded side-channel). */
     readonly store: StateStore<ModelCatalogSnapshot>;
     /** Select an installed model (persists modelId through update_settings). */
@@ -129,9 +159,16 @@ function ModelDownloadModal({
         }
     }, [snapshot, model.id]);
 
-    // Completion: the download settled successfully (install state flipped).
-    // Runs once; the close-then-persist order lives in openModelDownloadModal.
+    // Completion: the download settled successfully (install state flipped,
+    // store kept the final percent-100 frame). Runs once: the modal holds
+    // the full bar for the fixed delay so the completion is actually seen,
+    // then hands to the close-then-persist order in openModelDownloadModal.
+    // Dismissal during the hold routes to the same completion path (there is
+    // nothing left to cancel), and the Cancel button is gone — the download
+    // settled.
+    const [completed, setCompleted] = React.useState(false);
     const completedRef = React.useRef(false);
+    const closeTimerRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
     React.useEffect(() => {
         if (completedRef.current) {
             return;
@@ -139,9 +176,21 @@ function ModelDownloadModal({
         const current = snapshot.models.find((candidate) => candidate.id === model.id);
         if (current?.installed === true) {
             completedRef.current = true;
-            onComplete();
+            setCompleted(true);
+            closeTimerRef.current = setTimeout(() => {
+                closeTimerRef.current = null;
+                onComplete();
+            }, COMPLETION_HOLD_MS);
         }
     }, [snapshot, model.id, onComplete]);
+    React.useEffect(
+        () => () => {
+            if (closeTimerRef.current !== null) {
+                clearTimeout(closeTimerRef.current);
+            }
+        },
+        [],
+    );
 
     // v0.2.5 on-device fix: the modal body MUST be Steam's modal structure.
     // showModal mounts its ReactNode RAW into the fullscreen
@@ -190,7 +239,12 @@ function ModelDownloadModal({
     const percent = download?.percent ?? null;
     const size = model.sizeBytes === undefined ? null : formatSize(model.sizeBytes);
     return (
-        <ModalRoot closeModal={onCancelRequest}>
+        <ModalRoot
+            // Completion hold: dismissal funnels into the SAME completion
+            // path as the hold timer (settled once in the shell) — the
+            // download is done, there is nothing to cancel.
+            closeModal={completed ? onComplete : onCancelRequest}
+        >
             <DialogHeader>{modelDisplayName(locale, model.id)}</DialogHeader>
             <DialogBody data-model-modal="download">
                 <DialogBodyText>
@@ -206,11 +260,13 @@ function ModelDownloadModal({
                     indeterminate={percent === null}
                     {...(percent !== null ? { nProgress: percent } : {})}
                 />
-                <DialogFooter>
-                    <DialogButton onClick={onCancelRequest}>
-                        {translate(locale, "model.modal.cancel")}
-                    </DialogButton>
-                </DialogFooter>
+                {completed ? null : (
+                    <DialogFooter>
+                        <DialogButton onClick={onCancelRequest}>
+                            {translate(locale, "model.modal.cancel")}
+                        </DialogButton>
+                    </DialogFooter>
+                )}
             </DialogBody>
         </ModalRoot>
     );
@@ -287,7 +343,6 @@ export function openModelDownloadModal(params: {
 export function ModelSelect({
     value,
     locale,
-    language,
     store,
     onChange,
     onDownload,
@@ -305,9 +360,12 @@ export function ModelSelect({
         );
     }
 
-    // Grouped dropdown (DropdownItem optgroups): the general/multilingual
-    // catalog first, then — for a concrete language selection — the models
-    // specialized for it.
+    // Grouped dropdown (DropdownItem optgroups): the general catalog first,
+    // then one group per language with native labels. Grouping keys off the
+    // `languages` field's presence — NEVER the `multilingual` flag (the
+    // de/fr/ja specialists are multilingual:true). Each specialized model is
+    // grouped under its first language code (the curated catalog is
+    // single-language per specialist), groups appear in catalog order.
     const general = snapshot.models.filter((model) => model.languages === undefined);
     const options: DropdownOption[] = [];
     if (general.length > 0) {
@@ -319,19 +377,30 @@ export function ModelSelect({
             })),
         });
     }
-    if (language !== LANGUAGE_SENTINELS.system && language !== LANGUAGE_SENTINELS.auto) {
-        const specialized = snapshot.models.filter(
-            (model) => model.languages?.includes(language) ?? false,
-        );
-        if (specialized.length > 0) {
-            options.push({
-                label: language,
-                options: specialized.map((model) => ({
-                    data: model.id,
-                    label: optionLabel(locale, model),
-                })),
-            });
+    const groupCodes: string[] = [];
+    const modelsByCode = new Map<string, CatalogModel[]>();
+    for (const model of snapshot.models) {
+        const code = model.languages?.[0];
+        if (code === undefined) {
+            continue;
         }
+        const group = modelsByCode.get(code);
+        if (group === undefined) {
+            groupCodes.push(code);
+            modelsByCode.set(code, [model]);
+        } else {
+            group.push(model);
+        }
+    }
+    for (const code of groupCodes) {
+        const group = modelsByCode.get(code) ?? [];
+        options.push({
+            label: languageGroupLabel(locale, code),
+            options: group.map((model) => ({
+                data: model.id,
+                label: optionLabel(locale, model),
+            })),
+        });
     }
 
     const handleSelect = (modelId: string): void => {

@@ -7,8 +7,9 @@
  * (owner list): the Microphone/Available chip row, the Maximum Recording
  * Duration slider, the VAD toggle, the runtime-health row and the whole
  * Diagnostics section are gone — the panel reads as Dictation card / (setup
- * when needed) / Runtime (Enabled + Compute backend) / Speech (Language →
- * Model) / Output (Output mode). Application/runtime state is consumed
+ * when needed) / Runtime (Enabled + Compute backend) / Speech (Model, with
+ * the Language picker below it only while the selected model does not pin a
+ * language) / Output (Output mode). Application/runtime state is consumed
  * through `useSyncExternalStore` over the controller store (§102); only
  * this panel and the microphone mount subscribe to relevant state (§66).
  */
@@ -111,9 +112,33 @@ export function SettingsPanel({
         [dictation],
     );
     const dictationTranscript = React.useSyncExternalStore(subscribeTranscript, getTranscript);
+    // Additive ADR-011: the catalog snapshot decides whether the Language
+    // picker renders at all (same bound-accessor pattern, §102). Absent
+    // wiring reads as the unloaded catalog → the picker stays.
+    const subscribeCatalog = React.useMemo(
+        () => (onChange: () => void) =>
+            modelCatalog?.store.subscribe(onChange) ?? (() => undefined),
+        [modelCatalog],
+    );
+    const getCatalogSnapshot = React.useMemo(
+        () => () => modelCatalog?.store.getSnapshot() ?? null,
+        [modelCatalog],
+    );
+    const catalogSnapshot = React.useSyncExternalStore(subscribeCatalog, getCatalogSnapshot);
     // Shown while the runtime is setting up or failed; terminal `ready`
     // hides it again, and a disabled plugin shows no progress at all.
     const showSetup = value !== null && value.enabled && setup !== null && setup.step !== "ready";
+    // The Language picker renders ONLY while the selected model does not
+    // pin a language itself: an unloaded catalog, an unknown (older-backend)
+    // model id, or a general model (no `languages`). A language-specific
+    // model derives its language, so the picker would be a lie. The
+    // persisted `language` value is never cleared or rewritten here —
+    // switching back to a general model restores the prior selection (the
+    // backend ignores `language` for language-specific models).
+    const selectedCatalogModel =
+        value === null ? undefined : catalogSnapshot?.models.find((m) => m.id === value.modelId);
+    const showLanguagePicker =
+        selectedCatalogModel === undefined || selectedCatalogModel.languages === undefined;
 
     React.useEffect(() => {
         let cancelled = false;
@@ -219,23 +244,24 @@ export function SettingsPanel({
             </PanelSection>
 
             <PanelSection title={translate(locale, "section.speech")}>
-                <PanelSectionRow>
-                    <LanguagePicker
-                        value={value.language}
-                        locale={locale}
-                        onChange={(language) => update({ language })}
-                    />
-                </PanelSectionRow>
                 {modelCatalog !== undefined ? (
                     <PanelSectionRow>
                         <ModelSelect
                             value={value.modelId}
                             locale={locale}
-                            language={value.language}
                             store={modelCatalog.store}
                             onChange={(modelId) => update({ modelId })}
                             onDownload={modelCatalog.download}
                             onCancel={modelCatalog.cancel}
+                        />
+                    </PanelSectionRow>
+                ) : null}
+                {showLanguagePicker ? (
+                    <PanelSectionRow>
+                        <LanguagePicker
+                            value={value.language}
+                            locale={locale}
+                            onChange={(language) => update({ language })}
                         />
                     </PanelSectionRow>
                 ) : null}

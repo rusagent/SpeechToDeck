@@ -65,6 +65,22 @@ describe("i18n dictionaries", () => {
         }
     });
 
+    it("labels the model language groups with locale-invariant native endonyms", () => {
+        // ADR-011 (v0.2.6): a language group is labeled in its own language
+        // in BOTH UI locales — only the key must exist everywhere (parity
+        // gate above).
+        const keys = [
+            "model.group.lang.de",
+            "model.group.lang.en",
+            "model.group.lang.fr",
+            "model.group.lang.ja",
+        ] as const;
+        for (const key of keys) {
+            expect(EN_MESSAGES[key]).toBe(DE_MESSAGES[key]);
+            expect(EN_MESSAGES[key].length).toBeGreaterThan(0);
+        }
+    });
+
     it("detects the locale from the environment language tag with EN fallback", () => {
         expect(detectLocale("de-DE")).toBe("de");
         expect(detectLocale("de")).toBe("de");

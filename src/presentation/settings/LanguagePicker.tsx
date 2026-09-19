@@ -1,10 +1,12 @@
 /**
  * LanguagePicker (spec §49/§54/§80).
  *
- * `system` maps the Steam UI language on the backend and surfaces an
- * unavailability instead of inventing a language; `auto` lets the speech
- * engine detect; explicit picks use fixed language tags. A hint below the
- * picker states what the selected mode does, in the UI language.
+ * `system` maps to the speech engine's auto-detection on the backend (it
+ * does NOT track the Steam UI language); `auto` lets the speech engine
+ * detect; explicit picks use fixed language tags. A hint below the picker
+ * states what the selected mode does, in the UI language. Rendered by the
+ * settings panel below the ModelSelect, and only while the selected model
+ * does not pin a language itself.
  */
 
 import * as React from "react";

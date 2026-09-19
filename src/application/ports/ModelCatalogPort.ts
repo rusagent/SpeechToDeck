@@ -121,7 +121,13 @@ export function isModelDownloadCompletePayload(
     );
 }
 
-/** The single in-flight download (§52: one download at a time). */
+/**
+ * The single in-flight download (§52: one download at a time). After a
+ * successful completion the state deliberately HOLDS the final 100% frame
+ * of the settled download (honest completion: the modal shows the full bar
+ * during its short completion hold) until the next download's first
+ * progress frame overwrites it — a failure or cancellation clears it.
+ */
 export interface ModelDownloadState {
     readonly modelId: string;
     /** 0–100, or null while the total size is not (yet) known. */
@@ -190,13 +196,21 @@ export class ModelCatalogStore {
         this.notify();
     }
 
-    /** Ingests an already guarded complete payload: marks the model installed. */
+    /**
+     * Ingests an already guarded complete payload: marks the model installed
+     * AND keeps the download state as a final percent-100 snapshot. The
+     * throttle-to-2s progress stream previously meant faster downloads could
+     * stall at their last rendered frame; nulling the download atomically
+     * with the install flip let the modal close before any 100% frame ever
+     * painted. The modal reads this snapshot to show the full bar during its
+     * short completion hold before it closes (and the selection persists).
+     */
     publishComplete(payload: ModelDownloadCompletePayload): void {
         this.snapshot = {
             models: this.snapshot.models.map((model) =>
                 model.id === payload.modelId ? { ...model, installed: true } : model,
             ),
-            download: null,
+            download: { modelId: payload.modelId, percent: 100 },
             failure: null,
         };
         this.notify();
@@ -221,7 +235,10 @@ export class ModelCatalogStore {
         this.notify();
     }
 
-    /** Clears the in-flight download state (settle path: done, failed, cancelled). */
+    /**
+     * Clears the download state (cancellation settle path; publishComplete
+     * and publishFailure manage the state themselves on their settle paths).
+     */
     clearDownload(): void {
         if (this.snapshot.download === null) {
             return;

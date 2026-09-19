@@ -223,9 +223,11 @@ export class DeckySpeechAdapter implements SpeechPort {
 
     /**
      * Starts the single-flight model download (§52). The store's download
-     * state is fed by the live `model_download_progress` events and cleared
-     * on every settle path (complete, failure, cancellation) so a failed
-     * download never leaves a stuck progress row.
+     * state is fed by the live `model_download_progress` events and settled
+     * per outcome: a successful completion KEEPS the store's final
+     * percent-100 frame (the `model_download_complete` event holds it; the
+     * modal shows the full bar during its completion hold), a cancellation
+     * clears it, and a failure replaces it with the failure record.
      *
      * Failure vs cancellation (v0.2.5): a real failure is recorded in the
      * store (`publishFailure`, backend detail included) for the download
@@ -243,6 +245,7 @@ export class DeckySpeechAdapter implements SpeechPort {
             const code = error instanceof DictationError ? error.code : undefined;
             if (code === "MODEL_DOWNLOAD_CANCELLED") {
                 this.logger.info("model download cancelled", { modelId });
+                this.modelCatalog.clearDownload();
                 return;
             }
             this.modelCatalog.publishFailure(
@@ -250,8 +253,6 @@ export class DeckySpeechAdapter implements SpeechPort {
                 error instanceof Error && error.message.length > 0 ? error.message : null,
             );
             throw error;
-        } finally {
-            this.modelCatalog.clearDownload();
         }
     }
 

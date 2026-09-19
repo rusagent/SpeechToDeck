@@ -283,7 +283,7 @@ describe("DeckySpeechAdapter", () => {
         expect(adapter.modelCatalog.getSnapshot().models).toEqual([]);
     });
 
-    it("maps download/cancel onto the frozen callables and clears the download state on settle", async () => {
+    it("maps download/cancel onto the frozen callables and settles the store per outcome", async () => {
         const transport = new FakeDeckyTransport();
         transport.callResponses.set("download_model", { modelId: "base" });
         transport.callResponses.set("cancel_model_download", { cancelled: true });
@@ -308,8 +308,22 @@ describe("DeckySpeechAdapter", () => {
         });
         expect(adapter.modelCatalog.getSnapshot().download).toBeNull();
 
+        // A user cancellation settles too — the in-flight progress row is
+        // dropped (a success, in contrast, keeps the final 100% frame; see
+        // the model_download event test below).
+        transport.callErrors.set("download_model", new DictationError("MODEL_DOWNLOAD_CANCELLED"));
+        adapter.modelCatalog.publishProgress({
+            protocolVersion: 1,
+            modelId: "base",
+            bytesReceived: 50,
+            totalBytes: 100,
+        });
+        await adapter.downloadModel("base");
+        expect(adapter.modelCatalog.getSnapshot().download).toBeNull();
+
         await adapter.cancelModelDownload();
         expect(transport.calls.map((call) => call.route)).toEqual([
+            "download_model",
             "download_model",
             "download_model",
             "cancel_model_download",
@@ -346,7 +360,10 @@ describe("DeckySpeechAdapter", () => {
         transport.emit("model_download_complete", { protocolVersion: 1 });
 
         const snapshot = adapter.modelCatalog.getSnapshot();
-        expect(snapshot.download).toBeNull(); // settled by the complete event
+        // Honest completion: the complete event settles at the FINAL 100%
+        // frame it keeps in the store (the modal's completion hold reads it),
+        // never back to an empty download state.
+        expect(snapshot.download).toEqual({ modelId: "distil-small-en", percent: 100 });
         expect(snapshot.models[0]?.installed).toBe(true);
         // Download state stays out of the §29 dictation events (§102).
         expect(speechEvents).toEqual([]);

@@ -54,11 +54,13 @@ export type HarnessSetupVariant = keyof typeof SETUP_SNAPSHOTS | "hydrated-faile
 export type HarnessDictationVariant = "idle" | "recording" | "transcript";
 
 /**
- * Model-catalog wiring for the panel case (ADR-011, v0.2.5): `ready` mounts
+ * Model-catalog wiring for the panel case (ADR-011, v0.2.6): `ready` mounts
  * the REAL ModelSelect over a canned `list_models` snapshot matching the
- * committed defaults/models.json; `modal` additionally opens the REAL
- * download modal (via the production openModelDownloadModal path) with the
- * single-flight download live at ~40%.
+ * committed defaults/models.json (General + one native-labeled group per
+ * language); `modal` additionally opens the REAL download modal (via the
+ * production openModelDownloadModal path) with the single-flight download
+ * holding its final 100% frame — the state the honest completion shows
+ * before the modal's short hold elapses and it closes.
  */
 export type HarnessCatalogVariant = "none" | "ready" | "modal";
 
@@ -206,10 +208,10 @@ export const CAPTURED_CASES: readonly HarnessParams[] = [
         dictation: "transcript",
         scroll: null,
     },
-    // Model-select flow (ADR-011, v0.2.5): the REAL ModelSelect over a canned
-    // list_models snapshot matching defaults/models.json, with a concrete
-    // language selected so the per-language group is part of the dropdown
-    // options (EN UI, "de" group).
+    // Model-select flow (ADR-011, v0.2.6): the REAL ModelSelect over the full
+    // canned list_models snapshot matching defaults/models.json — the
+    // all-language grouped catalog (General + Deutsch/English/Français/
+    // 日本語), independent of the persisted language setting.
     {
         caseId: "panel",
         locale: "en",
@@ -217,12 +219,13 @@ export const CAPTURED_CASES: readonly HarnessParams[] = [
         setup: "none",
         dictation: "idle",
         catalog: "ready",
-        language: "de",
         scroll: null,
     },
     // Same catalog with the REAL download modal open (opened through the
-    // production openModelDownloadModal path) and the single-flight download
-    // live at 40% (determinate bar + percent + Cancel).
+    // production openModelDownloadModal path) holding the download's final
+    // 100% frame — full determinate bar, "100%" percent row, Cancel still
+    // present — the honest completion state before the modal's short hold
+    // elapses and it closes itself.
     {
         caseId: "panel",
         locale: "en",
@@ -230,7 +233,6 @@ export const CAPTURED_CASES: readonly HarnessParams[] = [
         setup: "none",
         dictation: "idle",
         catalog: "modal",
-        language: "de",
         scroll: null,
     },
 ];
@@ -360,9 +362,10 @@ const HARNESS_MODEL_CATALOG: readonly CatalogModel[] = [
 
 /**
  * Builds the catalog store for the panel case through the production publish
- * paths. The modal variant reports 40% of the recommended turbo model
- * (229616478 / 574041195 bytes) — the exact percent math the real
- * `model_download_progress` events produce.
+ * paths. The modal variant holds the recommended turbo model at its FINAL
+ * 100% frame (bytesReceived == totalBytes) — the exact percent the real
+ * `model_download_progress` stream ends on before `model_download_complete`,
+ * with the model not yet marked installed so the hold state stays on screen.
  */
 function fakeCatalogStore(variant: Exclude<HarnessCatalogVariant, "none">): ModelCatalogStore {
     const store = new ModelCatalogStore();
@@ -371,7 +374,7 @@ function fakeCatalogStore(variant: Exclude<HarnessCatalogVariant, "none">): Mode
         store.publishProgress({
             protocolVersion: 1,
             modelId: "whisper-large-v3-turbo-q5_0",
-            bytesReceived: 229616478,
+            bytesReceived: 574041195,
             totalBytes: 574041195,
         });
     }
@@ -434,7 +437,7 @@ function fakeState(stateKind: HarnessParams["stateKind"]): DictationState {
  * Opens the REAL download modal through the production path for the `modal`
  * capture variant (mount-time trigger standing in for the user's selection
  * of a not-installed model; the modal itself is the real component over the
- * real store). The download is already live at 40% in the store.
+ * real store). The download holds its final 100% frame in the store.
  */
 function ModalOpener({ store, locale }: { store: ModelCatalogStore; locale: Locale }): null {
     React.useEffect(() => {

@@ -54,11 +54,15 @@ export const EN_MESSAGES = {
     "hint.backend.vulkan":
         "Vulkan is required. If it fails, an error is shown - no silent switch to CPU.",
     "hint.backend.cpu": "Uses the CPU only.",
-    "hint.language.system": "Uses the Steam interface language.",
+    "hint.language.system": "Same as auto-detect: the spoken language is detected automatically.",
     "hint.language.auto": "Detects the spoken language automatically.",
     "hint.language.explicit": "Transcriptions are made in this language.",
 
     "model.group.general": "General",
+    "model.group.lang.de": "Deutsch",
+    "model.group.lang.en": "English",
+    "model.group.lang.fr": "Français",
+    "model.group.lang.ja": "日本語",
     "model.recommended": "Recommended",
     "model.modal.preparing": "Starting download…",
     "model.modal.cancel": "Cancel",
@@ -151,11 +155,16 @@ export const DE_MESSAGES: Record<MessageKey, string> = {
     "hint.backend.vulkan":
         "Vulkan ist erforderlich. Schlägt es fehl, wird ein Fehler angezeigt - kein stiller Wechsel zu CPU.",
     "hint.backend.cpu": "Nutzt nur die CPU.",
-    "hint.language.system": "Nutzt die Sprache der Steam-Oberfläche.",
+    "hint.language.system":
+        "Wie Automatisch erkennen: Die gesprochene Sprache wird automatisch erkannt.",
     "hint.language.auto": "Erkennt die gesprochene Sprache automatisch.",
     "hint.language.explicit": "Transkriptionen werden in dieser Sprache erstellt.",
 
     "model.group.general": "Allgemein",
+    "model.group.lang.de": "Deutsch",
+    "model.group.lang.en": "English",
+    "model.group.lang.fr": "Français",
+    "model.group.lang.ja": "日本語",
     "model.recommended": "Empfohlen",
     "model.modal.preparing": "Download wird gestartet…",
     "model.modal.cancel": "Abbrechen",

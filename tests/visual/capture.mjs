@@ -285,17 +285,17 @@ shot("dictation-idle-en", "case=dictation&dictation=idle&locale=en", { height: 3
 shot("dictation-recording-en", "case=dictation&dictation=recording&locale=en", { height: 300 });
 shot("dictation-transcript-en", "case=dictation&dictation=transcript&locale=en", { height: 420 });
 shot("dictation-transcript-de", "case=dictation&dictation=transcript&locale=de", { height: 420 });
-// Model-select flow (ADR-011, v0.2.5): the REAL Speech section reading
-// Language → Model over a canned list_models snapshot (concrete language
-// "de"), then the REAL download modal opened through the production
-// openModelDownloadModal path with the single-flight download live at 40%
-// (ModalRoot dialog box: title header, description, percent + determinate
-// bar, Cancel in the footer — captured fullscreen-overlay style via
-// modalShot).
-shot("panel-speech-en", "case=panel&catalog=ready&language=de&locale=en", {
+// Model-select flow (ADR-011, v0.2.6): the REAL Speech section reading
+// Model → (conditional) Language over the full canned list_models snapshot
+// (all-language grouped catalog), then the REAL download modal opened
+// through the production openModelDownloadModal path holding the download's
+// final 100% frame (ModalRoot dialog box: title header, description,
+// "100%" + full determinate bar, Cancel in the footer — captured
+// fullscreen-overlay style via modalShot).
+shot("panel-speech-en", "case=panel&catalog=ready&locale=en", {
     sectionTitle: "Speech",
 });
-modalShot("panel-modal-en", "case=panel&catalog=modal&language=de&locale=en");
+modalShot("panel-modal-en", "case=panel&catalog=modal&locale=en");
 storeShot();
 
 // Numeric overflow checks at the acceptance widths (no bitmaps needed).
