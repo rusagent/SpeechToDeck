@@ -154,6 +154,56 @@ def test_control_fails_closed_before_variant_resolution(tmp_path: object) -> Non
     asyncio.run(scenario())  # type: ignore[arg-type]
 
 
+def test_stop_timeout_scales_with_recorded_duration(tmp_path: object) -> None:
+    """ADR-012: the `record stop --timeout` budget grows with what was
+    actually recorded — a 600 s (injected clock) recording hands the CLI
+    `--timeout 1200` instead of the 120 s floor, which would kill the
+    transcription of long audio while it is still running. The pure budget
+    keeps the exact historical floor for short recordings."""
+    from backend.infrastructure.process.voxtype_client import final_wait_budget
+
+    # Pure budget: floor kept at 0 s recorded, scaled beyond the crossover.
+    assert final_wait_budget(0.0, 120.0) == 120.0
+    assert final_wait_budget(600.0, 120.0) == 1200.0
+
+    async def scenario() -> None:
+        paths = make_paths(tmp_path)  # type: ignore[arg-type]
+        binary = build_fixture_binary(paths.plugin_root)
+        proc = await spawn_fixture_daemon(paths, binary)
+        sink = SinkCollector()
+        clock = {"now": 100.0}
+        client, _ = await make_ready_client(paths, backend="cpu", clock=lambda: clock["now"])
+        client.transcript_sink = sink
+        recorded_stop_argv: list[list[str]] = []
+        real_exec = asyncio.create_subprocess_exec
+
+        async def spy(*argv: object, **kwargs: object) -> object:
+            args = [str(a) for a in argv]
+            if "stop" in args:
+                recorded_stop_argv.append(args)
+            return await real_exec(*argv, **kwargs)  # type: ignore[arg-type]
+
+        import backend.infrastructure.process.voxtype_client as voxtype_client_module
+
+        original = voxtype_client_module.asyncio.create_subprocess_exec
+        voxtype_client_module.asyncio.create_subprocess_exec = spy
+        try:
+            await client.start_recording()
+            clock["now"] += 600.0  # one 10-minute recording, no real waiting
+            await client.stop_recording()
+            assert await sink.wait_delivery(3.0)
+            assert sink.results[0].text == "hello world"
+            assert len(recorded_stop_argv) == 1
+            timeout_value = recorded_stop_argv[0][recorded_stop_argv[0].index("--timeout") + 1]
+            assert timeout_value == "1200"
+        finally:
+            voxtype_client_module.asyncio.create_subprocess_exec = original
+            await client.stop()
+            await stop_process_group(proc)
+
+    asyncio.run(scenario())  # type: ignore[arg-type]
+
+
 def test_stop_times_out_via_upstream_exit_code(tmp_path: object) -> None:
     async def scenario() -> None:
         paths = make_paths(tmp_path)  # type: ignore[arg-type]

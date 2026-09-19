@@ -28,7 +28,6 @@ from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
 
 from backend.domain.contracts import (
-    DEFAULT_MAX_RECORDING_SECONDS,
     EVENT_SPEECH_ERROR,
     EVENT_SPEECH_STATUS,
     EVENT_TRANSCRIPT_READY,
@@ -58,7 +57,19 @@ from backend.domain.session import ActiveSpeechSession, SpeechSessionCoordinator
 LOGGER = logging.getLogger("dictation.session")
 
 ACK_TIMEOUT_S = 2.0  # §71: record start/stop acknowledgement
-DEFAULT_TRANSCRIPT_GRACE_S = 30.0  # added to max recording for the final wait (§71)
+DEFAULT_TRANSCRIPT_GRACE_S = 30.0  # added to the final-wait budget (§71)
+# §71 final-transcription watchdog, scaled with the recorded duration
+# (ADR-012): with the 24 h recording valve there is no fixed cap left to
+# budget from, so the wait grows with what was actually recorded —
+# max(floor, recorded_s * TRANSCRIPTION_TIME_FACTOR + grace). The floor is
+# the exact historical v0.2.x budget (60 s cap + 30 s grace), so short
+# recordings keep their current bound; the factor ≈ twice real time is
+# generous headroom for whisper transcription of long audio. Still strictly
+# bounded at every recording length (§71: no wait is unbounded), and it
+# keeps a grace-width margin above the CLI's own `--timeout` so the
+# upstream exit-4 path stays the primary timeout reporter.
+TRANSCRIPTION_WATCHDOG_FLOOR_S = 90.0  # = 60 s v0.2.x cap + 30 s grace
+TRANSCRIPTION_TIME_FACTOR = 2.0
 MAX_TRANSCRIPT_BYTES = 16 * 1024  # §78
 # Additive v0.2 clipboard write bound: the writer has its own internal
 # timeout; this outer bound guarantees the transcript event is never delayed
@@ -204,6 +215,9 @@ class SpeechApplicationService:
                     )
                 )
             stop_monotonic = self._clock()
+            # ADR-012: the final-wait budget scales with what was actually
+            # recorded (§71 bounded-at-every-length).
+            recorded_seconds = max(0.0, stop_monotonic - session.started_monotonic)
             pending: asyncio.Future[object] = asyncio.get_running_loop().create_future()
             self._pending_delivery = pending
             await self._publish_state("transcribing", session_id)
@@ -214,7 +228,8 @@ class SpeechApplicationService:
             return  # cancelled meanwhile; cancel flow owns the outcome
         try:
             outcome = await asyncio.wait_for(
-                asyncio.shield(pending), await self._transcription_timeout()
+                asyncio.shield(pending),
+                self._transcription_timeout(recorded_seconds),
             )
         except TimeoutError:
             pending.cancel()
@@ -499,11 +514,17 @@ class SpeechApplicationService:
             return "failed"
         return status
 
-    async def _transcription_timeout(self) -> float:
-        """§71: final transcription bounded by the recording cap + grace.
+    def _transcription_timeout(self, recorded_seconds: float) -> float:
+        """§71: final transcription budget, scaled with the recording (ADR-012).
 
-        v0.2.5: the cap is the fixed §44 recording bound the supervisor emits
-        into the daemon config (`DEFAULT_MAX_RECORDING_SECONDS`), no longer a
-        user setting — the watchdog stays aligned with the real daemon limit.
+        max(floor, recorded_seconds * TRANSCRIPTION_TIME_FACTOR + grace).
+        The floor is the exact historical v0.2.x budget (60 s cap + grace)
+        for short recordings; longer recordings get headroom ≈ twice the
+        recorded duration for whisper transcription, so the 24 h valve never
+        turns into an under-budgeted wait. Deterministic in
+        `recorded_seconds`; still strictly bounded (§71).
         """
-        return DEFAULT_MAX_RECORDING_SECONDS + self._transcript_grace
+        return max(
+            TRANSCRIPTION_WATCHDOG_FLOOR_S,
+            recorded_seconds * TRANSCRIPTION_TIME_FACTOR + self._transcript_grace,
+        )

@@ -269,17 +269,35 @@ def test_stop_acknowledgement_timeout_clears_session() -> None:
 
 def test_final_transcription_timeout(monkeypatch: pytest.MonkeyPatch) -> None:
     async def scenario() -> None:
-        # v0.2.5: the §71 bound is the fixed recording cap (a module-level
-        # constant) + the injected grace; patch the constant down so the
-        # bounded wait stays fast — the timeout mapping is identical at any
-        # duration.
-        monkeypatch.setattr(speech_service, "DEFAULT_MAX_RECORDING_SECONDS", 2)
+        # ADR-012: the §71 bound is max(watchdog floor, recorded * factor +
+        # grace); a short recording rides the floor (a module-level
+        # constant), so patch it down to keep the bounded wait fast — the
+        # timeout mapping is identical at any floor value.
+        monkeypatch.setattr(speech_service, "TRANSCRIPTION_WATCHDOG_FLOOR_S", 2)
         harness = Harness(transcript_grace_seconds=0.1)
         await harness.service.start_recording("session-1")
         with pytest.raises(TranscriptionTimeoutError):
             await harness.service.stop_recording("session-1")  # nothing ever emitted
         assert harness.publisher.codes(ERROR) == ["TRANSCRIPTION_TIMEOUT"]
         assert not harness.service.has_pending_work()
+
+    asyncio.run(scenario())
+
+
+def test_transcription_timeout_scales_with_recorded_duration() -> None:
+    """ADR-012: the final-wait budget grows with what was actually recorded
+    while short recordings keep the exact historical floor (60 s cap + 30 s
+    grace = 90 s) — the 24 h valve must not turn into a fixed 24 h wait nor
+    into an under-budgeted one. Deterministic in the recorded span."""
+
+    async def scenario() -> None:
+        harness = Harness()  # default grace: 30 s
+        assert harness.service._transcription_timeout(0.0) == 90.0
+        assert harness.service._transcription_timeout(20.0) == 90.0  # floor kept
+        assert harness.service._transcription_timeout(60.0) == 150.0
+        assert harness.service._transcription_timeout(600.0) == 1230.0
+        # An hour of audio gets an hour-scale budget, not the 90 s floor.
+        assert harness.service._transcription_timeout(3600.0) == 7230.0
 
     asyncio.run(scenario())
 

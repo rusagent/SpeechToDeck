@@ -54,7 +54,12 @@ from backend.infrastructure.process.runtime_variant import RuntimeVariantResolve
 LOGGER = logging.getLogger("speech.runtime")
 
 ACK_TIMEOUT_S = 2.0  # §71: record start/stop/cancel acknowledgement
-DEFAULT_FINAL_TIMEOUT_S = 120.0  # bounded by max-recording/model policy (§71)
+# §71 final-wait floor for the CLI's `--timeout`: the historical v0.2.x
+# budget, kept exactly for short recordings. With the 24 h recording valve
+# (ADR-012) there is no fixed cap to budget from, so the handed-out
+# --timeout grows with the actually recorded duration (`final_wait_budget`).
+DEFAULT_FINAL_TIMEOUT_S = 120.0
+STOP_TIME_FACTOR = 2.0  # ≈ twice real time: whisper headroom for long audio
 # Local grace on top of the CLI's own --timeout: the CLI reports timeout
 # (exit 4) itself; only a hung CLI is killed here.
 _STOP_CLI_GRACE_S = 5.0
@@ -64,6 +69,20 @@ _ERROR_DETAIL_LIMIT = 200
 _EXIT_TRANSCRIBED = 0
 _EXIT_EMPTY = 3
 _EXIT_TIMEOUT = 4
+
+
+def final_wait_budget(recorded_seconds: float, floor_s: float) -> float:
+    """§71 `record stop --timeout` budget, scaled with the recording (ADR-012).
+
+    max(floor, recorded_seconds * STOP_TIME_FACTOR): short recordings keep
+    their exact current bound (the floor), longer ones get transcription
+    headroom proportional to what was actually recorded. Deliberately kept
+    at or below the application watchdog's scaled budget (which adds its
+    30 s grace) so the upstream exit-4 timeout stays the primary reporter.
+    Deterministic in `recorded_seconds`; strictly bounded at every length
+    (§71: no wait is unbounded).
+    """
+    return max(floor_s, recorded_seconds * STOP_TIME_FACTOR)
 
 
 class VoxtypeClient:
@@ -86,6 +105,10 @@ class VoxtypeClient:
         self.transcript_sink: TranscriptSink | None = None
         self._delivery_task: asyncio.Task[None] | None = None
         self._stop_proc: asyncio.subprocess.Process | None = None
+        # Monotonic timestamp of the last acknowledged `record start`; drives
+        # the ADR-012 scaled stop budget. One-shot: consumed by stop, cleared
+        # by cancel.
+        self._recording_started_at: float | None = None
 
     # ── SpeechRuntime port (§32) ─────────────────────────────────────────────
 
@@ -108,19 +131,26 @@ class VoxtypeClient:
             ["record", "start", f"--file={self._paths.output_file}"],
             start_failure=RecordingStartError,
         )
+        # The daemon is recording from here: the ADR-012 stop budget measures
+        # the real recording span from the acknowledged start.
+        self._recording_started_at = self._clock()
 
     async def stop_recording(self) -> None:
         self._require_sink()
+        started_at = self._recording_started_at
+        self._recording_started_at = None
+        recorded_seconds = max(0.0, self._clock() - started_at) if started_at is not None else 0.0
         # §42 steps 2-3 run in the background: the stop acknowledgement stays
         # bounded (§71) while the CLI's --wait resolves the final outcome.
         self._delivery_task = asyncio.get_running_loop().create_task(
-            self._deliver_final_transcript()
+            self._deliver_final_transcript(recorded_seconds)
         )
 
     async def cancel_recording(self) -> None:
         try:
             await self._control(["record", "cancel"], start_failure=RecordingStopError)
         finally:
+            self._recording_started_at = None
             # §72: cancellation discards any pending result unconditionally.
             await self._abort_delivery()
 
@@ -156,11 +186,11 @@ class VoxtypeClient:
             except Exception:
                 LOGGER.debug("pending transcript delivery aborted with error")
 
-    async def _deliver_final_transcript(self) -> None:
+    async def _deliver_final_transcript(self, recorded_seconds: float) -> None:
         sink = self._require_sink()
         started = self._clock()
         try:
-            exit_code, stderr_text = await self._run_stop_command()
+            exit_code, stderr_text = await self._run_stop_command(recorded_seconds)
         except asyncio.CancelledError:
             raise
         except SpeechError as exc:
@@ -208,13 +238,16 @@ class VoxtypeClient:
             return
         await sink.on_transcript(result)
 
-    async def _run_stop_command(self) -> tuple[int | None, str]:
+    async def _run_stop_command(self, recorded_seconds: float) -> tuple[int | None, str]:
         """Run `record stop --wait --json --timeout N`; return (exit, stderr).
+
+        N is the ADR-012 scaled budget (`final_wait_budget`): the floor for
+        short recordings, growing with the recorded duration otherwise.
 
         stdout is discarded: the upstream --json outcome object embeds the
         transcript text, so it is never read into a loggable buffer (§73).
         """
-        timeout = max(1, round(self._final_timeout))
+        timeout = max(1, round(final_wait_budget(recorded_seconds, self._final_timeout)))
         argv = self._cli_argv(
             ["record", "stop", "--wait", "--json", "--timeout", str(timeout)],
             start_failure=RecordingStopError,
