@@ -85,10 +85,13 @@ MAX_RESTART_ATTEMPTS = 3  # §70
 RESTART_BASE_DELAY_S = 0.5  # §70: bounded exponential delay
 RESTART_MAX_DELAY_S = 8.0
 
-# v0.2.5 fixed daemon VAD behavior: the settings toggle left the settings
-# document (owner declutter) and the supervisor emits the v0.2.4 default
-# (VAD enabled) unconditionally, so the daemon-side behavior is unchanged.
-DAEMON_VAD_ENABLED = True
+# v0.2.6: VAD stays disabled in the generated config. The silero VAD model is
+# not bundled with the plugin, so voxtype logs "Failed to initialize VAD,
+# continuing without: VAD model not found" and runs without VAD anyway —
+# emitting `enabled = true` only configured a feature that never initialized
+# on device. Flip back only if a voxtype setup ever ships the VAD model with
+# the runtime.
+DAEMON_VAD_ENABLED = False
 # A daemon that stayed up this long is considered stable again; the restart
 # budget resets so a later crash gets a fresh policy window.
 RESTART_STABILITY_WINDOW_S = 60.0
@@ -206,13 +209,16 @@ def daemon_config_toml(
       and checksums under our ModelStore control);
     - `[whisper] language` — our "system" setting has no upstream equivalent,
       so it maps to "auto" at this adapter boundary; codes pass through;
-      English-only models (multilingual=false, ADR-011) cannot auto-detect,
-      so "system"/"auto" additionally resolves to "en" for them;
+      English-only models (multilingual=false, ADR-011) cannot auto-detect
+      NOR honor any other language, so every mapping resolves to "en" for
+      them (on-device 2026-09-19: an en-only model with an explicit "de"
+      produced broken transcription);
     - `[whisper] on_demand_loading = false` — the model stays loaded (§82);
     - `[whisper] eager_processing = false` — one-shot dictation only;
-    - `[vad] enabled` — v0.2.5: FIXED to true (the v0.2.4 default and the
-      only behavior ever verified on device); the VAD settings toggle was
-      removed with the recording-duration setting (owner declutter);
+    - `[vad] enabled` — v0.2.6: FIXED to false — the silero VAD model is not
+      bundled, voxtype warns and continues without it, so a `true` line only
+      configured a feature that never initialized (the v0.2.5 fixed-true is
+      gone; the settings toggle stays removed, owner declutter);
     - `[output] mode = "file"` + `file_path` + `file_mode = "overwrite"` —
       atomic per-recording transcript writes with the `.done` sidecar;
     - `[output.notification]` all off and `[osd] enabled = false` (upstream
@@ -223,10 +229,13 @@ def daemon_config_toml(
     """
     language = "auto" if settings.language == "system" else settings.language
     # ADR-011 language forcing: whisper .en-only models (multilingual=false)
-    # cannot auto-detect, so the sentinels resolve to "en" for them. Explicit
-    # codes pass through unchanged; multilingual models are unaffected. None
-    # (model info unavailable) keeps the legacy mapping.
-    if language == "auto" and model_multilingual is False:
+    # cannot auto-detect and cannot honor any other language, so EVERY mapping
+    # resolves to "en" for them — explicit codes included (an en-only model
+    # receiving "de" transcribes broken output; "en" is the only functional
+    # choice). Multilingual models are unaffected ("system" → "auto", explicit
+    # codes pass through). None (model info unavailable) keeps the legacy
+    # mapping.
+    if model_multilingual is False:
         language = "en"
     lines = [
         f"engine = {_toml_string('whisper')}",
@@ -246,7 +255,8 @@ def daemon_config_toml(
         "eager_processing = false",
         "",
         "[vad]",
-        # Fixed v0.2.4-effective behavior (v0.2.5): see the docstring notes.
+        # Fixed constant (v0.2.6: silero VAD model not bundled) — see the
+        # docstring notes.
         f"enabled = {'true' if DAEMON_VAD_ENABLED else 'false'}",
         "",
         "[output]",

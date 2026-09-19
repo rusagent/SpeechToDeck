@@ -148,9 +148,10 @@ def test_generated_daemon_config_carries_upstream_keys(tmp_path: Path) -> None:
         assert config["engine"] == "whisper"
         assert config["state_file"] == str(paths.status_file)
         assert config["hotkey"]["enabled"] is False
-        # v0.2.5: fixed §44 cap + VAD enabled (settings fields removed).
+        # v0.2.5: fixed §44 cap (settings fields removed); v0.2.6: VAD fixed
+        # off (silero model not bundled, voxtype continues without it).
         assert config["audio"]["max_duration_secs"] == DEFAULT_MAX_RECORDING_SECONDS
-        assert config["vad"]["enabled"] is True
+        assert config["vad"]["enabled"] is False
         assert config["whisper"]["model"] == str(paths.models_dir / "ggml-base.bin")
         assert config["whisper"]["language"] == "auto"  # "system" → auto mapping
         assert config["whisper"]["on_demand_loading"] is False
@@ -173,8 +174,9 @@ def test_generated_daemon_config_carries_upstream_keys(tmp_path: Path) -> None:
 
 def test_generated_daemon_config_maps_language_and_model(tmp_path: Path) -> None:
     """v0.2.5: the removed max-duration/VAD settings no longer reach the
-    config; the audio/vad lines carry the fixed constants (60 s / enabled)
-    regardless of what was persisted, preserving v0.2.4 effective behavior."""
+    config; the audio/vad lines carry the fixed constants (60 s / disabled
+    since v0.2.6 — the silero VAD model is not bundled) regardless of what
+    was persisted."""
     import tomllib
 
     from backend.domain.contracts import Settings
@@ -197,14 +199,16 @@ def test_generated_daemon_config_maps_language_and_model(tmp_path: Path) -> None
     assert config["whisper"]["language"] == "de"  # explicit codes pass through
     assert config["whisper"]["model"] == "/models/ggml-tiny.bin"
     assert config["audio"]["max_duration_secs"] == DEFAULT_MAX_RECORDING_SECONDS
-    assert config["vad"]["enabled"] is True
+    assert config["vad"]["enabled"] is False
 
 
 def test_daemon_config_forces_english_for_en_only_models() -> None:
-    """ADR-011 language forcing, all four branches: whisper .en-only models
-    (multilingual=false) cannot auto-detect, so the "system"/"auto" sentinels
-    resolve to "en" for them; explicit codes pass through; multilingual models
-    keep the legacy "system" → "auto" mapping."""
+    """ADR-011 language forcing, all branches: whisper .en-only models
+    (multilingual=false) cannot auto-detect NOR honor any other language, so
+    EVERY mapping resolves to "en" for them — explicit codes included (on
+    device, an en-only model receiving "de" transcribed broken output).
+    Multilingual models keep the legacy mapping ("system" → "auto", explicit
+    codes pass through). The v0.2.6 VAD line is fixed off."""
     import tomllib
 
     from backend.domain.contracts import Settings
@@ -213,7 +217,7 @@ def test_daemon_config_forces_english_for_en_only_models() -> None:
         # (multilingual, language sentinel/code, expected daemon language)
         (False, "system", "en"),
         (False, "auto", "en"),
-        (False, "de", "de"),
+        (False, "de", "en"),  # explicit code: an en-only model cannot honor it
         (True, "system", "auto"),
         (True, "auto", "auto"),
         (True, "de", "de"),
@@ -236,6 +240,9 @@ def test_daemon_config_forces_english_for_en_only_models() -> None:
         )
         config = tomllib.loads(toml)
         assert config["whisper"]["language"] == expected, (multilingual, language)
+        # v0.2.6: the silero VAD model is not bundled; the config no longer
+        # enables a feature voxtype can never initialize.
+        assert config["vad"]["enabled"] is False
 
 
 def test_supervisor_resolves_multilingual_flag_for_config(tmp_path: Path) -> None:
