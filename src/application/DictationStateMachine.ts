@@ -21,7 +21,6 @@
  *   result stale, so insertion is never even attempted.
  * - INSERTION_SUCCEEDED / INSERTION_FAILED — insertion outcome (§22 Result).
  * - CANCEL_REQUESTED — first-class cancellation (§72).
- * - MAX_DURATION_REACHED — automatic stop at the configured maximum (§76).
  * - KEYBOARD_CLOSED — keyboard context disappeared (§12).
  * - SPEECH_FAILED — an error event from the speech port (§68 codes).
  * - ERROR_DISMISSED — user acknowledged a recoverable error (§69).
@@ -58,7 +57,6 @@ export type DictationEvent =
           readonly error: DictationError;
       }
     | { readonly type: "CANCEL_REQUESTED" }
-    | { readonly type: "MAX_DURATION_REACHED" }
     | { readonly type: "KEYBOARD_CLOSED"; readonly contextId: string }
     | {
           readonly type: "SPEECH_FAILED";
@@ -398,28 +396,6 @@ export function transition(current: DictationState, event: DictationEvent): Tran
                 case "booting":
                 case "unavailable":
                 case "ready":
-                case "inserting":
-                case "error":
-                    return unchanged(current);
-            }
-            break;
-        }
-
-        case "MAX_DURATION_REACHED": {
-            switch (current.kind) {
-                case "recording":
-                    // Automatic stop transcribes the utterance (§76); the automatic
-                    // stop itself never submits the resulting text.
-                    return result(
-                        { kind: "stopping", session: current.session },
-                        { type: "STOP_RECORDING", sessionId: current.session.sessionId },
-                    );
-                case "booting":
-                case "unavailable":
-                case "ready":
-                case "starting":
-                case "stopping":
-                case "transcribing":
                 case "inserting":
                 case "error":
                     return unchanged(current);

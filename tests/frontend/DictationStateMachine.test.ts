@@ -276,19 +276,6 @@ describe("cancellation (§72)", () => {
     });
 });
 
-describe("maximum recording duration (§76)", () => {
-    it("recording → stopping with STOP_RECORDING when the maximum is reached", () => {
-        const result = transition(sessionState("recording"), { type: "MAX_DURATION_REACHED" });
-        expect(result.state).toEqual({ kind: "stopping", session: SESSION });
-        expect(result.effects).toEqual([{ type: "STOP_RECORDING", sessionId: "s-1" }]);
-    });
-
-    it("the timeout event is ignored outside recording", () => {
-        rejected({ kind: "ready" }, { type: "MAX_DURATION_REACHED" });
-        rejected(sessionState("transcribing"), { type: "MAX_DURATION_REACHED" });
-    });
-});
-
 describe("keyboard close safety (§12)", () => {
     it("keyboard closed while recording → ready, emitting CANCEL_RECORDING", () => {
         const result = transition(sessionState("recording"), {

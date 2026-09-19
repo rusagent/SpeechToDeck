@@ -1,13 +1,15 @@
 /**
- * DictationController behavioral tests (spec §9-§12, §76-§78, §87).
+ * DictationController behavioral tests (spec §9-§12, §77-§78, §87).
  *
  * All infrastructure is in-memory fakes; no network and no microphone. The
  * oracle is the spec: acknowledgements gate the active indicator (§75), stale
  * results are never injected (§11), suppression follows keyboard-context loss
- * (§12), and §76-§78 govern auto-stop, empty speech and validation.
+ * (§12), and §77-§78 govern empty speech and validation. (v0.2.6: the §76
+ * recording cap was removed — recordings are unlimited on the FE side; the
+ * former watchdog suite went with it.)
  */
 
-import { describe, expect, it, vi } from "vitest";
+import { describe, expect, it } from "vitest";
 
 import { DictationController } from "../../src/application/DictationController";
 import type { StartupTimerSeam } from "../../src/application/DictationController";
@@ -379,43 +381,6 @@ describe("transcript validation (§78)", () => {
             error: { code: "TRANSCRIPT_INVALID" },
         });
         expect(rig.inserter.insertCalls).toEqual([]);
-    });
-});
-
-describe("maximum recording duration (§76)", () => {
-    // v0.2.5: the cap is the fixed §44 constant (60 s) mirrored by the
-    // controller's watchdog; the user-facing duration setting is gone.
-    it("automatically stops recording at the fixed maximum cap and transcribes", async () => {
-        vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
-        try {
-            const rig = createTestRig();
-            rig.keyboard.open();
-            await rig.controller.start();
-            await rig.controller.handleMicrophonePressed();
-            await vi.advanceTimersByTimeAsync(0);
-            expect(rig.controller.getSnapshot().kind).toBe("starting");
-
-            rig.speech.resolveStart("id-1");
-            await vi.advanceTimersByTimeAsync(0);
-            expect(rig.controller.getSnapshot().kind).toBe("recording");
-
-            await vi.advanceTimersByTimeAsync(59_999);
-            expect(rig.controller.getSnapshot().kind).toBe("recording");
-
-            rig.clock.advance(60_000);
-            await vi.advanceTimersByTimeAsync(1);
-            expect(rig.controller.getSnapshot().kind).toBe("stopping");
-            expect(rig.speech.stopCalls).toEqual(["id-1"]);
-
-            rig.speech.resolveStop("id-1");
-            await vi.advanceTimersByTimeAsync(0);
-            expect(rig.controller.getSnapshot().kind).toBe("transcribing");
-
-            // The automatic stop itself never submits text (§76).
-            expect(rig.inserter.insertCalls).toEqual([]);
-        } finally {
-            vi.useRealTimers();
-        }
     });
 });
 

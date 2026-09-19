@@ -58,7 +58,7 @@ function describeError(error: unknown): string {
     return error instanceof Error ? error.message : String(error);
 }
 
-/** Handle shape of the platform timer scheduler (mirrors maxDurationTimer). */
+/** Handle shape of the platform timer scheduler (the boot watchdog's seam). */
 export type TimeoutHandle = ReturnType<typeof setTimeout>;
 
 /**
@@ -71,19 +71,9 @@ export type TimeoutHandle = ReturnType<typeof setTimeout>;
 export const STARTUP_WATCHDOG_MS = 10_000;
 
 /**
- * The fixed §44 recording cap (v0.2.5): the maximum-recording-duration
- * setting left the settings document, and the backend daemon now receives
- * this same constant (`DEFAULT_MAX_RECORDING_SECONDS` in
- * backend/domain/contracts.py) as its `max_duration_secs`. The FE watchdog
- * mirrors it so MAX_DURATION_REACHED fires when the daemon stops the
- * recording anyway.
- */
-const MAX_RECORDING_SECONDS = 60;
-
-/**
- * Scheduling seam for the boot watchdog — the same shape as the §76
- * maxDurationTimer, made injectable so tests fire expiry deterministically
- * (no real-time sleeps). The default schedules on the platform event loop.
+ * Scheduling seam for the boot watchdog, made injectable so tests fire
+ * expiry deterministically (no real-time sleeps). The default schedules on
+ * the platform event loop.
  */
 export interface StartupTimerSeam {
     readonly timeoutMs: number;
@@ -104,7 +94,6 @@ export class DictationController implements Disposable, StateStore<DictationStat
     private state: DictationState = { kind: "booting" };
     private speechEvents: Disposable | null = null;
     private keyboardEvents: Disposable | null = null;
-    private maxDurationTimer: ReturnType<typeof setTimeout> | null = null;
     private startupWatchdog: TimeoutHandle | null = null;
     private startupExpired = false;
     private suppressedTranscript: string | null = null;
@@ -187,9 +176,7 @@ export class DictationController implements Disposable, StateStore<DictationStat
             // report.
             // The load itself stays load-bearing: a failure must fail startup
             // with SETTINGS_LOAD_FAILED (§82), and the loaded `enabled` flag
-            // drives the startup outcome. The document used to also feed the
-            // recording-cap watchdog; v0.2.5 that cap is the fixed
-            // MAX_RECORDING_SECONDS constant.
+            // drives the startup outcome.
             let loadedSettings: PluginSettings;
             try {
                 loadedSettings = await this.settings.load();
@@ -241,7 +228,6 @@ export class DictationController implements Disposable, StateStore<DictationStat
         }
         this.disposed = true; // new microphone presses are rejected from here on (§83)
 
-        this.clearMaxDurationTimer();
         this.clearStartupWatchdog();
 
         const session = extractSession(this.state);
@@ -466,7 +452,6 @@ export class DictationController implements Disposable, StateStore<DictationStat
         for (const listener of [...this.listeners]) {
             listener();
         }
-        this.updateMaxDurationTimer(next.state);
         if (next.effects.length > 0) {
             void this.runEffects(next.effects);
         }
@@ -566,7 +551,7 @@ export class DictationController implements Disposable, StateStore<DictationStat
         }
     }
 
-    // ── Capability report (spec §57) and max-duration guard (§76) ──
+    // ── Capability report (spec §57) ──
 
     private async buildRuntimeCapabilities(
         speech: SpeechCapabilities,
@@ -610,26 +595,6 @@ export class DictationController implements Disposable, StateStore<DictationStat
                 keyboardHookAvailable,
             }),
         };
-    }
-
-    private updateMaxDurationTimer(state: DictationState): void {
-        this.clearMaxDurationTimer();
-        if (state.kind !== "recording") {
-            return;
-        }
-        const elapsedMs = this.clock.nowMonotonicMs() - state.session.startedAtMonotonicMs;
-        const remainingMs = Math.max(MAX_RECORDING_SECONDS * 1000 - elapsedMs, 0);
-        this.maxDurationTimer = setTimeout(() => {
-            this.maxDurationTimer = null;
-            this.apply({ type: "MAX_DURATION_REACHED" });
-        }, remainingMs);
-    }
-
-    private clearMaxDurationTimer(): void {
-        if (this.maxDurationTimer !== null) {
-            clearTimeout(this.maxDurationTimer);
-            this.maxDurationTimer = null;
-        }
     }
 
     /**
