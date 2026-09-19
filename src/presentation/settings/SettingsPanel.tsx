@@ -128,13 +128,16 @@ export function SettingsPanel({
     // Shown while the runtime is setting up or failed; terminal `ready`
     // hides it again, and a disabled plugin shows no progress at all.
     const showSetup = value !== null && value.enabled && setup !== null && setup.step !== "ready";
-    // The Language picker renders ONLY while the selected model does not
-    // pin a language itself: an unloaded catalog, an unknown (older-backend)
-    // model id, or a general model (no `languages`). A language-specific
-    // model derives its language, so the picker would be a lie. The
-    // persisted `language` value is never cleared or rewritten here —
-    // switching back to a general model restores the prior selection (the
-    // backend ignores `language` for language-specific models).
+    // The Language picker renders ONLY while the selected model declares no
+    // languages at all: an unloaded catalog, an unknown (older-backend)
+    // model id, or a general model without a `languages` field. ANY
+    // declared-language model hides the picker — single-language
+    // declarations are the only shipped case (ADR-011/ADR-012), and for
+    // those the backend forces the declared language regardless of
+    // `settings.language`, so the picker would be a lie. The persisted
+    // `language` value is never cleared or rewritten here — switching back
+    // to a general model restores the prior selection (the backend honors
+    // `language` only when no single language is declared).
     const selectedCatalogModel =
         value === null ? undefined : catalogSnapshot?.models.find((m) => m.id === value.modelId);
     const showLanguagePicker =

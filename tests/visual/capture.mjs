@@ -99,12 +99,13 @@ function findRegion(geometry, name) {
     return rect;
 }
 
-function readGeometry(query, windowHeight) {
+function readGeometry(query, windowHeight, extra = []) {
     const dom = execFileSync(
         chrome,
         chromeArgs(`${CAPTURE_WINDOW_WIDTH},${windowHeight}`, [
             "--dump-dom",
             `file://${root}/tests/visual/index.html?${query}`,
+            ...extra,
         ]),
         { encoding: "utf8" },
     );
@@ -197,14 +198,24 @@ function overflowProbe(width, query) {
 // width (within the wave-visual-read long-edge limit): the ModalRoot dialog
 // box on the dimmed page, plus Steam's X close icon above it. The geometry
 // pass doubles as the sentinel that the modal actually opened.
+//
+// Exposure vs the REAL completion hold: the harness completes the download
+// through publishComplete right after the modal opens, and the modal closes
+// itself COMPLETION_HOLD_MS (500 ms) later. The default 3000 ms virtual-time
+// exposure would outlive the hold and screenshot an already-closed modal, so
+// both passes end inside the hold window — after the 300 ms settle fallback,
+// before the 500 ms close. The extra flag overrides the earlier budget
+// (Chromium's last switch wins).
 function modalShot(name, query, width = 640, height = 450) {
-    const geometry = readGeometry(query, height);
+    const holdWindow = ["--virtual-time-budget=400"];
+    const geometry = readGeometry(query, height, holdWindow);
     findRegion(geometry, "downloadModal");
     const png = path.join(out, `${name}.png`);
     const jpg = path.join(out, `${name}.jpg`);
     execFileSync(
         chrome,
         chromeArgs(`${width},${height}`, [
+            ...holdWindow,
             `--screenshot=${png}`,
             `file://${root}/tests/visual/index.html?${query}`,
         ]),
@@ -288,10 +299,11 @@ shot("dictation-transcript-de", "case=dictation&dictation=transcript&locale=de",
 // Model-select flow (ADR-011, v0.2.6): the REAL Speech section reading
 // Model → (conditional) Language over the full canned list_models snapshot
 // (all-language grouped catalog), then the REAL download modal opened
-// through the production openModelDownloadModal path holding the download's
-// final 100% frame (ModalRoot dialog box: title header, description,
-// "100%" + full determinate bar, Cancel in the footer — captured
-// fullscreen-overlay style via modalShot).
+// through the production openModelDownloadModal path and completed through
+// the production publishComplete path — the real completion hold (ModalRoot
+// dialog box: title header, description, "100%" + full determinate bar,
+// Cancel hidden — captured fullscreen-overlay style via modalShot inside
+// the hold window).
 shot("panel-speech-en", "case=panel&catalog=ready&locale=en", {
     sectionTitle: "Speech",
 });

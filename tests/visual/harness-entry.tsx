@@ -58,9 +58,10 @@ export type HarnessDictationVariant = "idle" | "recording" | "transcript";
  * the REAL ModelSelect over a canned `list_models` snapshot matching the
  * committed defaults/models.json (General + one native-labeled group per
  * language); `modal` additionally opens the REAL download modal (via the
- * production openModelDownloadModal path) with the single-flight download
- * holding its final 100% frame — the state the honest completion shows
- * before the modal's short hold elapses and it closes.
+ * production openModelDownloadModal path) and then settles the download
+ * through the production publishComplete path — install flip plus the held
+ * final 100% frame — so the capture shows the REAL completion hold (full
+ * bar, Cancel hidden) before the modal's short hold elapses and it closes.
  */
 export type HarnessCatalogVariant = "none" | "ready" | "modal";
 
@@ -222,10 +223,11 @@ export const CAPTURED_CASES: readonly HarnessParams[] = [
         scroll: null,
     },
     // Same catalog with the REAL download modal open (opened through the
-    // production openModelDownloadModal path) holding the download's final
-    // 100% frame — full determinate bar, "100%" percent row, Cancel still
-    // present — the honest completion state before the modal's short hold
-    // elapses and it closes itself.
+    // production openModelDownloadModal path) driven into the REAL
+    // completion hold by the production publishComplete path — full
+    // determinate bar, "100%" percent row, Cancel hidden — the state the
+    // honest completion shows before the modal's short hold elapses and it
+    // closes itself.
     {
         caseId: "panel",
         locale: "en",
@@ -362,10 +364,11 @@ const HARNESS_MODEL_CATALOG: readonly CatalogModel[] = [
 
 /**
  * Builds the catalog store for the panel case through the production publish
- * paths. The modal variant holds the recommended turbo model at its FINAL
- * 100% frame (bytesReceived == totalBytes) — the exact percent the real
- * `model_download_progress` stream ends on before `model_download_complete`,
- * with the model not yet marked installed so the hold state stays on screen.
+ * paths. The modal variant seeds the recommended turbo model's final 100%
+ * progress frame (bytesReceived == totalBytes) — the exact percent the real
+ * `model_download_progress` stream ends on; the install flip itself happens
+ * after the modal opened, through the production publishComplete path (see
+ * ModalOpener), so the capture shows the real completion hold.
  */
 function fakeCatalogStore(variant: Exclude<HarnessCatalogVariant, "none">): ModelCatalogStore {
     const store = new ModelCatalogStore();
@@ -437,7 +440,10 @@ function fakeState(stateKind: HarnessParams["stateKind"]): DictationState {
  * Opens the REAL download modal through the production path for the `modal`
  * capture variant (mount-time trigger standing in for the user's selection
  * of a not-installed model; the modal itself is the real component over the
- * real store). The download holds its final 100% frame in the store.
+ * real store) and then settles the download through the production
+ * publishComplete path — the same guarded `model_download_complete` payload
+ * the adapter ingests — so the modal shows the REAL completion hold (100%
+ * snapshot held, Cancel hidden) instead of a fake mid-download frame.
  */
 function ModalOpener({ store, locale }: { store: ModelCatalogStore; locale: Locale }): null {
     React.useEffect(() => {
@@ -453,6 +459,16 @@ function ModalOpener({ store, locale }: { store: ModelCatalogStore; locale: Loca
             store,
             onCompleted: () => undefined,
             onCancel: () => undefined,
+        });
+        // model_download_complete while the modal is open: the store marks
+        // the model installed and keeps the final percent-100 frame, and the
+        // modal enters its completion hold (Cancel hidden) before closing
+        // after COMPLETION_HOLD_MS. The capture exposure ends inside that
+        // hold window (see modalShot in capture.mjs).
+        store.publishComplete({
+            protocolVersion: 1,
+            modelId: model.id,
+            ...(model.sizeBytes !== undefined ? { sizeBytes: model.sizeBytes } : {}),
         });
     }, [store, locale]);
     return null;
