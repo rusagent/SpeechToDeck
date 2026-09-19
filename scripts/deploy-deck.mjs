@@ -38,14 +38,20 @@ function parseArgs(argv) {
         else if (argv[i] === "--plugin") args.plugin = argv[i + 1];
     }
     if (!args.zip) {
-        console.error("usage: node scripts/deploy-deck.mjs --zip <local-path-or-URL> [--host steamdeck] [--plugin SpeechToDeck]");
+        console.error(
+            "usage: node scripts/deploy-deck.mjs --zip <local-path-or-URL> [--host steamdeck] [--plugin SpeechToDeck]",
+        );
         process.exit(2);
     }
     return args;
 }
 
 function run(cmd, args, opts = {}) {
-    return execFileSync(cmd, args, { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"], ...opts });
+    return execFileSync(cmd, args, {
+        encoding: "utf8",
+        stdio: ["ignore", "pipe", "pipe"],
+        ...opts,
+    });
 }
 
 function sleep(ms) {
@@ -69,7 +75,11 @@ function wsCall(port, token, route, args, timeoutMs = 45000) {
     return new Promise((resolve, reject) => {
         const ws = new WebSocket(`ws://127.0.0.1:${port}/ws?auth=${encodeURIComponent(token)}`);
         const timer = setTimeout(() => {
-            try { ws.close(); } catch { /* already closed */ }
+            try {
+                ws.close();
+            } catch {
+                /* already closed */
+            }
             reject(new Error(`websocket call ${route} timed out`));
         }, timeoutMs);
         ws.addEventListener("error", () => {
@@ -83,8 +93,13 @@ function wsCall(port, token, route, args, timeoutMs = 45000) {
             const msg = JSON.parse(typeof ev.data === "string" ? ev.data : ev.data.toString());
             if (msg.type === REPLY || msg.type === ERROR) {
                 clearTimeout(timer);
-                try { ws.close(); } catch { /* already closed */ }
-                if (msg.type === ERROR) reject(new Error(`loader error: ${JSON.stringify(msg.error)}`));
+                try {
+                    ws.close();
+                } catch {
+                    /* already closed */
+                }
+                if (msg.type === ERROR)
+                    reject(new Error(`loader error: ${JSON.stringify(msg.error)}`));
                 else resolve(msg.result);
             }
         });
@@ -109,8 +124,8 @@ async function main() {
         if (/Permission denied/i.test(String(err.message))) {
             console.error(
                 "The plugin directory is root-owned (Decky UI installs extract as root).\n" +
-                "Fix once on the deck (Konsole), then rerun:\n" +
-                `  sudo chown -R deck:deck ~/homebrew/plugins/${plugin}`,
+                    "Fix once on the deck (Konsole), then rerun:\n" +
+                    `  sudo chown -R deck:deck ~/homebrew/plugins/${plugin}`,
             );
         }
         throw err;
@@ -128,7 +143,10 @@ async function main() {
     }
 
     console.log("[4/4] verifying…");
-    const version = run("ssh", [host, `grep -o '"version": "[^"]*"' ~/homebrew/plugins/${plugin}/plugin.json | head -1`]).trim();
+    const version = run("ssh", [
+        host,
+        `grep -o '"version": "[^"]*"' ~/homebrew/plugins/${plugin}/plugin.json | head -1`,
+    ]).trim();
     console.log(`      deployed ${version}`);
     console.log("done. If this deploy changed frontend code, close and reopen the QAM panel once.");
 }

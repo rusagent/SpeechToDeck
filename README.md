@@ -85,7 +85,7 @@ pnpm typecheck && pnpm test && pnpm lint && pnpm build
   Store channel → Testing).
 - **Manual install:** release zips for URL-install are attached to
   [GitHub Releases](https://github.com/rusagent/SpeechToDeck/releases).
-- **Updates are one click:** Decky shows an *Update* button when a new version
+- **Updates are one click:** Decky shows an _Update_ button when a new version
   reaches the store; the loader replaces the plugin itself — no manual
   uninstall needed.
 - **Your models are safe:** downloaded transcription models and settings live
