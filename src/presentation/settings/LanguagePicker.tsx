@@ -18,6 +18,13 @@ export const LANGUAGE_SENTINELS = {
     auto: "auto",
 } as const;
 
+/**
+ * Fully-controlled dropdown flag (constant — Steam asserts when `controlled`
+ * changes after mount). Spread because @decky/ui 4.12.1 omits the runtime
+ * `controlled` prop the client bundle implements.
+ */
+export const CONTROLLED_DROPDOWN: { controlled: boolean } = { controlled: true };
+
 /** Curated explicit language tags for v1; `system`/`auto` are sentinels. */
 const EXPLICIT_LANGUAGE_TAGS: readonly string[] = [
     "en",
@@ -76,6 +83,11 @@ export function LanguagePicker({
                 rgOptions={[...sentinelOptions, ...explicitOptions]}
                 selectedOption={value}
                 onChange={(option) => onChange(option.data as string)}
+                // Uniform fully-controlled semantics with the model dropdown:
+                // the displayed value always mirrors the persisted setting
+                // (Steam's DropdownItem is semi-controlled without the flag;
+                // see ModelSelect for the full rationale).
+                {...CONTROLLED_DROPDOWN}
             />
             <FieldHint>{translate(locale, languageHintKey(value))}</FieldHint>
         </div>

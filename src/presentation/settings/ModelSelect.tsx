@@ -37,6 +37,13 @@ const RECOMMENDED_MODEL_IDS: readonly string[] = [
     "whisper-large-v3-turbo",
 ];
 
+/**
+ * Fully-controlled dropdown flag (see the DropdownItem usage below). Spread
+ * because the repo's @decky/ui type definitions omit the runtime `controlled`
+ * prop the real Steam client bundle implements.
+ */
+const CONTROLLED_DROPDOWN: { controlled: boolean } = { controlled: true };
+
 /** Decimal units, matching how the HF repos advertise artifact sizes. */
 function formatSize(bytes: number): string {
     if (bytes >= 1_000_000_000) {
@@ -320,6 +327,15 @@ export function ModelSelect({
                 rgOptions={options}
                 selectedOption={value}
                 onChange={(option) => handleSelect(option.data as string)}
+                // Steam's DropdownItem is semi-controlled: without this flag
+                // the internal DropDownControl keeps its own state value, so
+                // a cancelled/failed download (which persists nothing) would
+                // leave the label stuck on the picked model instead of
+                // snapping back to the persisted one. Constant true — Steam
+                // asserts when `controlled` changes after mount — and the
+                // @decky/ui 4.12.1 type definitions simply omit the flag the
+                // client bundle honors.
+                {...CONTROLLED_DROPDOWN}
             />
         </div>
     );

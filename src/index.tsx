@@ -24,12 +24,10 @@ import type { SetupProgressStore } from "./application/ports/SetupProgressPort";
 import type { LevelMeterStore } from "./application/ports/LevelMeterPort";
 import type { ModelCatalogSnapshot } from "./application/ports/ModelCatalogPort";
 import type { PanelTranscriptSnapshot } from "./application/ports/PanelTranscriptPort";
-import { isRuntimeStatusReport, isSpeechCapabilities } from "./application/ports/SpeechPort";
 import { copyTextToClipboard } from "./infrastructure/system/PanelClipboard";
 import { KeyboardBridgeInserter } from "./infrastructure/steam/KeyboardBridgeInserter";
 import { SteamKeyboardTabBridgeHostAdapter } from "./infrastructure/steam/KeyboardTabBridgeHostAdapter";
 import { SteamBulkPasteInserter } from "./infrastructure/steam/SteamBulkPasteInserter";
-import { SteamCapabilityProbe } from "./infrastructure/steam/SteamCapabilityProbe";
 import { SteamClipboardAdapter } from "./infrastructure/steam/SteamClipboardAdapter";
 import { TabBridgePasteActionAdapter } from "./infrastructure/steam/TabBridgePasteActionAdapter";
 import { RandomIdGenerator } from "./infrastructure/system/RandomIdGenerator";
@@ -104,7 +102,6 @@ class PluginCompositionRoot implements Disposable {
         const pasteAction = new TabBridgePasteActionAdapter(keyboardHost.bridge);
         const fallbackInserter = new SteamBulkPasteInserter(clipboard, pasteAction, keyboardHost);
         const textInserter = new KeyboardBridgeInserter(keyboardHost.bridge, fallbackInserter);
-        const capabilityProbe = new SteamCapabilityProbe();
 
         controller = new DictationController(
             speechPort,
@@ -116,31 +113,10 @@ class PluginCompositionRoot implements Disposable {
         );
         this.controllerStore = controller;
 
+        // v0.2.5: trimmed to the two methods the panel still consumes (the
+        // Diagnostics section removal orphaned the capability/cross-view
+        // loaders; the loader-side providers stay untouched).
         this.diagnostics = {
-            loadCapabilityReport: async () => capabilityProbe.probe(),
-            loadSpeechCapabilities: async () => {
-                const payload = await backendClient.call("get_capabilities");
-                return isSpeechCapabilities(payload) ? payload : null;
-            },
-            loadCdpDiagnostics: async () => {
-                const payload = await backendClient.call("get_status");
-                return isRuntimeStatusReport(payload) && payload.cdpDiagnostics !== undefined
-                    ? payload.cdpDiagnostics
-                    : null;
-            },
-            loadKeyboardHookDiagnostics: async () => keyboardHost.getDiagnostics(),
-            loadTabBridgeDiagnostics: async () => keyboardHost.getBridgeDiagnostics(),
-            loadDictationFlowDiagnostics: async () => {
-                const payload = await backendClient.call("get_status");
-                if (!isRuntimeStatusReport(payload) || payload.dictationFlow === undefined) {
-                    return null;
-                }
-                // §99: the backend's dictationFlow is clipboard-only (the
-                // on-device v0.2.0 payload never carried backendRunning), so
-                // the panel's running/stopped fact comes from the same guarded
-                // report; a present backend value would win via the spread.
-                return { backendRunning: payload.runtime.running, ...payload.dictationFlow };
-            },
             hydrateSetupProgress: () => speechPort.hydrateSetupFromStatus(),
             restartRuntime: async () => {
                 await backendClient.call("restart_runtime");

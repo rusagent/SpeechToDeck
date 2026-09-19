@@ -75,7 +75,6 @@ export const STARTUP_WATCHDOG_MS = 10_000;
  * setting left the settings document, and the backend daemon now receives
  * this same constant (`DEFAULT_MAX_RECORDING_SECONDS` in
  * backend/domain/contracts.py) as its `max_duration_secs`. The FE watchdog
-
  * mirrors it so MAX_DURATION_REACHED fires when the daemon stops the
  * recording anyway.
  */

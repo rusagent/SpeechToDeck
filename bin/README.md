@@ -78,7 +78,8 @@ state_file = "<runtime>/voxtype/state"
 enabled = false                     # recording is driven by our client only
 
 [audio]
-max_duration_secs = <settings.maxRecordingSeconds>
+max_duration_secs = 60              # FIXED v0.2.5 (was settings.maxRecordingSeconds; §44 cap,
+                                    # rationale: daemon_supervisor.py docstring/IMPLEMENTATION_STATUS)
 
 [whisper]
 model = "<abs path to our ggml file>"   # absolute path to OUR downloaded model
@@ -87,7 +88,7 @@ on_demand_loading = false           # model stays loaded (§82)
 eager_processing = false            # one-shot dictation only
 
 [vad]
-enabled = <settings.vadEnabled>
+enabled = true                      # FIXED v0.2.5 (was settings.vadEnabled; v0.2.4 default)
 
 [output]
 mode = "file"

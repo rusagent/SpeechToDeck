@@ -41,32 +41,46 @@ vi.mock("@decky/ui", async () => {
         update: ReturnType<typeof vi.fn>;
     }[] = [];
     return {
+        // Semi-controlled Steam semantics (the P1 oracle): WITHOUT the
+        // `controlled` flag the internal value lives in component state and
+        // a selection moves it; WITH `controlled: true` the displayed value
+        // ALWAYS derives from selectedOption — so a cancelled or failed
+        // download (which persists nothing) snaps the rendered label back.
         DropdownItem: (props: {
             label: string;
             rgOptions: GroupEntry[];
             selectedOption: unknown;
+            controlled?: boolean;
             onChange?: (option: GroupEntry) => void;
-        }) =>
-            h(
+        }) => {
+            const state = React.useState(props.selectedOption);
+            const value = props.controlled === true ? props.selectedOption : state[0];
+            const flat = props.rgOptions.flatMap((group: GroupEntry) =>
+                group.data !== undefined ? [group] : (group.options ?? []),
+            );
+            const selected = flat.find((option: GroupEntry) => option.data === value);
+            return h(
                 "div",
                 { "data-dropdown": props.label },
-                h("span", { "data-selected": true }, String(props.selectedOption)),
-                props.rgOptions
-                    .flatMap((group: GroupEntry) =>
-                        group.data !== undefined ? [group] : (group.options ?? []),
-                    )
-                    .map((option: GroupEntry) =>
-                        h(
-                            "button",
-                            {
-                                key: String(option.data),
-                                "data-model-option": String(option.data),
-                                onClick: () => props.onChange?.(option),
+                h("span", { "data-selected": true }, selected ? selected.label : String(value)),
+                flat.map((option: GroupEntry) =>
+                    h(
+                        "button",
+                        {
+                            key: String(option.data),
+                            "data-model-option": String(option.data),
+                            onClick: () => {
+                                if (props.controlled !== true) {
+                                    state[1](option.data);
+                                }
+                                props.onChange?.(option);
                             },
-                            option.label,
-                        ),
+                        },
+                        option.label,
                     ),
-            ),
+                ),
+            );
+        },
         ButtonItem: (props: { disabled?: boolean; onClick?: () => void; children?: Children }) =>
             h(
                 "button",
@@ -175,6 +189,13 @@ function lastModal(): CapturedModal {
     return modal!;
 }
 
+/** The rendered dropdown label (the semi-controlled revert oracle). */
+function expectSelectedLabel(label: string): void {
+    const node = document.querySelector("[data-selected]");
+    expect(node).not.toBeNull();
+    expect(node!.textContent).toBe(label);
+}
+
 describe("ModelSelect", () => {
     it("renders grouped options with localized names, sizes and the recommended suffix", () => {
         const store = new ModelCatalogStore();
@@ -187,8 +208,8 @@ describe("ModelSelect", () => {
         expect(screen.getByText("Large v3 Turbo Q5_0 · 574 MB · Recommended")).not.toBeNull();
         // The concrete language selection ("de") appends the specialized group.
         expect(screen.getByText("Large v3 Turbo German Q5_0 · 574 MB")).not.toBeNull();
-        // The controlled value stays the persisted model id.
-        expect(screen.getByText("base", { selector: "[data-selected]" })).not.toBeNull();
+        // The controlled value renders as the persisted model's label.
+        expectSelectedLabel("Base (default) · 148 MB");
     });
 
     it("omits the language group for the system/auto sentinels", () => {
@@ -227,13 +248,14 @@ describe("ModelSelect", () => {
 
         // The download starts, nothing persists, and the controlled dropdown
         // stays bound to the previously selected model while the download
-        // runs (§52 single-flight UI contract).
+        // runs (§52 single-flight UI contract): the rendered label still
+        // shows the persisted model, never the picked one.
         expect(onDownload).toHaveBeenCalledTimes(1);
         expect(onDownload).toHaveBeenCalledWith("whisper-large-v3-turbo-q5_0");
         expect(onChange).not.toHaveBeenCalled();
         expect(capturedModals).toHaveLength(1);
         expect(lastModal().props.strTitle).toBe("Large v3 Turbo Q5_0");
-        expect(screen.getByText("base", { selector: "[data-selected]" })).not.toBeNull();
+        expectSelectedLabel("Base (default) · 148 MB");
     });
 
     it("shows live progress in the modal and closes it before persisting on completion", async () => {
@@ -291,7 +313,7 @@ describe("ModelSelect", () => {
         expect(document.querySelector('[data-indeterminate="true"]')).not.toBeNull();
     });
 
-    it("cancel closes the modal, cancels the download and persists nothing", async () => {
+    it("cancel closes the modal, cancels the download, persists nothing and reverts the label", async () => {
         const store = new ModelCatalogStore();
         seedStore(store);
         const onChange = vi.fn();
@@ -308,6 +330,10 @@ describe("ModelSelect", () => {
         expect(onCancel).toHaveBeenCalledTimes(1);
         expect(onChange).not.toHaveBeenCalled();
         expect(modal.close).toHaveBeenCalledTimes(1);
+        // The P1 revert: nothing persisted, so the controlled dropdown label
+        // is back on the previously selected model — never stuck on the
+        // picked (not-installed) one.
+        expectSelectedLabel("Base (default) · 148 MB");
     });
 
     it("dismissal (Esc/close icon) cancels the download and persists nothing", () => {
@@ -329,7 +355,7 @@ describe("ModelSelect", () => {
         expect(onChange).not.toHaveBeenCalled();
     });
 
-    it("a failed download switches the modal to the error state with the backend detail", async () => {
+    it("a failed download switches the modal to the error state with the backend detail and reverts the label", async () => {
         const store = new ModelCatalogStore();
         seedStore(store);
         const onChange = vi.fn();
@@ -348,11 +374,12 @@ describe("ModelSelect", () => {
         expect(screen.getByText("HTTP 403 host=huggingface.co")).not.toBeNull();
 
         // Close on the error state: the download already settled, so nothing
-        // is cancelled and nothing persists.
+        // is cancelled and nothing persists — the dropdown label snaps back.
         fireEvent.click(screen.getByRole("button", { name: "Close" }));
         expect(modal.close).toHaveBeenCalledTimes(1);
         expect(onCancel).not.toHaveBeenCalled();
         expect(onChange).not.toHaveBeenCalled();
+        expectSelectedLabel("Base (default) · 148 MB");
     });
 
     it("renders the unavailable hint for an empty catalog (§57: reported, never assumed)", () => {

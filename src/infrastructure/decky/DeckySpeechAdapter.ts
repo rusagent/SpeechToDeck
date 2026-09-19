@@ -171,7 +171,8 @@ export class DeckySpeechAdapter implements SpeechPort {
     /**
      * Curated model catalog + download state (ADR-011): guarded `list_models`
      * results and `model_download_*` events only — transport-level UI state
-     * for the ModelPicker (§102), never dictation events.
+     * for the ModelSelect dropdown + download modal (§102), never dictation
+     * events.
      */
     readonly modelCatalog = new ModelCatalogStore();
 

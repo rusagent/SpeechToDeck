@@ -25,8 +25,6 @@ import type { Locale } from "../../src/presentation/i18n/messages";
 import { DictationError } from "../../src/domain/DictationError";
 import type { DictationState } from "../../src/domain/DictationState";
 import type { DiagnosticsSource } from "../../src/presentation/settings/DiagnosticsSource";
-import type { KeyboardCapabilityReport } from "../../src/domain/Capability";
-import type { SpeechCapabilities } from "../../src/application/ports/SpeechPort";
 import type { PanelTranscriptSnapshot } from "../../src/application/ports/PanelTranscriptPort";
 import type {
     SetupProgressSnapshot,
@@ -237,24 +235,6 @@ export const CAPTURED_CASES: readonly HarnessParams[] = [
     },
 ];
 
-const REPORT: KeyboardCapabilityReport = {
-    windowReachable: true,
-    managerRecognizable: true,
-    keyboardSignatureSupported: true,
-    clipboardUsable: true,
-    nativePasteRecognized: true,
-    supported: true,
-    profileId: "steam-vk-semantic-v1",
-};
-
-const SPEECH: SpeechCapabilities = {
-    speechRuntimeAvailable: true,
-    microphoneAvailable: true,
-    cpuAvailable: true,
-    vulkanAvailable: true,
-    modelInstalled: true,
-};
-
 /**
  * Canned `list_models` payload matching the committed defaults/models.json
  * catalog (ADR-011): the legacy trio installed, the German full-precision
@@ -400,8 +380,6 @@ function fakeCatalogStore(variant: Exclude<HarnessCatalogVariant, "none">): Mode
 
 function fakeDiagnostics(): DiagnosticsSource {
     return {
-        loadCapabilityReport: async () => REPORT,
-        loadSpeechCapabilities: async () => SPEECH,
         hydrateSetupProgress: async () => undefined,
         restartRuntime: async () => undefined,
     };
@@ -424,8 +402,6 @@ function hydratedFailureCase(): {
     return {
         store: adapter.setupProgress,
         diagnostics: {
-            loadCapabilityReport: async () => REPORT,
-            loadSpeechCapabilities: async () => SPEECH,
             hydrateSetupProgress: () => adapter.hydrateSetupFromStatus(),
             restartRuntime: async () => undefined,
         },

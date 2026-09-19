@@ -1,9 +1,9 @@
 /**
  * ModelCatalogStore tests (§102, ADR-011): the guarded catalog + download
- * state side-channel consumed by the ModelPicker through
- * `useSyncExternalStore`. The adapter owns payload validation; these tests
- * drive the publish methods with valid payloads only (guards are covered in
- * ProtocolGuards.test.ts).
+ * state side-channel consumed by the ModelSelect dropdown + download modal
+ * through `useSyncExternalStore`. The adapter owns payload validation; these
+ * tests drive the publish methods with valid payloads only (guards are
+ * covered in ProtocolGuards.test.ts).
  */
 
 import { describe, expect, it, vi } from "vitest";

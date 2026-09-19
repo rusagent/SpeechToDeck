@@ -43,12 +43,34 @@ vi.mock("@decky/ui", async () => {
             h("label", { "data-toggle": props.label }, `${props.label}: ${String(props.checked)}`),
         SliderField: (props: { label: string; value: number }) =>
             h("label", { "data-slider": props.label }, `${props.label}: ${String(props.value)}`),
-        DropdownItem: (props: { label: string; selectedOption: unknown }) =>
-            h(
+        // Semi-controlled Steam semantics: with `controlled: true` the
+        // displayed value derives from selectedOption (the ModelSelect/
+        // LanguagePicker revert oracle); without it, from internal state.
+        DropdownItem: (props: {
+            label: string;
+            rgOptions?: {
+                data?: unknown;
+                label?: Children;
+                options?: { data: unknown; label: Children }[];
+            }[];
+            selectedOption: unknown;
+            controlled?: boolean;
+        }) => {
+            const state = React.useState(props.selectedOption);
+            const value = props.controlled === true ? props.selectedOption : state[0];
+            type FlatOption = { data: unknown; label?: Children };
+            const flat = (props.rgOptions ?? []).flatMap<FlatOption>((entry) =>
+                entry.data !== undefined
+                    ? [{ data: entry.data, label: entry.label }]
+                    : (entry.options ?? []),
+            );
+            const selected = flat.find((option) => option.data === value);
+            return h(
                 "label",
                 { "data-dropdown": props.label },
-                `${props.label}: ${String(props.selectedOption)}`,
-            ),
+                `${props.label}: ${selected ? String(selected.label) : String(value)}`,
+            );
+        },
         ButtonItem: (props: {
             label?: string;
             disabled?: boolean;
@@ -76,8 +98,6 @@ afterEach(cleanup);
 
 function fakeDiagnostics(): DiagnosticsSource {
     return {
-        loadCapabilityReport: async () => null,
-        loadSpeechCapabilities: async () => null,
         hydrateSetupProgress: async () => undefined,
         restartRuntime: async () => undefined,
     };
@@ -252,8 +272,6 @@ describe("SettingsPanel", () => {
         const transport = new FakeDeckyTransport();
         const backend = new DeckyBackendClient(transport);
         const diagnostics: DiagnosticsSource = {
-            loadCapabilityReport: async () => null,
-            loadSpeechCapabilities: async () => null,
             hydrateSetupProgress: async () => undefined,
             // Same callable path the composition root wires for diagnostics.
             restartRuntime: async () => {
@@ -292,8 +310,6 @@ describe("SettingsPanel", () => {
                 store={new FakeStateStore({ kind: "booting" })}
                 setupProgress={adapter.setupProgress}
                 diagnostics={{
-                    loadCapabilityReport: async () => null,
-                    loadSpeechCapabilities: async () => null,
                     hydrateSetupProgress: () => adapter.hydrateSetupFromStatus(),
                     restartRuntime: async () => {
                         await backend.call("restart_runtime");

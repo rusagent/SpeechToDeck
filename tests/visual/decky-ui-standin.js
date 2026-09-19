@@ -336,7 +336,14 @@
         const flat = (props.rgOptions || []).flatMap((entry) =>
             entry.data !== undefined ? [entry] : (entry.options ?? []),
         );
-        const selected = flat.find((option) => option.data === props.selectedOption);
+        // Semi-controlled semantics (real Steam DropDownControl): WITHOUT the
+        // `controlled` flag the component keeps its own state value (only a
+        // prop CHANGE resyncs it); WITH `controlled: true` the displayed
+        // value always derives from selectedOption. The pickers pass
+        // controlled: true so a cancelled download snaps the label back.
+        const internalState = window.React.useState(props.selectedOption);
+        const value = props.controlled === true ? props.selectedOption : internalState[0];
+        const selected = flat.find((option) => option.data === value);
         return h(
             "div",
             { className: "decky-dropdown" },
@@ -344,7 +351,7 @@
             h(
                 "span",
                 { className: "decky-dropdown-value" },
-                h("span", null, selected ? selected.label : String(props.selectedOption)),
+                h("span", null, selected ? selected.label : String(value)),
                 h("span", { className: "decky-dropdown-chevron", "aria-hidden": "true" }, "▼"),
             ),
         );
