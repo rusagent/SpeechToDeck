@@ -4,9 +4,7 @@ export {
     translate,
     translateError,
     translateMicLabel,
-    translateRuntimeHealth,
     translateRuntimeStatus,
-    translateUnavailableReason,
     detectLocale,
     detectEnvironmentLocale,
 } from "./messages";

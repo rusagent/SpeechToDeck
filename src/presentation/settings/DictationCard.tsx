@@ -35,7 +35,7 @@ import type { Locale } from "../i18n/messages";
 import type { DictationState } from "../../domain/DictationState";
 import { LevelMeterStore } from "../../application/ports/LevelMeterPort";
 import type { PanelTranscriptSnapshot } from "../../application/ports/PanelTranscriptPort";
-import { CodeChip } from "./DiagnosticsPanel";
+import { CodeChip } from "./CodeChip";
 import { DARK_PANEL_SURFACE, LevelVisualizer } from "./LevelVisualizer";
 
 export interface DictationCardProps {

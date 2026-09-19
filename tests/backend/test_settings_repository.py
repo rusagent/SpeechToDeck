@@ -22,10 +22,11 @@ DEFAULTS_PAYLOAD = {
     "computeBackend": "auto",
     "modelId": "base",
     "language": "system",
-    "maxRecordingSeconds": 60,
-    "vadEnabled": True,
     "outputMode": "direct-insert",
 }
+
+# v0.2.4 device document (the keys the owner's deck actually carries).
+LEGACY_V024_PAYLOAD = DEFAULTS_PAYLOAD | {"maxRecordingSeconds": 110, "vadEnabled": True}
 
 
 def make_repo(tmp_path: Path) -> tuple[JsonSettingsRepository, Path]:
@@ -78,9 +79,6 @@ def test_save_is_atomic_and_private(tmp_path: Path) -> None:
         {"surpriseField": 1},
         {"computeBackend": "quantum"},
         {"outputMode": "telepathy"},
-        {"maxRecordingSeconds": 0},
-        {"maxRecordingSeconds": 10_000},
-        {"maxRecordingSeconds": "60"},
         {"enabled": "yes"},
         {"modelId": "Base"},
         {"language": "not a language!!"},
@@ -96,6 +94,32 @@ def test_invalid_fields_rejected_deliberately(tmp_path: Path, mutation: dict[str
     asyncio.run(scenario())
 
 
+def test_legacy_v024_keys_tolerated_on_load_and_never_written_back(tmp_path: Path) -> None:
+    """v0.2.5 decision point: the two removed settings must not lock existing
+    devices out of their settings.json — load tolerates them (ignored, values
+    like 110/true included), and the next save drops them from the file while
+    every kept field survives unchanged."""
+
+    async def scenario() -> None:
+        repo, path = make_repo(tmp_path)
+        path.write_text(json.dumps(LEGACY_V024_PAYLOAD), encoding="utf-8")
+
+        settings = await repo.load()
+        # The wire snapshot no longer carries the legacy keys at all.
+        assert "maxRecordingSeconds" not in settings.to_payload()
+        assert "vadEnabled" not in settings.to_payload()
+        assert settings.model_id == "base"
+
+        await repo.save(settings)
+        persisted = json.loads(path.read_text(encoding="utf-8"))
+        assert "maxRecordingSeconds" not in persisted
+        assert "vadEnabled" not in persisted
+        assert persisted["modelId"] == "base"
+        assert persisted["language"] == "system"
+
+    asyncio.run(scenario())
+
+
 def test_unknown_field_rejected(tmp_path: Path) -> None:
     payload = DEFAULTS_PAYLOAD | {"futureThing": True}
     with pytest.raises(SettingsInvalidError) as excinfo:
@@ -104,10 +128,10 @@ def test_unknown_field_rejected(tmp_path: Path) -> None:
 
 
 def test_missing_field_rejected(tmp_path: Path) -> None:
-    payload = {k: v for k, v in DEFAULTS_PAYLOAD.items() if k != "vadEnabled"}
+    payload = {k: v for k, v in DEFAULTS_PAYLOAD.items() if k != "outputMode"}
     with pytest.raises(SettingsInvalidError) as excinfo:
         settings_from_payload(payload)
-    assert "vadEnabled" in str(excinfo.value.detail)
+    assert "outputMode" in str(excinfo.value.detail)
 
 
 def test_future_schema_version_fails_closed(tmp_path: Path) -> None:

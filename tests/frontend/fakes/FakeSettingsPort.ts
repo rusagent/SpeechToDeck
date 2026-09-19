@@ -6,8 +6,6 @@ export const TEST_SETTINGS: PluginSettings = {
     computeBackend: "auto",
     modelId: "base",
     language: "system",
-    maxRecordingSeconds: 60,
-    vadEnabled: true,
     outputMode: "direct-insert",
 };
 

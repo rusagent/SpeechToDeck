@@ -6,9 +6,9 @@ Uses the §91 FakeSpeechRuntime: deterministic, no hardware.
 from __future__ import annotations
 
 import asyncio
-import dataclasses
 
 import pytest
+from backend.application import speech_service
 from backend.application.speech_service import SpeechApplicationService
 from backend.domain.contracts import DEFAULT_SETTINGS, ClipboardStatus, Settings
 from backend.domain.errors import (
@@ -267,12 +267,14 @@ def test_stop_acknowledgement_timeout_clears_session() -> None:
     asyncio.run(scenario())
 
 
-def test_final_transcription_timeout() -> None:
+def test_final_transcription_timeout(monkeypatch: pytest.MonkeyPatch) -> None:
     async def scenario() -> None:
-        # Small max-recording so the bounded §71 wait (max-recording + grace)
-        # stays fast; the timeout mapping is identical at any duration.
-        settings = dataclasses.replace(DEFAULT_SETTINGS, max_recording_seconds=2)
-        harness = Harness(settings=settings, transcript_grace_seconds=0.1)
+        # v0.2.5: the §71 bound is the fixed recording cap (a module-level
+        # constant) + the injected grace; patch the constant down so the
+        # bounded wait stays fast — the timeout mapping is identical at any
+        # duration.
+        monkeypatch.setattr(speech_service, "DEFAULT_MAX_RECORDING_SECONDS", 2)
+        harness = Harness(transcript_grace_seconds=0.1)
         await harness.service.start_recording("session-1")
         with pytest.raises(TranscriptionTimeoutError):
             await harness.service.stop_recording("session-1")  # nothing ever emitted

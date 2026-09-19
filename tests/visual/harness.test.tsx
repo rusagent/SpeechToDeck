@@ -10,6 +10,11 @@ import { act, cleanup } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { mountVisualHarness, CAPTURED_CASES } from "./harness-entry";
 
+// showModal capture shared with the assertions below (written by the mock).
+const modalCapture = vi.hoisted(() => ({
+    current: null as { node: unknown; closed: boolean } | null,
+}));
+
 vi.mock("@decky/ui", async () => {
     const React = await import("react");
     const h = React.createElement;
@@ -28,14 +33,34 @@ vi.mock("@decky/ui", async () => {
                 { "data-dropdown": props.label },
                 `${props.label}: ${String(props.selectedOption)}`,
             ),
+        ProgressBar: (props: { indeterminate?: boolean; nProgress?: number }) =>
+            h("div", {
+                "data-progressbar": true,
+                "data-indeterminate": String(props.indeterminate === true),
+                ...(props.nProgress !== undefined
+                    ? { "data-nprogress": String(props.nProgress) }
+                    : {}),
+            }),
+        showModal: (node: Children) => {
+            modalCapture.current = { node, closed: false };
+            return {
+                Close: () => {
+                    modalCapture.current =
+                        modalCapture.current === null
+                            ? null
+                            : { ...modalCapture.current, closed: true };
+                },
+                Update: () => undefined,
+            };
+        },
         ButtonItem: (props: { label?: Children; disabled?: boolean; children?: Children }) =>
             h(
                 "div",
                 { "data-buttonitem": true },
                 // Same convention as the decky-ui stand-in: a rich label node
-                // (catalog picker rows) renders as a label block; callers
-                // passing the same string as label and children render the
-                // single button exactly as before.
+                // renders as a label block; callers passing the same string
+                // as label and children render the single button exactly as
+                // before.
                 props.label !== undefined && props.label !== props.children
                     ? h("div", { "data-buttonitem-label": true }, props.label)
                     : null,
@@ -51,7 +76,10 @@ vi.mock("@decky/ui", async () => {
     };
 });
 
-afterEach(cleanup);
+afterEach(() => {
+    cleanup();
+    modalCapture.current = null;
+});
 
 describe("visual harness smoke", () => {
     for (const params of CAPTURED_CASES) {
@@ -82,40 +110,20 @@ describe("visual harness smoke", () => {
                     expect(
                         host.querySelector(`[data-panel-title="${speechTitle}"]`),
                     ).not.toBeNull();
-                    // Catalog-driven ModelPicker cases (ADR-011): the REAL
-                    // picker renders the canned defaults/models.json catalog
-                    // with the Recommended / More / For-<language> groups.
+                    // Model-select cases (ADR-011, v0.2.5): the REAL select
+                    // renders the canned defaults/models.json catalog; the
+                    // modal variant additionally opens the REAL download
+                    // modal through the production path.
                     if (params.catalog !== undefined && params.catalog !== "none") {
-                        expect(host.querySelector("[data-model-catalog]")).not.toBeNull();
-                        expect(
-                            host.querySelector('[data-model-group="recommended"]'),
-                        ).not.toBeNull();
-                        expect(host.querySelector('[data-model-group="more"]')).not.toBeNull();
-                        expect(
-                            host.querySelector('[data-model-group="for-language"]'),
-                        ).not.toBeNull();
-                        expect(host.textContent).toContain("For de");
-                        expect(host.textContent).toContain("Large v3 Turbo German Q5_0");
-                        if (params.catalog === "ready") {
-                            // Install-state variety: installed rows offer Use,
-                            // the selected model reports In use, the rest
-                            // offer the download first.
-                            expect(host.textContent).toContain("Use");
-                            expect(host.textContent).toContain("In use");
-                            expect(host.textContent).toContain("Download");
+                        expect(host.querySelector("[data-model-select]")).not.toBeNull();
+                        expect(host.textContent).toContain("Model");
+                        if (params.catalog === "modal") {
+                            // The download modal opened with the localized
+                            // turbo title (strTitle from the showModal props).
+                            expect(modalCapture.current).not.toBeNull();
+                            expect(modalCapture.current?.closed).toBe(false);
                         } else {
-                            // Downloading variant: the in-flight row offers
-                            // Cancel; the single-flight lock keeps the other
-                            // Download buttons disabled (§52).
-                            const buttons = Array.from(host.querySelectorAll("button"));
-                            expect(buttons.some((button) => button.textContent === "Cancel")).toBe(
-                                true,
-                            );
-                            const downloads = buttons.filter(
-                                (button) => button.textContent === "Download",
-                            );
-                            expect(downloads.length).toBeGreaterThan(0);
-                            expect(downloads.every((button) => button.disabled)).toBe(true);
+                            expect(modalCapture.current).toBeNull();
                         }
                     }
                 } else if (params.caseId === "setup") {

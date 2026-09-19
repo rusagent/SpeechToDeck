@@ -30,6 +30,7 @@ class ErrorCode(StrEnum):
     TRANSCRIPTION_TIMEOUT = "TRANSCRIPTION_TIMEOUT"
     MODEL_NOT_INSTALLED = "MODEL_NOT_INSTALLED"
     MODEL_DOWNLOAD_FAILED = "MODEL_DOWNLOAD_FAILED"
+    MODEL_DOWNLOAD_CANCELLED = "MODEL_DOWNLOAD_CANCELLED"
     MODEL_CHECKSUM_FAILED = "MODEL_CHECKSUM_FAILED"
     SESSION_CONFLICT = "SESSION_CONFLICT"
     STALE_SESSION = "STALE_SESSION"
@@ -141,6 +142,19 @@ class ModelNotInstalledError(CodedSpeechError):
 class ModelDownloadFailedError(CodedSpeechError):
     def _code(self) -> ErrorCode:
         return ErrorCode.MODEL_DOWNLOAD_FAILED
+
+
+class ModelDownloadCancelledError(CodedSpeechError):
+    """User-initiated cancel of the in-flight download (§52).
+
+    Deliberately NOT a failure: the stable code keeps the journal (and the
+    frontend error mapping) from reading a routine cancel as a network
+    failure (on-device v0.2.4 finding: every second tap on the conflated
+    Download/Cancel button logged `MODEL_DOWNLOAD_FAILED`).
+    """
+
+    def _code(self) -> ErrorCode:
+        return ErrorCode.MODEL_DOWNLOAD_CANCELLED
 
 
 class TransientModelDownloadError(ModelDownloadFailedError):

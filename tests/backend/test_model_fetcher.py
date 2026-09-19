@@ -29,7 +29,11 @@ from backend.application.setup_progress import (
     SetupProgressReporter,
 )
 from backend.domain.contracts import EVENT_MODEL_DOWNLOAD_COMPLETE, EVENT_SETUP_PROGRESS, ModelInfo
-from backend.domain.errors import ModelDownloadFailedError, TransientModelDownloadError
+from backend.domain.errors import (
+    ModelDownloadCancelledError,
+    ModelDownloadFailedError,
+    TransientModelDownloadError,
+)
 from backend.infrastructure.model import model_store
 from backend.infrastructure.model.model_manifest import ModelManifest
 from backend.infrastructure.model.model_store import (
@@ -55,7 +59,11 @@ BURST_DIGEST = hashlib.sha256(BURST_PAYLOAD).hexdigest()
 
 
 class _Handler(http.server.BaseHTTPRequestHandler):
+    # Last request's User-Agent, captured for the citizen-grade UA assertion.
+    last_user_agent: str | None = None
+
     def do_GET(self) -> None:
+        _Handler.last_user_agent = self.headers.get("User-Agent")
         if self.path == "/ok":
             self._serve(PAYLOAD, delay=0.0)
         elif self.path == "/slow":
@@ -147,6 +155,10 @@ def test_urllib_transport_streams_and_installs(tmp_path: Path) -> None:
             # Content-Length surfaces as totalBytes (§52); the body is intact.
             stream = await UrllibModelFetcher().open(f"{server.base_url}/ok")
             try:
+                # Citizen-grade request identity (v0.2.5): the download
+                # carries a SpeechToDeck/<version> User-Agent.
+                assert _Handler.last_user_agent is not None
+                assert _Handler.last_user_agent.startswith("SpeechToDeck/")
                 assert stream.total_bytes == len(PAYLOAD)
                 chunks = stream.chunks()
                 first = await asyncio.wait_for(chunks.__anext__(), 3.0)
@@ -487,8 +499,11 @@ def test_cancel_mid_download_stops_frames_and_cleans_part(tmp_path: Path) -> Non
             )
             assert await wait_until(lambda: len(ensure_frames(publisher)) >= 2, timeout=3.0)
 
-            with pytest.raises(ModelDownloadFailedError):
+            # v0.2.5: a cancel maps to its own stable §68 code — completion,
+            # never MODEL_DOWNLOAD_FAILED (on-device finding).
+            with pytest.raises(ModelDownloadCancelledError) as excinfo:
                 await asyncio.wait_for(task, 3.0)
+            assert excinfo.value.code == "MODEL_DOWNLOAD_CANCELLED"
 
             frames_at_cancel = len(ensure_frames(publisher))
             await asyncio.sleep(1.1)  # several heartbeat periods: silence must hold

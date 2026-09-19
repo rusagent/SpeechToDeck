@@ -1,18 +1,18 @@
 /**
  * SettingsPanel render tests (spec §54/§80/§102).
  *
- * Named production defect (review finding F1): the panel passed the
+ * Named production defects: (review finding F1) the panel passed the
  * controller's unbound `subscribe`/`getSnapshot` methods to
- * useSyncExternalStore; React invokes the subscriber as a plain function, so
- * `this` was undefined in strict mode and the panel threw on first mount.
- * Oracle: the component mounts, renders the §80 sections from the loaded
- * settings document, and rerenders from controller-store state changes.
+ * useSyncExternalStore and threw on first mount; (v0.2.5 declutter) the
+ * owner's panel carried dead weight — microphone chip, duration slider, VAD
+ * toggle, runtime-health row, whole Diagnostics section — which this suite
+ * proves removed, with Speech reading Language → Model.
  */
 
 import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { SettingsPanel } from "../../src/presentation/settings/SettingsPanel";
-import type { DiagnosticsSource } from "../../src/presentation/settings/DiagnosticsPanel";
+import type { DiagnosticsSource } from "../../src/presentation/settings/DiagnosticsSource";
 import { DeckyBackendClient } from "../../src/infrastructure/decky/DeckyBackendClient";
 import { DeckySpeechAdapter } from "../../src/infrastructure/decky/DeckySpeechAdapter";
 import type { SetupProgressSnapshot } from "../../src/application/ports/SetupProgressPort";
@@ -24,6 +24,8 @@ import {
     FakeStateStore,
 } from "./helpers";
 import { FakeSettingsPort } from "../frontend/fakes/FakeSettingsPort";
+import { LevelMeterStore } from "../../src/application/ports/LevelMeterPort";
+import { ModelCatalogStore } from "../../src/application/ports/ModelCatalogPort";
 import type { DictationState } from "../../src/domain/DictationState";
 
 // §80 renders through @decky/ui components that expect the Steam UI
@@ -95,7 +97,7 @@ function recordingState(): DictationState {
 }
 
 describe("SettingsPanel", () => {
-    it("mounts and renders the §80 sections without throwing (review finding F1)", async () => {
+    it("mounts and renders the decluttered §80 sections without throwing (review finding F1)", async () => {
         const { container } = render(
             <SettingsPanel
                 settings={new FakeSettingsPort()}
@@ -107,19 +109,59 @@ describe("SettingsPanel", () => {
         expect(container.querySelector('[data-panel-title="SpeechToDeck"]')).not.toBeNull();
         expect(screen.getByText("Loading settings…")).not.toBeNull();
 
-        // §80 sections: runtime, speech, output, diagnostics.
+        // §80 sections: runtime, speech, output. Kept rows only.
         expect(await screen.findByText(/Enable plugin/)).not.toBeNull();
         expect(screen.getAllByText(/Compute backend/).length).toBeGreaterThan(0);
-        expect(screen.getAllByText("Runtime health").length).toBeGreaterThan(0);
-        expect(screen.getAllByText(/Model/).length).toBeGreaterThan(0);
         expect(screen.getAllByText(/Language/).length).toBeGreaterThan(0);
-        expect(screen.getByText(/Maximum recording duration/)).not.toBeNull();
-        expect(screen.getByText(/Voice activity detection/)).not.toBeNull();
         expect(screen.getAllByText(/Output mode/).length).toBeGreaterThan(0);
-        expect(screen.getAllByText(/Steam keyboard detected/).length).toBeGreaterThan(0);
+
+        // v0.2.5 owner declutter: the removed rows and the whole Diagnostics
+        // section are gone.
+        expect(screen.queryByText(/Runtime health/)).toBeNull();
+        expect(screen.queryByText(/Maximum recording duration/)).toBeNull();
+        expect(screen.queryByText(/Voice activity detection/)).toBeNull();
+        expect(screen.queryByText(/Steam keyboard detected/)).toBeNull();
+        expect(container.querySelector('[data-panel-title="Diagnostics"]')).toBeNull();
     });
 
-    it("rerenders runtime health from controller-store state changes (§102)", async () => {
+    it("orders the Speech section Language → Model when the catalog is wired", async () => {
+        const store = new ModelCatalogStore();
+        store.setModels([
+            {
+                id: "base",
+                engine: "whisper",
+                multilingual: true,
+                filename: "ggml-base.bin",
+                installed: true,
+            },
+        ]);
+        const modelCatalog = {
+            store,
+            load: async () => undefined,
+            download: () => undefined,
+            cancel: () => undefined,
+        };
+        const { container } = render(
+            <SettingsPanel
+                settings={new FakeSettingsPort()}
+                store={new FakeStateStore({ kind: "booting" })}
+                setupProgress={fakeSetupStore()}
+                diagnostics={fakeDiagnostics()}
+                modelCatalog={modelCatalog}
+            />,
+        );
+        await screen.findByText(/Enable plugin/);
+
+        const dropdowns = Array.from(container.querySelectorAll("[data-dropdown]")).map((node) =>
+            node.getAttribute("data-dropdown"),
+        );
+        const languageIndex = dropdowns.indexOf("Language");
+        const modelIndex = dropdowns.indexOf("Model");
+        expect(languageIndex).toBeGreaterThanOrEqual(0);
+        expect(modelIndex).toBeGreaterThan(languageIndex);
+    });
+
+    it("rerenders the dictation card from controller-store state changes (§102)", async () => {
         const store = new FakeStateStore({ kind: "ready" });
         render(
             <SettingsPanel
@@ -127,15 +169,21 @@ describe("SettingsPanel", () => {
                 store={store}
                 setupProgress={fakeSetupStore()}
                 diagnostics={fakeDiagnostics()}
+                dictation={{
+                    levelMeter: new LevelMeterStore(),
+                    transcript: new FakeSnapshotStore(null),
+                    onPress: () => undefined,
+                    onCopy: async () => true,
+                }}
             />,
         );
-        expect(await screen.findAllByText("Ready")).not.toHaveLength(0);
+        expect(await screen.findByText(/Enable plugin/)).not.toBeNull();
+        expect(document.querySelector('button[data-state="ready"]')).not.toBeNull();
 
         await act(async () => {
             store.set(recordingState());
         });
-        expect(screen.getAllByText("Recording").length).toBeGreaterThan(0);
-        expect(screen.queryByText("Ready")).toBeNull();
+        expect(document.querySelector('button[data-state="recording"]')).not.toBeNull();
     });
 
     it("renders the setup progress above the §80 sections while setup is running", async () => {
@@ -198,46 +246,6 @@ describe("SettingsPanel", () => {
         );
         expect(await screen.findByText(/Enable plugin/)).not.toBeNull();
         expect(container.querySelector("[data-setup-progress]")).toBeNull();
-    });
-
-    it("renders the v0.1.6 CDP diagnostics row with localized degrade reasons", async () => {
-        const diagnostics: DiagnosticsSource = {
-            ...fakeDiagnostics(),
-            loadCdpDiagnostics: async () => ({
-                cdpAvailable: false,
-                spTargetSeen: false,
-                keyboardSeen: true,
-                keyboardVisible: false,
-                reason: "remote-cdp-disabled",
-            }),
-            loadKeyboardHookDiagnostics: async () => ({
-                registryFound: true,
-                managersHooked: 1,
-                keyboardSignatureSeen: false,
-                documentResolved: false,
-                reason: "signature-not-found",
-            }),
-        };
-        render(
-            <SettingsPanel
-                settings={new FakeSettingsPort()}
-                store={new FakeStateStore({ kind: "ready" })}
-                setupProgress={fakeSetupStore(null)}
-                diagnostics={diagnostics}
-            />,
-        );
-
-        // Both additive rows render; unavailable states carry the localized
-        // stable-reason text (§68 analog: codes map to text, never raw strings).
-        expect(await screen.findByText("CDP cross-view diagnostics")).not.toBeNull();
-        expect(
-            await screen.findByText(
-                "Optional: enable “Allow Remote CEF Debugging” in the Decky settings for cross-view diagnostics.",
-            ),
-        ).not.toBeNull();
-        expect(
-            await screen.findByText("The keyboard signature was not found in any reachable view."),
-        ).not.toBeNull();
     });
 
     it("wires the failed-state retry button to the restart_runtime callable", async () => {
@@ -308,49 +316,5 @@ describe("SettingsPanel", () => {
         expect(container.querySelector('[data-setup-progress="model.ensure"]')).not.toBeNull();
         expect(container.querySelector('[data-setup-progress="failed"]')).toBeNull();
         expect(screen.queryByRole("button", { name: "Retry" })).toBeNull();
-    });
-
-    it("renders the additive backendVersion diagnostics row when the backend reports it", async () => {
-        const diagnostics: DiagnosticsSource = {
-            ...fakeDiagnostics(),
-            loadSpeechCapabilities: async () => ({
-                speechRuntimeAvailable: true,
-                microphoneAvailable: true,
-                cpuAvailable: true,
-                vulkanAvailable: true,
-                modelInstalled: true,
-                backendVersion: "0.2.3",
-            }),
-        };
-        const { container } = render(
-            <SettingsPanel
-                settings={new FakeSettingsPort()}
-                store={new FakeStateStore({ kind: "ready" })}
-                setupProgress={fakeSetupStore(null)}
-                diagnostics={diagnostics}
-            />,
-        );
-
-        // §108: the row label is a localized string (EN "Backend version" /
-        // DE "Backend-Version"), not the raw protocol-field literal; the
-        // data-* hook stays stable for the hardening lane's contract.
-        expect(await screen.findByText("Backend version")).not.toBeNull();
-        expect(await screen.findByText("0.2.3")).not.toBeNull();
-        expect(container.querySelector("[data-backend-version]")).not.toBeNull();
-    });
-
-    it("omits the backendVersion row when an older backend does not report it (§99)", async () => {
-        const { container } = render(
-            <SettingsPanel
-                settings={new FakeSettingsPort()}
-                store={new FakeStateStore({ kind: "ready" })}
-                setupProgress={fakeSetupStore(null)}
-                diagnostics={fakeDiagnostics()}
-            />,
-        );
-
-        // Settle the panel effects, then prove the row never rendered.
-        expect(await screen.findByText(/Steam keyboard detected/)).not.toBeNull();
-        expect(container.querySelector("[data-backend-version]")).toBeNull();
     });
 });

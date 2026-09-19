@@ -13,7 +13,6 @@ import {
     detectLocale,
     translateError,
     translateMicLabel,
-    translateRuntimeHealth,
 } from "../../src/presentation/i18n/messages";
 
 describe("i18n dictionaries", () => {
@@ -39,26 +38,15 @@ describe("i18n dictionaries", () => {
                 expect(text).not.toBe(code); // mapped text, not the raw code
             }
         }
+        // v0.2.5: the cancellation code reads as a cancel, never as a failure.
+        expect(translateError("en", "MODEL_DOWNLOAD_CANCELLED")).not.toContain("failed");
     });
 
-    it("localizes the microphone labels and runtime health reasons", () => {
+    it("localizes the microphone labels", () => {
         for (const state of ["ready", "recording", "processing", "error"] as const) {
             expect(translateMicLabel("en", state).length).toBeGreaterThan(0);
             expect(translateMicLabel("de", state).length).toBeGreaterThan(0);
         }
-        expect(
-            translateRuntimeHealth("en", { kind: "unavailable", reason: "MODEL_NOT_INSTALLED" }),
-        ).toBe(EN_MESSAGES["unavailable.MODEL_NOT_INSTALLED"]);
-        expect(
-            translateRuntimeHealth("de", {
-                kind: "recording",
-                session: {
-                    sessionId: "s",
-                    keyboardContextId: "c",
-                    startedAtMonotonicMs: 0,
-                },
-            }),
-        ).toBe(DE_MESSAGES["runtime.health.recording"]);
     });
 
     it("detects the locale from the environment language tag with EN fallback", () => {

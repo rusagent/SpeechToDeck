@@ -225,10 +225,30 @@ export class DeckySpeechAdapter implements SpeechPort {
      * state is fed by the live `model_download_progress` events and cleared
      * on every settle path (complete, failure, cancellation) so a failed
      * download never leaves a stuck progress row.
+     *
+     * Failure vs cancellation (v0.2.5): a real failure is recorded in the
+     * store (`publishFailure`, backend detail included) for the download
+     * modal's error state and rethrown so the composition-level log keeps
+     * its diagnosability line. A user-initiated cancel arrives as the
+     * MODEL_DOWNLOAD_CANCELLED code — completion, not failure: it is logged
+     * at info, never published as a failure, and not rethrown (the modal
+     * already closed on the cancel action).
      */
     async downloadModel(modelId: string): Promise<void> {
+        this.modelCatalog.clearFailure();
         try {
             await this.backend.call(SPEECH_CALLABLES.downloadModel, modelId);
+        } catch (error) {
+            const code = error instanceof DictationError ? error.code : undefined;
+            if (code === "MODEL_DOWNLOAD_CANCELLED") {
+                this.logger.info("model download cancelled", { modelId });
+                return;
+            }
+            this.modelCatalog.publishFailure(
+                modelId,
+                error instanceof Error && error.message.length > 0 ? error.message : null,
+            );
+            throw error;
         } finally {
             this.modelCatalog.clearDownload();
         }

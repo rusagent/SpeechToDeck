@@ -36,7 +36,7 @@ import { RandomIdGenerator } from "./infrastructure/system/RandomIdGenerator";
 import { SystemClock } from "./infrastructure/system/SystemClock";
 import { MicrophoneControlPresenter } from "./presentation/keyboard/MicrophoneButtonMount";
 import { SettingsPanel } from "./presentation/settings/SettingsPanel";
-import type { DiagnosticsSource } from "./presentation/settings/DiagnosticsPanel";
+import type { DiagnosticsSource } from "./presentation/settings/DiagnosticsSource";
 import type { Disposable } from "./shared/Disposable";
 import { Logger } from "./shared/Logger";
 import type { SettingsPort } from "./application/ports/SettingsPort";

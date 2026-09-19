@@ -55,6 +55,7 @@ except ImportError:  # pragma: no cover - CPython always ships ctypes
     ctypes = None  # type: ignore[assignment]
 
 from backend.domain.contracts import (
+    DEFAULT_MAX_RECORDING_SECONDS,
     EVENT_RUNTIME_STATUS,
     PROTOCOL_VERSION_V1,
     EventPublisher,
@@ -83,6 +84,11 @@ SHUTDOWN_TIMEOUT_S = 5.0  # §71: daemon shutdown
 MAX_RESTART_ATTEMPTS = 3  # §70
 RESTART_BASE_DELAY_S = 0.5  # §70: bounded exponential delay
 RESTART_MAX_DELAY_S = 8.0
+
+# v0.2.5 fixed daemon VAD behavior: the settings toggle left the settings
+# document (owner declutter) and the supervisor emits the v0.2.4 default
+# (VAD enabled) unconditionally, so the daemon-side behavior is unchanged.
+DAEMON_VAD_ENABLED = True
 # A daemon that stayed up this long is considered stable again; the restart
 # budget resets so a later crash gets a fresh policy window.
 RESTART_STABILITY_WINDOW_S = 60.0
@@ -189,7 +195,12 @@ def daemon_config_toml(
     - `engine = "whisper"` — top-level engine selection;
     - `state_file` — bare-word state file; the daemon deletes it on shutdown
       (missing file = stopped for consumers);
-    - `[audio] max_duration_secs` — §44 recording bound;
+    - `[audio] max_duration_secs` — §44 recording bound. v0.2.5: the
+      maximum-recording-duration setting was removed from the settings
+      document (owner declutter), so the shipped cap
+      (`DEFAULT_MAX_RECORDING_SECONDS`, 60 s) is emitted as a FIXED constant
+      — preserving the v0.2.4 effective default rather than inventing a new
+      runtime value (decision recorded in IMPLEMENTATION_STATUS.md);
     - `[whisper] model` — absolute path to OUR downloaded ggml file (upstream
       accepts ids or absolute .bin paths; the absolute path keeps downloads
       and checksums under our ModelStore control);
@@ -199,7 +210,9 @@ def daemon_config_toml(
       so "system"/"auto" additionally resolves to "en" for them;
     - `[whisper] on_demand_loading = false` — the model stays loaded (§82);
     - `[whisper] eager_processing = false` — one-shot dictation only;
-    - `[vad] enabled` — settings VAD toggle;
+    - `[vad] enabled` — v0.2.5: FIXED to true (the v0.2.4 default and the
+      only behavior ever verified on device); the VAD settings toggle was
+      removed with the recording-duration setting (owner declutter);
     - `[output] mode = "file"` + `file_path` + `file_mode = "overwrite"` —
       atomic per-recording transcript writes with the `.done` sidecar;
     - `[output.notification]` all off and `[osd] enabled = false` (upstream
@@ -223,7 +236,8 @@ def daemon_config_toml(
         "enabled = false",
         "",
         "[audio]",
-        f"max_duration_secs = {int(settings.max_recording_seconds)}",
+        # Fixed §44 cap (v0.2.5): see the docstring mapping notes above.
+        f"max_duration_secs = {DEFAULT_MAX_RECORDING_SECONDS}",
         "",
         "[whisper]",
         f"model = {_toml_string(str(model_path))}",
@@ -232,7 +246,8 @@ def daemon_config_toml(
         "eager_processing = false",
         "",
         "[vad]",
-        f"enabled = {'true' if settings.vad_enabled else 'false'}",
+        # Fixed v0.2.4-effective behavior (v0.2.5): see the docstring notes.
+        f"enabled = {'true' if DAEMON_VAD_ENABLED else 'false'}",
         "",
         "[output]",
         f"mode = {_toml_string('file')}",

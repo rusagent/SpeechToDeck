@@ -567,8 +567,6 @@ describe("DeckySettingsAdapter", () => {
                     computeBackend: TEST_SETTINGS.computeBackend,
                     modelId: TEST_SETTINGS.modelId,
                     language: TEST_SETTINGS.language,
-                    maxRecordingSeconds: TEST_SETTINGS.maxRecordingSeconds,
-                    vadEnabled: TEST_SETTINGS.vadEnabled,
                     outputMode: TEST_SETTINGS.outputMode,
                 },
             ],

@@ -232,9 +232,8 @@ function storeShot() {
     );
 }
 
-// Panel clips (QAM column: top, and a Diagnostics-targeted section clip).
+// Panel clips (QAM column: top of the decluttered panel, EN + DE).
 shot("panel-en-top", "case=panel&locale=en");
-shot("panel-en-diag", "case=panel&locale=en&scroll=Diagnostics", { sectionTitle: "Diagnostics" });
 shot("panel-de-top", "case=panel&locale=de");
 // Setup progress, REAL panel with the dedicated store preset per state:
 // active-indeterminate daemon step, determinate download at 37%, failed with
@@ -256,19 +255,17 @@ shot("dictation-idle-en", "case=dictation&dictation=idle&locale=en", { height: 3
 shot("dictation-recording-en", "case=dictation&dictation=recording&locale=en", { height: 300 });
 shot("dictation-transcript-en", "case=dictation&dictation=transcript&locale=en", { height: 420 });
 shot("dictation-transcript-de", "case=dictation&dictation=transcript&locale=de", { height: 420 });
-// Catalog-driven ModelPicker (ADR-011): the REAL picker over a canned
-// list_models snapshot matching defaults/models.json. Concrete language "de"
-// selected → "For de" group with sizes/descriptions and install-state
-// variety; then the single-flight download state at 40% (live percentage +
-// Cancel, other Download buttons disabled). The full picker is ~605px tall,
-// taller than the ≤450px review limit, so each shot anchors at its decisive
-// group: (a) the More + For-de tail with sizes/descriptions and install
-// states, (b) the picker top with the in-flight row.
-shot("panel-catalog-de-en", "case=panel&catalog=ready&language=de&locale=en", {
-    startRegion: "modelGroup:more",
+// Model-select flow (ADR-011, v0.2.5): the REAL Speech section reading
+// Language → Model over a canned list_models snapshot (concrete language
+// "de"), then the REAL download modal opened through the production
+// openModelDownloadModal path with the single-flight download live at 40%
+// (determinate bar + percent + Cancel in the emulated Steam modal frame).
+shot("panel-speech-en", "case=panel&catalog=ready&language=de&locale=en", {
+    sectionTitle: "Speech",
 });
-shot("panel-catalog-downloading-en", "case=panel&catalog=downloading&language=de&locale=en", {
-    startRegion: "modelCatalog",
+shot("panel-modal-en", "case=panel&catalog=modal&language=de&locale=en", {
+    region: "downloadModal",
+    height: 320,
 });
 storeShot();
 

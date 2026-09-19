@@ -33,21 +33,29 @@ EVENT_SETUP_PROGRESS = "setup_progress"
 # dictation control flow; older frontends ignore it.
 EVENT_RECORDING_LEVEL = "recording_level"
 
-# §44/§54 defaults.
+# §44 recording bound. v0.2.5: the maximum-recording-duration and VAD
+# settings were removed from the settings document (owner declutter); the
+# daemon still needs both, so the supervisor emits this shipped cap and VAD
+# enabled as fixed constants (daemon_supervisor.daemon_config_toml) and the
+# transcription watchdog budgets from it. Preserves the v0.2.4 effective
+# behavior (60 s cap, VAD on).
 DEFAULT_MAX_RECORDING_SECONDS = 60
 
 
 @dataclass(frozen=True)
 class Settings:
-    """Plugin settings snapshot (wire shape in spec §54)."""
+    """Plugin settings snapshot (wire shape in spec §54).
+
+    v0.2.5: `maxRecordingSeconds` and `vadEnabled` left the document (owner
+    declutter). The settings repository still tolerates both keys on load —
+    existing device files carry them — and never writes them back.
+    """
 
     schema_version: int
     enabled: bool
     compute_backend: ComputeBackend
     model_id: str
     language: str
-    max_recording_seconds: int
-    vad_enabled: bool
     output_mode: OutputMode
 
     def to_payload(self) -> dict[str, object]:
@@ -58,8 +66,6 @@ class Settings:
             "computeBackend": self.compute_backend,
             "modelId": self.model_id,
             "language": self.language,
-            "maxRecordingSeconds": self.max_recording_seconds,
-            "vadEnabled": self.vad_enabled,
             "outputMode": self.output_mode,
         }
 
@@ -70,8 +76,6 @@ DEFAULT_SETTINGS = Settings(
     compute_backend="auto",
     model_id="base",
     language="system",
-    max_recording_seconds=DEFAULT_MAX_RECORDING_SECONDS,
-    vad_enabled=True,
     output_mode="direct-insert",
 )
 

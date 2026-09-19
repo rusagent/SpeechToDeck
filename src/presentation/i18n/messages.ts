@@ -10,9 +10,7 @@
  */
 
 import type { DictationErrorCode } from "../../domain/DictationError";
-import type { DictationState } from "../../domain/DictationState";
 import type { SpeechRuntimeStatus } from "../../application/ports/SpeechPort";
-import type { UnavailableReason } from "../../domain/DictationState";
 
 export type Locale = "en" | "de";
 
@@ -22,17 +20,12 @@ export const EN_MESSAGES = {
     "section.runtime": "Runtime",
     "section.speech": "Speech",
     "section.output": "Output",
-    "section.diagnostics": "Diagnostics",
     "section.dictation": "Dictation",
 
     "setting.enabled": "Enable plugin",
     "setting.computeBackend": "Compute backend",
-    "setting.runtimeHealth": "Runtime health",
     "setting.model": "Model",
     "setting.language": "Language",
-    "setting.microphone": "Microphone",
-    "setting.maxDuration": "Maximum recording duration (seconds)",
-    "setting.vad": "Voice activity detection",
     "setting.outputMode": "Output mode",
     "setting.loading": "Loading settings…",
     "setting.saveFailed": "Saving settings failed. The change was not persisted.",
@@ -61,82 +54,22 @@ export const EN_MESSAGES = {
     "hint.backend.vulkan":
         "Vulkan is required. If it fails, an error is shown — no silent switch to CPU.",
     "hint.backend.cpu": "Uses the CPU only.",
-    "hint.model.installed": "Model is installed and ready.",
-    "hint.model.notInstalled":
-        "Model is not installed. Dictation stays unavailable until it is downloaded.",
-    "hint.model.unknown": "Installation status is not known yet.",
     "hint.language.system": "Uses the Steam interface language.",
     "hint.language.auto": "Detects the spoken language automatically.",
     "hint.language.explicit": "Transcriptions are made in this language.",
 
-    "model.group.recommended": "Recommended",
-    "model.group.more": "More models",
-    "model.group.for": "For",
-    "model.action.use": "Use",
-    "model.action.inUse": "In use",
-    "model.action.download": "Download",
-    "model.action.cancel": "Cancel",
+    "model.group.general": "General",
+    "model.recommended": "Recommended",
+    "model.modal.preparing": "Starting download…",
+    "model.modal.cancel": "Cancel",
+    "model.modal.close": "Close",
+    "model.modal.failed": "Download failed",
     "model.catalog.unavailable": "The model catalog could not be loaded.",
-
-    "common.available": "Available",
-    "common.unavailable": "Unavailable",
-    "common.unknown": "Unknown",
-    "common.none": "None",
 
     "runtime.status.starting": "Starting",
     "runtime.status.ready": "Ready",
     "runtime.status.unavailable": "Unavailable",
     "runtime.status.crashed": "Crashed",
-
-    "runtime.health.booting": "Starting…",
-    "runtime.health.unavailable": "Unavailable",
-    "runtime.health.ready": "Ready",
-    "runtime.health.starting": "Starting recording…",
-    "runtime.health.recording": "Recording",
-    "runtime.health.stopping": "Stopping…",
-    "runtime.health.transcribing": "Transcribing…",
-    "runtime.health.inserting": "Inserting…",
-    "runtime.health.error": "Error",
-
-    "unavailable.PLUGIN_DISABLED": "Plugin is disabled in the settings.",
-    "unavailable.KEYBOARD_HOOK_UNAVAILABLE":
-        "Steam keyboard integration is unavailable on this Steam build.",
-    "unavailable.SPEECH_RUNTIME_UNAVAILABLE": "The speech runtime could not be started.",
-    "unavailable.MICROPHONE_UNAVAILABLE": "No microphone is available.",
-    "unavailable.MODEL_NOT_INSTALLED": "The selected model is not installed.",
-    "unavailable.SETTINGS_LOAD_FAILED": "Settings could not be loaded.",
-
-    "diagnostics.keyboardDetected": "Steam keyboard detected",
-    "diagnostics.pasteCapability": "Paste capability",
-    "diagnostics.clipboardCapability": "Clipboard capability",
-    "diagnostics.cdpDiagnostics": "CDP cross-view diagnostics",
-    "diagnostics.tabBridge": "Tab bridge",
-    "diagnostics.tabBridgeInjected": "Tab bridge injected",
-    "diagnostics.tabBridgeKeyboardSeen": "Keyboard view seen",
-    "diagnostics.tabBridgePressChannel": "Press channel live",
-    "diagnostics.runtimeStatus": "Runtime status",
-    "diagnostics.model": "Model",
-    "diagnostics.computeBackend": "Compute backend",
-    "diagnostics.backendVersion": "Backend version",
-    "diagnostics.lastError": "Last runtime error",
-    "diagnostics.restartRuntime": "Restart runtime",
-    "diagnostics.dictationFlow": "Dictation flow",
-    "diagnostics.dictationFlow.running": "backend running",
-    "diagnostics.dictationFlow.stopped": "backend stopped",
-    "diagnostics.dictationFlow.xclip": "system clipboard writer ready",
-    "diagnostics.dictationFlow.clipboardUnavailable": "copying via the panel button",
-
-    "degrade.not-probed": "Diagnostics have not run yet.",
-    "degrade.remote-cdp-disabled":
-        "Optional: enable “Allow Remote CEF Debugging” in the Decky settings for cross-view diagnostics.",
-    "degrade.sp-target-not-found": "The main Steam UI view was not found.",
-    "degrade.bridge-not-injected": "The keyboard bridge is not installed in the Steam view yet.",
-    "degrade.probe-failed": "The diagnostics probe failed.",
-    "degrade.registry-not-found": "The Steam window registry was not found.",
-    "degrade.manager-not-found":
-        "No keyboard manager is registered right now; it appears while the keyboard is in use.",
-    "degrade.signature-not-found": "The keyboard signature was not found in any reachable view.",
-    "degrade.unknown": "Currently unavailable.",
 
     "setup.title": "Setup in progress…",
     "setup.step.runtimeVerify": "Verify runtime",
@@ -180,17 +113,12 @@ export const DE_MESSAGES: Record<MessageKey, string> = {
     "section.runtime": "Laufzeit",
     "section.speech": "Spracherkennung",
     "section.output": "Ausgabe",
-    "section.diagnostics": "Diagnose",
     "section.dictation": "Diktieren",
 
     "setting.enabled": "Plugin aktivieren",
     "setting.computeBackend": "Recheneinheit",
-    "setting.runtimeHealth": "Laufzeitstatus",
     "setting.model": "Modell",
     "setting.language": "Sprache",
-    "setting.microphone": "Mikrofon",
-    "setting.maxDuration": "Maximale Aufnahmedauer (Sekunden)",
-    "setting.vad": "Sprachaktivitätserkennung",
     "setting.outputMode": "Ausgabemodus",
     "setting.loading": "Einstellungen werden geladen…",
     "setting.saveFailed":
@@ -220,84 +148,22 @@ export const DE_MESSAGES: Record<MessageKey, string> = {
     "hint.backend.vulkan":
         "Vulkan ist erforderlich. Schlägt es fehl, wird ein Fehler angezeigt — kein stiller Wechsel zu CPU.",
     "hint.backend.cpu": "Nutzt nur die CPU.",
-    "hint.model.installed": "Modell ist installiert und bereit.",
-    "hint.model.notInstalled":
-        "Modell ist nicht installiert. Spracheingabe bleibt unverfügbar, bis es geladen wurde.",
-    "hint.model.unknown": "Der Installationsstatus ist noch nicht bekannt.",
     "hint.language.system": "Nutzt die Sprache der Steam-Oberfläche.",
     "hint.language.auto": "Erkennt die gesprochene Sprache automatisch.",
     "hint.language.explicit": "Transkriptionen werden in dieser Sprache erstellt.",
 
-    "model.group.recommended": "Empfohlen",
-    "model.group.more": "Weitere Modelle",
-    "model.group.for": "Für",
-    "model.action.use": "Verwenden",
-    "model.action.inUse": "Aktiv",
-    "model.action.download": "Herunterladen",
-    "model.action.cancel": "Abbrechen",
+    "model.group.general": "Allgemein",
+    "model.recommended": "Empfohlen",
+    "model.modal.preparing": "Download wird gestartet…",
+    "model.modal.cancel": "Abbrechen",
+    "model.modal.close": "Schließen",
+    "model.modal.failed": "Download fehlgeschlagen",
     "model.catalog.unavailable": "Die Modell-Liste konnte nicht geladen werden.",
-
-    "common.available": "Verfügbar",
-    "common.unavailable": "Nicht verfügbar",
-    "common.unknown": "Unbekannt",
-    "common.none": "Keine",
 
     "runtime.status.starting": "Startet",
     "runtime.status.ready": "Bereit",
     "runtime.status.unavailable": "Nicht verfügbar",
     "runtime.status.crashed": "Abgestürzt",
-
-    "runtime.health.booting": "Startet…",
-    "runtime.health.unavailable": "Nicht verfügbar",
-    "runtime.health.ready": "Bereit",
-    "runtime.health.starting": "Aufnahme wird gestartet…",
-    "runtime.health.recording": "Aufnahme läuft",
-    "runtime.health.stopping": "Wird beendet…",
-    "runtime.health.transcribing": "Transkribiere…",
-    "runtime.health.inserting": "Einfügen…",
-    "runtime.health.error": "Fehler",
-
-    "unavailable.PLUGIN_DISABLED": "Plugin ist in den Einstellungen deaktiviert.",
-    "unavailable.KEYBOARD_HOOK_UNAVAILABLE":
-        "Die Steam-Tastatur-Integration ist für diesen Steam-Build nicht verfügbar.",
-    "unavailable.SPEECH_RUNTIME_UNAVAILABLE": "Die Spracherkennung konnte nicht gestartet werden.",
-    "unavailable.MICROPHONE_UNAVAILABLE": "Kein Mikrofon verfügbar.",
-    "unavailable.MODEL_NOT_INSTALLED": "Das ausgewählte Modell ist nicht installiert.",
-    "unavailable.SETTINGS_LOAD_FAILED": "Einstellungen konnten nicht geladen werden.",
-
-    "diagnostics.keyboardDetected": "Steam-Tastatur erkannt",
-    "diagnostics.pasteCapability": "Einfügen-Fähigkeit",
-    "diagnostics.clipboardCapability": "Zwischenablage-Fähigkeit",
-    "diagnostics.cdpDiagnostics": "CDP-übergreifende Diagnose",
-    "diagnostics.tabBridge": "Tab-Brücke",
-    "diagnostics.tabBridgeInjected": "Tab-Brücke injiziert",
-    "diagnostics.tabBridgeKeyboardSeen": "Tastaturansicht gesehen",
-    "diagnostics.tabBridgePressChannel": "Druckkanal aktiv",
-    "diagnostics.runtimeStatus": "Laufzeitstatus",
-    "diagnostics.model": "Modell",
-    "diagnostics.computeBackend": "Recheneinheit",
-    "diagnostics.backendVersion": "Backend-Version",
-    "diagnostics.lastError": "Letzter Laufzeitfehler",
-    "diagnostics.restartRuntime": "Laufzeit neu starten",
-    "diagnostics.dictationFlow": "Diktier-Ablauf",
-    "diagnostics.dictationFlow.running": "Backend läuft",
-    "diagnostics.dictationFlow.stopped": "Backend gestoppt",
-    "diagnostics.dictationFlow.xclip": "System-Zwischenablage bereit",
-    "diagnostics.dictationFlow.clipboardUnavailable": "Kopieren über den Panel-Knopf",
-
-    "degrade.not-probed": "Diagnose wurde noch nicht ausgeführt.",
-    "degrade.remote-cdp-disabled":
-        "Optional: Aktiviere „Allow Remote CEF Debugging“ in den Decky-Einstellungen für übergreifende Diagnose.",
-    "degrade.sp-target-not-found": "Die Steam-Hauptansicht wurde nicht gefunden.",
-    "degrade.bridge-not-injected":
-        "Die Tastatur-Brücke ist noch nicht in der Steam-Ansicht installiert.",
-    "degrade.probe-failed": "Die Diagnoseabfrage ist fehlgeschlagen.",
-    "degrade.registry-not-found": "Die Steam-Fensterregistrierung wurde nicht gefunden.",
-    "degrade.manager-not-found":
-        "Derzeit ist kein Tastatur-Manager registriert; er erscheint bei Benutzung der Tastatur.",
-    "degrade.signature-not-found":
-        "Das Tastatur-Signaturmerkmal wurde in keiner erreichbaren Ansicht gefunden.",
-    "degrade.unknown": "Derzeit nicht verfügbar.",
 
     "setup.title": "Setup läuft…",
     "setup.step.runtimeVerify": "Runtime verifizieren",
@@ -356,6 +222,7 @@ export const ERROR_MESSAGES: Record<Locale, Record<DictationErrorCode, string>> 
 
         MODEL_NOT_INSTALLED: "The selected model is not installed.",
         MODEL_DOWNLOAD_FAILED: "Downloading the model failed.",
+        MODEL_DOWNLOAD_CANCELLED: "The model download was canceled.",
         MODEL_CHECKSUM_FAILED: "The downloaded model failed the integrity check.",
 
         SESSION_CONFLICT: "Another recording is already active.",
@@ -389,6 +256,7 @@ export const ERROR_MESSAGES: Record<Locale, Record<DictationErrorCode, string>> 
 
         MODEL_NOT_INSTALLED: "Das ausgewählte Modell ist nicht installiert.",
         MODEL_DOWNLOAD_FAILED: "Herunterladen des Modells ist fehlgeschlagen.",
+        MODEL_DOWNLOAD_CANCELLED: "Das Herunterladen des Modells wurde abgebrochen.",
         MODEL_CHECKSUM_FAILED:
             "Das heruntergeladene Modell hat die Integritätsprüfung nicht bestanden.",
 
@@ -444,29 +312,8 @@ export function translateRuntimeStatus(locale: Locale, status: SpeechRuntimeStat
     return translate(locale, key);
 }
 
-export function translateRuntimeHealth(locale: Locale, state: DictationState): string {
-    if (state.kind === "unavailable") {
-        return translate(locale, `unavailable.${state.reason}` as MessageKey);
-    }
-    return translate(locale, `runtime.health.${state.kind}` as MessageKey);
-}
-
 export function translateError(locale: Locale, code: DictationErrorCode): string {
     return ERROR_MESSAGES[locale][code];
-}
-
-/**
- * Stable degrade reason code → UI text (§68 analog for the v0.1.6 keyboard
- * hook and CDP diagnostics reasons). Unknown codes fall back to a generic
- * line instead of leaking raw internals into the UI.
- */
-export function translateDegradeReason(locale: Locale, reason: string | null): string {
-    if (reason === null) {
-        return translate(locale, "degrade.unknown");
-    }
-    const key = `degrade.${reason}` as MessageKey;
-    const message = MESSAGES[locale][key];
-    return key in MESSAGES[locale] ? message : translate(locale, "degrade.unknown");
 }
 
 /** Accessible names for the microphone visual states (§107). */
@@ -474,10 +321,6 @@ export type MicrophoneLabelState = "ready" | "recording" | "processing" | "error
 
 export function translateMicLabel(locale: Locale, state: MicrophoneLabelState): string {
     return translate(locale, `mic.label.${state}` as MessageKey);
-}
-
-export function translateUnavailableReason(locale: Locale, reason: UnavailableReason): string {
-    return translate(locale, `unavailable.${reason}` as MessageKey);
 }
 
 /**

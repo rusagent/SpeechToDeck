@@ -2,7 +2,7 @@
  * Curated model catalog port (ADR-011): the backend's `list_models` callable
  * plus the `model_download_progress` / `model_download_complete` events with
  * their manual boundary type guards (§99) and the small dedicated store the
- * plugin panel's ModelPicker consumes.
+ * plugin panel's ModelSelect (dropdown + download modal) consumes.
  *
  * Like setup progress and the level meter this is transport-level UI state:
  * it never enters the dictation state machine (§8) and is observed only by
@@ -128,13 +128,30 @@ export interface ModelDownloadState {
     readonly percent: number | null;
 }
 
+/**
+ * The last FAILED download attempt (v0.2.5): the backend detail string plus
+ * the model it belonged to, surfaced by the download modal's error state.
+ * Cancellations never land here — they are user-initiated completion, not
+ * failure. Cleared when the next download starts or completes.
+ */
+export interface ModelDownloadFailure {
+    readonly modelId: string;
+    /** Backend-provided diagnosable detail (§73-safe), null when absent. */
+    readonly detail: string | null;
+}
+
 /** Immutable render snapshot of the catalog panel (§102: stable identity). */
 export interface ModelCatalogSnapshot {
     readonly models: readonly CatalogModel[];
     readonly download: ModelDownloadState | null;
+    readonly failure: ModelDownloadFailure | null;
 }
 
-export const EMPTY_MODEL_CATALOG: ModelCatalogSnapshot = { models: [], download: null };
+export const EMPTY_MODEL_CATALOG: ModelCatalogSnapshot = {
+    models: [],
+    download: null,
+    failure: null,
+};
 
 /**
  * Minimal external store for the catalog + download state (§102 shape:
@@ -180,7 +197,27 @@ export class ModelCatalogStore {
                 model.id === payload.modelId ? { ...model, installed: true } : model,
             ),
             download: null,
+            failure: null,
         };
+        this.notify();
+    }
+
+    /**
+     * Records a failed download attempt for the modal's error state. The
+     * in-flight download state clears with it (the attempt is settled);
+     * the failure record stays until the next download starts or completes.
+     */
+    publishFailure(modelId: string, detail: string | null): void {
+        this.snapshot = { ...this.snapshot, download: null, failure: { modelId, detail } };
+        this.notify();
+    }
+
+    /** Clears a stale failure record (called when a new download starts). */
+    clearFailure(): void {
+        if (this.snapshot.failure === null) {
+            return;
+        }
+        this.snapshot = { ...this.snapshot, failure: null };
         this.notify();
     }
 

@@ -28,6 +28,7 @@ from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
 
 from backend.domain.contracts import (
+    DEFAULT_MAX_RECORDING_SECONDS,
     EVENT_SPEECH_ERROR,
     EVENT_SPEECH_STATUS,
     EVENT_TRANSCRIPT_READY,
@@ -499,6 +500,10 @@ class SpeechApplicationService:
         return status
 
     async def _transcription_timeout(self) -> float:
-        """§71: final transcription bounded by max-recording/model policy."""
-        settings = await self._settings_provider()
-        return settings.max_recording_seconds + self._transcript_grace
+        """§71: final transcription bounded by the recording cap + grace.
+
+        v0.2.5: the cap is the fixed §44 recording bound the supervisor emits
+        into the daemon config (`DEFAULT_MAX_RECORDING_SECONDS`), no longer a
+        user setting — the watchdog stays aligned with the real daemon limit.
+        """
+        return DEFAULT_MAX_RECORDING_SECONDS + self._transcript_grace

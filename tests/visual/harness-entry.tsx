@@ -24,7 +24,7 @@ import { translateError } from "../../src/presentation/i18n/messages";
 import type { Locale } from "../../src/presentation/i18n/messages";
 import { DictationError } from "../../src/domain/DictationError";
 import type { DictationState } from "../../src/domain/DictationState";
-import type { DiagnosticsSource } from "../../src/presentation/settings/DiagnosticsPanel";
+import type { DiagnosticsSource } from "../../src/presentation/settings/DiagnosticsSource";
 import type { KeyboardCapabilityReport } from "../../src/domain/Capability";
 import type { SpeechCapabilities } from "../../src/application/ports/SpeechPort";
 import type { PanelTranscriptSnapshot } from "../../src/application/ports/PanelTranscriptPort";
@@ -34,6 +34,7 @@ import type {
 } from "../../src/application/ports/SetupProgressPort";
 import type { CatalogModel } from "../../src/application/ports/ModelCatalogPort";
 import { ModelCatalogStore } from "../../src/application/ports/ModelCatalogPort";
+import { openModelDownloadModal } from "../../src/presentation/settings/ModelSelect";
 import { DeckyBackendClient } from "../../src/infrastructure/decky/DeckyBackendClient";
 import { DeckySpeechAdapter } from "../../src/infrastructure/decky/DeckySpeechAdapter";
 import { copyTextToClipboard } from "../../src/infrastructure/system/PanelClipboard";
@@ -55,12 +56,13 @@ export type HarnessSetupVariant = keyof typeof SETUP_SNAPSHOTS | "hydrated-faile
 export type HarnessDictationVariant = "idle" | "recording" | "transcript";
 
 /**
- * Model-catalog wiring for the panel case (ADR-011): `ready` mounts the REAL
- * ModelPicker over a canned `list_models` snapshot matching the committed
- * defaults/models.json; `downloading` additionally puts one row into the
- * in-flight download state (~40%).
+ * Model-catalog wiring for the panel case (ADR-011, v0.2.5): `ready` mounts
+ * the REAL ModelSelect over a canned `list_models` snapshot matching the
+ * committed defaults/models.json; `modal` additionally opens the REAL
+ * download modal (via the production openModelDownloadModal path) with the
+ * single-flight download live at ~40%.
  */
-export type HarnessCatalogVariant = "none" | "ready" | "downloading";
+export type HarnessCatalogVariant = "none" | "ready" | "modal";
 
 export interface HarnessParams {
     readonly caseId: HarnessCaseId;
@@ -206,9 +208,10 @@ export const CAPTURED_CASES: readonly HarnessParams[] = [
         dictation: "transcript",
         scroll: null,
     },
-    // Catalog-driven ModelPicker (ADR-011): the REAL picker over a canned
+    // Model-select flow (ADR-011, v0.2.5): the REAL ModelSelect over a canned
     // list_models snapshot matching defaults/models.json, with a concrete
-    // language selected so the per-language group renders (EN UI, "For de").
+    // language selected so the per-language group is part of the dropdown
+    // options (EN UI, "de" group).
     {
         caseId: "panel",
         locale: "en",
@@ -219,15 +222,16 @@ export const CAPTURED_CASES: readonly HarnessParams[] = [
         language: "de",
         scroll: null,
     },
-    // Same catalog with one row in the single-flight download state at 40%
-    // (Cancel + live percentage; every other Download button disabled).
+    // Same catalog with the REAL download modal open (opened through the
+    // production openModelDownloadModal path) and the single-flight download
+    // live at 40% (determinate bar + percent + Cancel).
     {
         caseId: "panel",
         locale: "en",
         stateKind: "ready",
         setup: "none",
         dictation: "idle",
-        catalog: "downloading",
+        catalog: "modal",
         language: "de",
         scroll: null,
     },
@@ -376,14 +380,14 @@ const HARNESS_MODEL_CATALOG: readonly CatalogModel[] = [
 
 /**
  * Builds the catalog store for the panel case through the production publish
- * paths. The downloading variant reports 40% of the recommended turbo model
+ * paths. The modal variant reports 40% of the recommended turbo model
  * (229616478 / 574041195 bytes) — the exact percent math the real
  * `model_download_progress` events produce.
  */
 function fakeCatalogStore(variant: Exclude<HarnessCatalogVariant, "none">): ModelCatalogStore {
     const store = new ModelCatalogStore();
     store.setModels(HARNESS_MODEL_CATALOG);
-    if (variant === "downloading") {
+    if (variant === "modal") {
         store.publishProgress({
             protocolVersion: 1,
             modelId: "whisper-large-v3-turbo-q5_0",
@@ -450,6 +454,31 @@ function fakeState(stateKind: HarnessParams["stateKind"]): DictationState {
     }
 }
 
+/**
+ * Opens the REAL download modal through the production path for the `modal`
+ * capture variant (mount-time trigger standing in for the user's selection
+ * of a not-installed model; the modal itself is the real component over the
+ * real store). The download is already live at 40% in the store.
+ */
+function ModalOpener({ store, locale }: { store: ModelCatalogStore; locale: Locale }): null {
+    React.useEffect(() => {
+        const model = store
+            .getSnapshot()
+            .models.find((candidate) => candidate.id === "whisper-large-v3-turbo-q5_0");
+        if (model === undefined || model.installed) {
+            return;
+        }
+        openModelDownloadModal({
+            model,
+            locale,
+            store,
+            onCompleted: () => undefined,
+            onCancel: () => undefined,
+        });
+    }, [store, locale]);
+    return null;
+}
+
 function PanelCase({
     locale,
     stateKind,
@@ -466,9 +495,9 @@ function PanelCase({
     const hydration = setup === "hydrated-failed" ? hydratedFailureCase() : null;
     const setupSnapshot: SetupProgressSnapshot | null =
         setup === "none" || setup === "hydrated-failed" ? null : SETUP_SNAPSHOTS[setup];
-    // ADR-011 catalog wiring: the REAL picker consumes the store side-channel
-    // exactly like the composed panel (load is inert here — the store is
-    // pre-populated through the production publish paths).
+    // ADR-011 catalog wiring: the REAL model select consumes the store
+    // side-channel exactly like the composed panel (load is inert here — the
+    // store is pre-populated through the production publish paths).
     const settingsPort = new FakeSettingsPort();
     if (language !== "system") {
         settingsPort.value = { ...settingsPort.value, language };
@@ -484,18 +513,23 @@ function PanelCase({
                   cancel: () => undefined,
               };
     return (
-        <SettingsPanel
-            settings={settingsPort}
-            store={new FakeStateStore(fakeState(stateKind))}
-            setupProgress={
-                hydration
-                    ? hydration.store
-                    : new FakeSnapshotStore<SetupProgressSnapshot | null>(setupSnapshot)
-            }
-            diagnostics={hydration ? hydration.diagnostics : fakeDiagnostics()}
-            locale={locale}
-            {...(modelCatalog !== undefined ? { modelCatalog } : {})}
-        />
+        <>
+            <SettingsPanel
+                settings={settingsPort}
+                store={new FakeStateStore(fakeState(stateKind))}
+                setupProgress={
+                    hydration
+                        ? hydration.store
+                        : new FakeSnapshotStore<SetupProgressSnapshot | null>(setupSnapshot)
+                }
+                diagnostics={hydration ? hydration.diagnostics : fakeDiagnostics()}
+                locale={locale}
+                {...(modelCatalog !== undefined ? { modelCatalog } : {})}
+            />
+            {catalogStore !== null && catalog === "modal" ? (
+                <ModalOpener store={catalogStore} locale={locale} />
+            ) : null}
+        </>
     );
 }
 
@@ -668,7 +702,7 @@ function paramsFromLocation(): HarnessParams {
         rawDictation === "recording" || rawDictation === "transcript" ? rawDictation : "idle";
     const rawCatalog = search.get("catalog");
     const catalog: HarnessCatalogVariant =
-        rawCatalog === "ready" || rawCatalog === "downloading" ? rawCatalog : "none";
+        rawCatalog === "ready" || rawCatalog === "modal" ? rawCatalog : "none";
     return {
         caseId,
         locale,
@@ -710,28 +744,27 @@ if (
                 height: Math.round(rect.height),
             };
         });
-        // Named sub-section regions for targeted crops (the catalog-driven
-        // ModelPicker block is smaller than its host section, and its
-        // per-language group must stay inside the ≤450px review crop).
-        const catalogBlock = document.querySelector<HTMLElement>("[data-model-catalog]");
+        // Named sub-section regions for targeted crops (the Speech section
+        // with the Language → Model dropdowns is smaller than the whole
+        // panel, and the modal overlay lives outside #visual-root).
+        const catalogBlock = document.querySelector<HTMLElement>("[data-model-select]");
         const regions: { name: string; top: number; height: number }[] = [];
         if (catalogBlock) {
             const blockRect = catalogBlock.getBoundingClientRect();
             regions.push({
-                name: "modelCatalog",
+                name: "modelSelect",
                 top: Math.round(blockRect.top + window.scrollY),
                 height: Math.round(blockRect.height),
             });
-            for (const group of Array.from(
-                catalogBlock.querySelectorAll<HTMLElement>("[data-model-group]"),
-            )) {
-                const groupRect = group.getBoundingClientRect();
-                regions.push({
-                    name: `modelGroup:${group.dataset.modelGroup ?? ""}`,
-                    top: Math.round(groupRect.top + window.scrollY),
-                    height: Math.round(groupRect.height),
-                });
-            }
+        }
+        const modalCard = document.querySelector<HTMLElement>(".decky-modal");
+        if (modalCard) {
+            const modalRect = modalCard.getBoundingClientRect();
+            regions.push({
+                name: "downloadModal",
+                top: Math.round(modalRect.top + window.scrollY),
+                height: Math.round(modalRect.height),
+            });
         }
         visualRoot.dataset.geometry = JSON.stringify({
             docH: doc.scrollHeight,

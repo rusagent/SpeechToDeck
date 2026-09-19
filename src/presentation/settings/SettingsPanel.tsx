@@ -3,39 +3,32 @@
  *
  * Loads the settings document through the SettingsPort (backend-owned
  * persistence, §55) and saves through the same port on every change. The
- * §80 sections (Runtime / Speech / Output / Diagnostics) render as nested
- * titled panel sections; read-only rows use one field idiom so labels and
- * values stay aligned. Application/runtime state is consumed through
- * `useSyncExternalStore` over the controller store (§102); only this panel
- * and the microphone mount subscribe to relevant state (§66).
+ * §80 sections render as nested titled panel sections. v0.2.5 declutter
+ * (owner list): the Microphone/Available chip row, the Maximum Recording
+ * Duration slider, the VAD toggle, the runtime-health row and the whole
+ * Diagnostics section are gone — the panel reads as Dictation card / (setup
+ * when needed) / Runtime (Enabled + Compute backend) / Speech (Language →
+ * Model) / Output (Output mode). Application/runtime state is consumed
+ * through `useSyncExternalStore` over the controller store (§102); only
+ * this panel and the microphone mount subscribe to relevant state (§66).
  */
 
 import * as React from "react";
-import {
-    DropdownItem,
-    Field,
-    PanelSection,
-    PanelSectionRow,
-    SliderField,
-    ToggleField,
-} from "@decky/ui";
+import { DropdownItem, PanelSection, PanelSectionRow, ToggleField } from "@decky/ui";
 import type { DictationState } from "../../domain/DictationState";
 import type { StateStore } from "../../application/DictationController";
 import type { PluginSettings, SettingsPort } from "../../application/ports/SettingsPort";
-import type { SpeechCapabilities } from "../../application/ports/SpeechPort";
 import type { SetupProgressSnapshot } from "../../application/ports/SetupProgressPort";
 import type { ModelCatalogSnapshot } from "../../application/ports/ModelCatalogPort";
 import { LevelMeterStore } from "../../application/ports/LevelMeterPort";
 import type { PanelTranscriptSnapshot } from "../../application/ports/PanelTranscriptPort";
-import { translate, translateRuntimeHealth } from "../i18n/messages";
+import { translate } from "../i18n/messages";
 import type { Locale, MessageKey } from "../i18n/messages";
-import { CapabilityChip, capabilityState } from "./CapabilityChip";
 import { ComputeBackendPicker } from "./ComputeBackendPicker";
-import { DiagnosticsPanel } from "./DiagnosticsPanel";
-import type { DiagnosticsSource } from "./DiagnosticsPanel";
+import type { DiagnosticsSource } from "./DiagnosticsSource";
 import { DictationCard } from "./DictationCard";
 import { LanguagePicker } from "./LanguagePicker";
-import { ModelPicker } from "./ModelPicker";
+import { ModelSelect } from "./ModelSelect";
 import { SetupProgressPanel } from "./SetupProgressPanel";
 
 export interface SettingsPanelProps {
@@ -57,8 +50,8 @@ export interface SettingsPanelProps {
     };
     /**
      * Additive curated model catalog wiring (ADR-011): guarded catalog store
-     * + download handlers composed by the composition root. The catalog
-     * picker renders only when provided (§99 additive surface — never a
+     * + download handlers composed by the composition root. The model
+     * select renders only when provided (§99 additive surface — never a
      * fake control).
      */
     readonly modelCatalog?: {
@@ -68,10 +61,6 @@ export interface SettingsPanelProps {
         readonly cancel: () => void;
     };
 }
-
-const MAX_DURATION_MIN_SECONDS = 5;
-const MAX_DURATION_MAX_SECONDS = 120;
-const MAX_DURATION_STEP_SECONDS = 5;
 
 const OUTPUT_MODES: readonly PluginSettings["outputMode"][] = ["direct-insert", "clipboard-only"];
 
@@ -90,9 +79,6 @@ export function SettingsPanel({
 }: SettingsPanelProps): React.ReactElement {
     const [value, setValue] = React.useState<PluginSettings | null>(null);
     const [saveError, setSaveError] = React.useState(false);
-    // §57: availability is reported, never assumed — unknown until the
-    // probe resolves, and a failed probe stays unknown instead of lying.
-    const [speech, setSpeech] = React.useState<SpeechCapabilities | null>(null);
     // Bound, render-stable store accessors (§102): useSyncExternalStore calls
     // these as plain functions, so unbound class methods would lose `this`.
     // Same closure pattern as the microphone-button bridge (§66).
@@ -125,18 +111,6 @@ export function SettingsPanel({
         [dictation],
     );
     const dictationTranscript = React.useSyncExternalStore(subscribeTranscript, getTranscript);
-    // Additive ADR-011: the curated model catalog — same bound accessor
-    // pattern (§102); absent wiring renders no catalog picker.
-    const subscribeCatalog = React.useMemo(
-        () => (onChange: () => void) =>
-            modelCatalog?.store.subscribe(onChange) ?? (() => undefined),
-        [modelCatalog],
-    );
-    const getCatalog = React.useMemo(
-        () => () => modelCatalog?.store.getSnapshot() ?? null,
-        [modelCatalog],
-    );
-    const catalog = React.useSyncExternalStore(subscribeCatalog, getCatalog);
     // Shown while the runtime is setting up or failed; terminal `ready`
     // hides it again, and a disabled plugin shows no progress at all.
     const showSetup = value !== null && value.enabled && setup !== null && setup.step !== "ready";
@@ -155,11 +129,6 @@ export function SettingsPanel({
                     setValue(null);
                 }
             });
-        void diagnostics.loadSpeechCapabilities().then((caps) => {
-            if (!cancelled) {
-                setSpeech(caps);
-            }
-        });
         // Failure hydration: a startup failure that fired before this panel
         // subscribed left no live setup snapshot (on-device v0.1.3 finding).
         // The adapter rebuilds the terminal failed view from the §30 status
@@ -171,7 +140,7 @@ export function SettingsPanel({
     }, [settings, diagnostics]);
 
     // ADR-011: load the curated catalog once per panel mount; load failures
-    // leave the store empty and the picker reports the catalog as
+    // leave the store empty and the select reports the catalog as
     // unavailable (§57: availability is reported, never assumed).
     React.useEffect(() => {
         if (modelCatalog === undefined) {
@@ -247,27 +216,9 @@ export function SettingsPanel({
                         onChange={(backend) => update({ computeBackend: backend })}
                     />
                 </PanelSectionRow>
-                <PanelSectionRow>
-                    <Field label={translate(locale, "setting.runtimeHealth")}>
-                        {translateRuntimeHealth(locale, runtimeState)}
-                    </Field>
-                </PanelSectionRow>
             </PanelSection>
 
             <PanelSection title={translate(locale, "section.speech")}>
-                {modelCatalog !== undefined && catalog !== null ? (
-                    <PanelSectionRow>
-                        <ModelPicker
-                            value={value.modelId}
-                            locale={locale}
-                            language={value.language}
-                            catalog={catalog}
-                            onChange={(modelId) => update({ modelId })}
-                            onDownload={modelCatalog.download}
-                            onCancel={modelCatalog.cancel}
-                        />
-                    </PanelSectionRow>
-                ) : null}
                 <PanelSectionRow>
                     <LanguagePicker
                         value={value.language}
@@ -275,32 +226,19 @@ export function SettingsPanel({
                         onChange={(language) => update({ language })}
                     />
                 </PanelSectionRow>
-                <PanelSectionRow>
-                    <Field label={translate(locale, "setting.microphone")}>
-                        <CapabilityChip
-                            state={capabilityState(speech?.microphoneAvailable)}
+                {modelCatalog !== undefined ? (
+                    <PanelSectionRow>
+                        <ModelSelect
+                            value={value.modelId}
                             locale={locale}
+                            language={value.language}
+                            store={modelCatalog.store}
+                            onChange={(modelId) => update({ modelId })}
+                            onDownload={modelCatalog.download}
+                            onCancel={modelCatalog.cancel}
                         />
-                    </Field>
-                </PanelSectionRow>
-                <PanelSectionRow>
-                    <SliderField
-                        label={translate(locale, "setting.maxDuration")}
-                        value={value.maxRecordingSeconds}
-                        min={MAX_DURATION_MIN_SECONDS}
-                        max={MAX_DURATION_MAX_SECONDS}
-                        step={MAX_DURATION_STEP_SECONDS}
-                        showValue
-                        onChange={(seconds) => update({ maxRecordingSeconds: seconds })}
-                    />
-                </PanelSectionRow>
-                <PanelSectionRow>
-                    <ToggleField
-                        label={translate(locale, "setting.vad")}
-                        checked={value.vadEnabled}
-                        onChange={(checked) => update({ vadEnabled: checked })}
-                    />
-                </PanelSectionRow>
+                    </PanelSectionRow>
+                ) : null}
             </PanelSection>
 
             <PanelSection title={translate(locale, "section.output")}>
@@ -315,17 +253,6 @@ export function SettingsPanel({
                         onChange={(option) =>
                             update({ outputMode: option.data as PluginSettings["outputMode"] })
                         }
-                    />
-                </PanelSectionRow>
-            </PanelSection>
-
-            <PanelSection title={translate(locale, "section.diagnostics")}>
-                <PanelSectionRow>
-                    <DiagnosticsPanel
-                        state={runtimeState}
-                        settings={value}
-                        source={diagnostics}
-                        locale={locale}
                     />
                 </PanelSectionRow>
             </PanelSection>

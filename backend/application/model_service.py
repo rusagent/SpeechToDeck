@@ -20,7 +20,10 @@ from backend.domain.contracts import (
     EventPublisher,
     ModelInfo,
 )
-from backend.domain.errors import ModelDownloadFailedError, ModelNotInstalledError
+from backend.domain.errors import (
+    ModelDownloadCancelledError,
+    ModelNotInstalledError,
+)
 from backend.infrastructure.model.model_manifest import MODEL_ID_RE, ModelManifest
 from backend.infrastructure.model.model_store import (
     ModelDownloadCancelled,
@@ -81,7 +84,10 @@ class ModelService:
         try:
             await task
         except ModelDownloadCancelled:
-            raise ModelDownloadFailedError(
+            # A cancel is user-initiated completion, not a failure: it maps to
+            # its own stable §68 code so the journal and the frontend never
+            # read it as MODEL_DOWNLOAD_FAILED (on-device v0.2.4 finding).
+            raise ModelDownloadCancelledError(
                 "model download cancelled", detail=f"id={model_id}"
             ) from None
         finally:

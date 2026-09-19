@@ -97,6 +97,49 @@ describe("ModelCatalogStore", () => {
         expect(listener).toHaveBeenCalledTimes(2);
     });
 
+    // v0.2.5 decision point (on-device finding): a failed download must carry
+    // its backend detail for the modal's error state, and the record must not
+    // leak into the next attempt.
+    it("publishes the failure detail for a model and clears it when the next download starts", () => {
+        const store = new ModelCatalogStore();
+        store.setModels([...MODELS]);
+        store.publishProgress(progress("distil-small-en", 10, 200));
+
+        const listener = vi.fn();
+        store.subscribe(listener);
+        store.publishFailure("distil-small-en", "HTTP 403 host=huggingface.co");
+        expect(store.getSnapshot().failure).toEqual({
+            modelId: "distil-small-en",
+            detail: "HTTP 403 host=huggingface.co",
+        });
+        // The attempt is settled: no progress row can stick.
+        expect(store.getSnapshot().download).toBeNull();
+        expect(listener).toHaveBeenCalledTimes(1);
+
+        // A failing detail is optional: the error state still renders.
+        store.publishFailure("distil-small-en", null);
+        expect(store.getSnapshot().failure?.detail).toBeNull();
+
+        // Starting the next download clears the stale failure record.
+        store.clearFailure();
+        expect(store.getSnapshot().failure).toBeNull();
+
+        // Clearing without a failure is a no-op.
+        const before = store.getSnapshot();
+        store.clearFailure();
+        expect(store.getSnapshot()).toBe(before);
+    });
+
+    it("completing a download also clears any failure record", () => {
+        const store = new ModelCatalogStore();
+        store.setModels([...MODELS]);
+        store.publishFailure("distil-small-en", "HTTP 500 host=huggingface.co");
+
+        store.publishComplete({ protocolVersion: 1, modelId: "distil-small-en", sizeBytes: 12 });
+
+        expect(store.getSnapshot().failure).toBeNull();
+    });
+
     it("keeps snapshot identity stable when nothing changed (§102)", () => {
         const store = new ModelCatalogStore();
         const first = store.getSnapshot();

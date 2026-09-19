@@ -182,6 +182,56 @@
         margin-bottom: 4px;
         overflow-wrap: anywhere;
     }
+    .decky-progress {
+        height: 4px;
+        border-radius: 2px;
+        background: rgba(255, 255, 255, 0.16);
+        position: relative;
+        overflow: hidden;
+        margin: 2px 0 8px;
+    }
+    .decky-progress-fill {
+        position: absolute;
+        inset: 0 auto 0 0;
+        border-radius: 2px;
+        background: #1a9fff;
+        transition: width 120ms ease;
+    }
+    .decky-progress-fill.indeterminate {
+        width: 30%;
+        animation: decky-harness-slide 1.1s ease-in-out infinite;
+    }
+    @keyframes decky-harness-slide {
+        0% { left: -30%; }
+        100% { left: 100%; }
+    }
+    /* Steam modal frame emulated for the harness (showModal): dimmed page
+       overlay, centered card on the dark surface, title header. The card
+       matches the QAM column width so the capture crop shows it whole. */
+    .decky-modal-overlay {
+        position: fixed;
+        inset: 0;
+        background: rgba(0, 0, 0, 0.55);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        z-index: 1000;
+    }
+    .decky-modal {
+        width: 380px;
+        max-width: calc(100vw - 24px);
+        background: #1b1d22;
+        border: 1px solid rgba(255, 255, 255, 0.12);
+        border-radius: 6px;
+        padding: 12px 14px;
+        box-sizing: border-box;
+    }
+    .decky-modal-title {
+        font-weight: 600;
+        font-size: 14px;
+        color: #eef0f2;
+        margin-bottom: 8px;
+    }
     .mic-row {
         display: flex;
         align-items: flex-start;
@@ -281,9 +331,12 @@
     }
 
     function DropdownItem(props) {
-        const selected = (props.rgOptions || []).find(
-            (option) => option.data === props.selectedOption,
+        // Real DropdownItem accepts flat options AND optgroups
+        // ({label, options}); flatten groups to find the selected label.
+        const flat = (props.rgOptions || []).flatMap((entry) =>
+            entry.data !== undefined ? [entry] : (entry.options ?? []),
         );
+        const selected = flat.find((option) => option.data === props.selectedOption);
         return h(
             "div",
             { className: "decky-dropdown" },
@@ -294,6 +347,20 @@
                 h("span", null, selected ? selected.label : String(props.selectedOption)),
                 h("span", { className: "decky-dropdown-chevron", "aria-hidden": "true" }, "▼"),
             ),
+        );
+    }
+
+    function ProgressBar(props) {
+        const indeterminate = props.indeterminate === true;
+        return h(
+            "div",
+            { className: "decky-progress", role: "progressbar" },
+            h("div", {
+                className: "decky-progress-fill" + (indeterminate ? " indeterminate" : ""),
+                style: indeterminate
+                    ? undefined
+                    : { width: `${Math.max(0, Math.min(100, props.nProgress ?? 0))}%` },
+            }),
         );
     }
 
@@ -327,6 +394,51 @@
         document.head.appendChild(style);
     }
 
+    /**
+     * Emulated Steam modal host for the harness: renders the given React node
+     * in an overlay card outside #visual-root, exactly the boundary the real
+     * showModal draws around a modal body. fnOnClose fires on every close
+     * (ours or the harness window), like the Steam contract the panel relies
+     * on for dismissal-cancels-download.
+     */
+    function showModal(node, _parent, props) {
+        const overlay = document.createElement("div");
+        overlay.className = "decky-modal-overlay";
+        const card = document.createElement("div");
+        card.className = "decky-modal";
+        const title = props && props.strTitle;
+        if (typeof title === "string" && title.length > 0) {
+            const header = document.createElement("div");
+            header.className = "decky-modal-title";
+            header.textContent = title;
+            card.appendChild(header);
+        }
+        const body = document.createElement("div");
+        body.setAttribute("data-modal-body", "true");
+        card.appendChild(body);
+        overlay.appendChild(card);
+        document.body.appendChild(overlay);
+        const container = window.ReactDOM.createRoot(body);
+        container.render(node);
+        let closed = false;
+        return {
+            Close: () => {
+                if (closed) {
+                    return;
+                }
+                closed = true;
+                container.unmount();
+                overlay.remove();
+                if (props && typeof props.fnOnClose === "function") {
+                    props.fnOnClose();
+                }
+            },
+            Update: (next) => {
+                container.render(next);
+            },
+        };
+    }
+
     window.DeckyUI = {
         PanelSection,
         PanelSectionRow,
@@ -334,6 +446,8 @@
         ToggleField,
         SliderField,
         DropdownItem,
+        ProgressBar,
         ButtonItem,
+        showModal,
     };
 })();

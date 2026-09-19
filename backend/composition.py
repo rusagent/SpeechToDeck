@@ -74,12 +74,12 @@ MODEL_WARMUP_TIMEOUT_S = 60.0
 # §36/§65: settings the native daemon consumes at start (see
 # SpeechDaemonSupervisor._spawn). While the daemon is up, a change to any of
 # them requires a supervised restart for the new value to take effect.
+# v0.2.5: max_recording_seconds/vad_enabled left the settings document; the
+# daemon receives fixed constants, so they no longer drive restarts.
 _RUNTIME_FIELDS = (
     "model_id",
     "compute_backend",
     "language",
-    "max_recording_seconds",
-    "vad_enabled",
 )
 
 # Last-resort cdpDiagnostics report before the first bounded probe completed

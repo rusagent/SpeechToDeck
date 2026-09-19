@@ -18,7 +18,7 @@ import time
 from pathlib import Path
 
 import pytest
-from backend.domain.contracts import DEFAULT_SETTINGS
+from backend.domain.contracts import DEFAULT_MAX_RECORDING_SECONDS, DEFAULT_SETTINGS
 from backend.domain.errors import RuntimeStartError
 from backend.infrastructure.process import daemon_supervisor as daemon_supervisor_module
 from backend.infrastructure.process.daemon_supervisor import daemon_config_toml
@@ -148,12 +148,13 @@ def test_generated_daemon_config_carries_upstream_keys(tmp_path: Path) -> None:
         assert config["engine"] == "whisper"
         assert config["state_file"] == str(paths.status_file)
         assert config["hotkey"]["enabled"] is False
-        assert config["audio"]["max_duration_secs"] == DEFAULT_SETTINGS.max_recording_seconds
+        # v0.2.5: fixed §44 cap + VAD enabled (settings fields removed).
+        assert config["audio"]["max_duration_secs"] == DEFAULT_MAX_RECORDING_SECONDS
+        assert config["vad"]["enabled"] is True
         assert config["whisper"]["model"] == str(paths.models_dir / "ggml-base.bin")
         assert config["whisper"]["language"] == "auto"  # "system" → auto mapping
         assert config["whisper"]["on_demand_loading"] is False
         assert config["whisper"]["eager_processing"] is False
-        assert config["vad"]["enabled"] is True
         assert config["output"]["mode"] == "file"
         assert config["output"]["file_path"] == str(paths.output_file)
         assert config["output"]["file_mode"] == "overwrite"
@@ -170,7 +171,10 @@ def test_generated_daemon_config_carries_upstream_keys(tmp_path: Path) -> None:
     asyncio.run(scenario())
 
 
-def test_generated_daemon_config_maps_language_and_vad(tmp_path: Path) -> None:
+def test_generated_daemon_config_maps_language_and_model(tmp_path: Path) -> None:
+    """v0.2.5: the removed max-duration/VAD settings no longer reach the
+    config; the audio/vad lines carry the fixed constants (60 s / enabled)
+    regardless of what was persisted, preserving v0.2.4 effective behavior."""
     import tomllib
 
     from backend.domain.contracts import Settings
@@ -181,8 +185,6 @@ def test_generated_daemon_config_maps_language_and_vad(tmp_path: Path) -> None:
         compute_backend="cpu",
         model_id="tiny",
         language="de",
-        max_recording_seconds=90,
-        vad_enabled=False,
         output_mode="direct-insert",
     )
     toml = daemon_config_toml(
@@ -194,8 +196,8 @@ def test_generated_daemon_config_maps_language_and_vad(tmp_path: Path) -> None:
     config = tomllib.loads(toml)
     assert config["whisper"]["language"] == "de"  # explicit codes pass through
     assert config["whisper"]["model"] == "/models/ggml-tiny.bin"
-    assert config["audio"]["max_duration_secs"] == 90
-    assert config["vad"]["enabled"] is False
+    assert config["audio"]["max_duration_secs"] == DEFAULT_MAX_RECORDING_SECONDS
+    assert config["vad"]["enabled"] is True
 
 
 def test_daemon_config_forces_english_for_en_only_models() -> None:
@@ -223,8 +225,6 @@ def test_daemon_config_forces_english_for_en_only_models() -> None:
             compute_backend="cpu",
             model_id="base",
             language=language,
-            max_recording_seconds=60,
-            vad_enabled=True,
             output_mode="direct-insert",
         )
         toml = daemon_config_toml(
@@ -468,7 +468,7 @@ def test_pdeathsig_ends_daemon_when_backend_process_is_sigkilled(tmp_path: Path)
             "from pathlib import Path\n"
             "\n"
             f"sys.path.insert(0, {str(Path(__file__).resolve().parents[2])!r})\n"
-            "from backend.domain.contracts import DEFAULT_SETTINGS\n"
+            "from backend.domain.contracts import DEFAULT_MAX_RECORDING_SECONDS, DEFAULT_SETTINGS\n"
             "from backend.infrastructure.process.daemon_supervisor import SpeechDaemonSupervisor\n"
             "from backend.infrastructure.process.process_environment import (\n"
             "    PluginPaths,\n"
@@ -585,8 +585,6 @@ def test_start_with_explicit_cpu_backend_runs_avx2_binary(tmp_path: Path) -> Non
             compute_backend="cpu",
             model_id="base",
             language="system",
-            max_recording_seconds=60,
-            vad_enabled=True,
             output_mode="direct-insert",
         )
         await supervisor.start(settings)

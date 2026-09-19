@@ -49,8 +49,6 @@ const VALID_SETTINGS: PluginSettings = {
     computeBackend: "auto",
     modelId: "base",
     language: "system",
-    maxRecordingSeconds: 60,
-    vadEnabled: true,
     outputMode: "direct-insert",
 };
 
@@ -309,17 +307,22 @@ describe("isPluginSettings (§54)", () => {
         );
     });
 
-    it("rejects unknown union values, bad versions and invalid durations", () => {
+    it("rejects unknown union values and bad versions", () => {
         expect(isPluginSettings({ ...VALID_SETTINGS, schemaVersion: 2 })).toBe(false);
         expect(isPluginSettings({ ...VALID_SETTINGS, computeBackend: "quantum" })).toBe(false);
         expect(isPluginSettings({ ...VALID_SETTINGS, modelId: "Base;rm" })).toBe(false);
         expect(isPluginSettings({ ...VALID_SETTINGS, modelId: "" })).toBe(false);
         expect(isPluginSettings({ ...VALID_SETTINGS, outputMode: "stream" })).toBe(false);
-        expect(isPluginSettings({ ...VALID_SETTINGS, maxRecordingSeconds: 0 })).toBe(false);
-        expect(isPluginSettings({ ...VALID_SETTINGS, maxRecordingSeconds: Number.NaN })).toBe(
-            false,
-        );
         expect(isPluginSettings({ ...VALID_SETTINGS, language: 1 })).toBe(false);
+    });
+
+    it("v0.2.5: tolerates the removed legacy keys (§99 superset, never rejected)", () => {
+        // A v0.2.4 device document carries maxRecordingSeconds/vadEnabled;
+        // the slimmed guard validates the fields this document owns and
+        // ignores the legacy superset instead of failing the load.
+        expect(
+            isPluginSettings({ ...VALID_SETTINGS, maxRecordingSeconds: 110, vadEnabled: true }),
+        ).toBe(true);
     });
 });
 

@@ -22,7 +22,7 @@ import type { SetupProgressSnapshot } from "../../application/ports/SetupProgres
 import { isDictationErrorCode } from "../../domain/DictationError";
 import { translate, translateError } from "../i18n/messages";
 import type { Locale } from "../i18n/messages";
-import { CodeChip } from "./DiagnosticsPanel";
+import { CodeChip } from "./CodeChip";
 
 export interface SetupProgressPanelProps {
     readonly snapshot: SetupProgressSnapshot;

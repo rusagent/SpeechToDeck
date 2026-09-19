@@ -20,7 +20,11 @@ from backend.domain.contracts import (
     EVENT_MODEL_DOWNLOAD_PROGRESS,
     EVENT_SETUP_PROGRESS,
 )
-from backend.domain.errors import InternalError, RecordingStartError
+from backend.domain.errors import (
+    InternalError,
+    ModelDownloadCancelledError,
+    RecordingStartError,
+)
 
 
 class _FakeApplication:
@@ -142,8 +146,9 @@ def test_callable_failure_logs_code_and_returns_coded_envelope(
     """On-device diagnosability defect: a failed dictation press returned the
     §68 coded envelope but the journal showed NOTHING (2026-09-18). `_call`
     is the single choke point: the failure logs WARNING with the callable
-    name, the stable §68 code and the session id — no transcript, no payload
-    text (§73) — and no inner layer logs the same failure again."""
+    name, the stable §68 code, the session id and the error's diagnosable
+    detail — no transcript, no payload text (§73) — and no inner layer logs
+    the same failure again."""
 
     async def scenario() -> None:
         apps = _patch_compose(monkeypatch, tmp_path)
@@ -151,7 +156,11 @@ def test_callable_failure_logs_code_and_returns_coded_envelope(
         await plugin._ensure_app()
 
         async def failing_start(session_id: str) -> dict[str, object]:
-            raise RecordingStartError("start acknowledgement timed out", session_id=session_id)
+            raise RecordingStartError(
+                "start acknowledgement timed out",
+                detail="ExitCode=1",
+                session_id=session_id,
+            )
 
         monkeypatch.setattr(apps[0], "start_recording", failing_start, raising=False)
 
@@ -164,12 +173,46 @@ def test_callable_failure_logs_code_and_returns_coded_envelope(
             "protocolVersion": 1,
             "code": "RECORDING_START_FAILED",
             "sessionId": "session-1",
+            "detail": "ExitCode=1",
         }
-        # …and exactly one journal line names the callable, code and session.
+        # …and exactly one journal line names the callable, code, session and
+        # the diagnosable detail the store attaches (v0.2.5: today's warn
+        # discarded it, which made cancellations undiagnosable).
         failures = [record for record in caplog.records if record.levelno == logging.WARNING]
         assert [record.getMessage() for record in failures] == [
-            "start_recording failed: RECORDING_START_FAILED (session=session-1)"
+            "start_recording failed: RECORDING_START_FAILED (session=session-1) (ExitCode=1)"
         ]
+
+    asyncio.run(scenario())
+
+
+def test_download_cancel_logs_info_without_failure_wording(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    """v0.2.5 decision point (on-device v0.2.4 finding): the journal showed
+    `download_model failed: MODEL_DOWNLOAD_FAILED` for every user cancel
+    because the conflated Download/Cancel button cancelled in-flight
+    downloads and the cancel mapped to the failure code. A cancel now logs at
+    INFO, without 'failed' wording, and still returns the coded envelope."""
+
+    async def scenario() -> None:
+        apps = _patch_compose(monkeypatch, tmp_path)
+        plugin = main.Plugin()
+        await plugin._ensure_app()
+
+        async def cancelling_download(model_id: str) -> dict[str, object]:
+            raise ModelDownloadCancelledError("model download cancelled", detail=f"id={model_id}")
+
+        monkeypatch.setattr(apps[0], "download_model", cancelling_download, raising=False)
+
+        with caplog.at_level(logging.INFO, logger="plugin.lifecycle"):
+            result = await plugin.download_model("small")
+
+        assert result["ok"] is False
+        assert result["code"] == "MODEL_DOWNLOAD_CANCELLED"
+        infos = [record.getMessage() for record in caplog.records]
+        assert infos == ["download_model cancelled: MODEL_DOWNLOAD_CANCELLED"]
+        assert not any("failed" in message for message in infos)
 
     asyncio.run(scenario())
 

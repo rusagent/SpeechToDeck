@@ -28,7 +28,7 @@ if str(_PLUGIN_DIR) not in sys.path:
 
 from backend.composition import Application, compose  # noqa: E402
 from backend.domain.contracts import EventPublisher  # noqa: E402
-from backend.domain.errors import InternalError, SpeechError  # noqa: E402
+from backend.domain.errors import ErrorCode, InternalError, SpeechError  # noqa: E402
 from backend.infrastructure.decky_events import DeckyEventPublisher  # noqa: E402
 
 try:  # Decky loader injects this module into the plugin process.
@@ -193,21 +193,33 @@ class Plugin:
         mapped from `code` on the frontend, never from exception strings.
 
         Diagnosability choke point: a failed callable is logged here exactly
-        once (WARNING) with the callable name, the stable §68 code and the
-        session id when the error carries one — no transcript, no payload
-        text (§73). Inner layers stay quiet for these coded failures, so one
-        journal line names the failing press and its layer. Successful calls
-        stay quiet (no log spam).
+        once (WARNING) with the callable name, the stable §68 code, the
+        session id when the error carries one, and the error's diagnosable
+        detail string (HTTP status/errno + host — §73-safe by construction:
+        details never carry transcript or audio content). Inner layers stay
+        quiet for these coded failures, so one journal line names the failing
+        press, its layer and the reason. Successful calls stay quiet (no log
+        spam). A user-initiated model-download cancel (§52) is completion,
+        not failure: it logs at INFO without "failed" wording so a routine
+        cancel never reads like a network failure in the journal (on-device
+        v0.2.4 finding).
         """
         try:
             result = await operation(await self._ensure_app())
         except SpeechError as error:
-            if error.session_id is not None:
+            detail = f" ({error.detail})" if error.detail else ""
+            if error.code == ErrorCode.MODEL_DOWNLOAD_CANCELLED:
+                LOGGER.info("%s cancelled: %s", name, str(error.code))
+            elif error.session_id is not None:
                 LOGGER.warning(
-                    "%s failed: %s (session=%s)", name, str(error.code), error.session_id
+                    "%s failed: %s (session=%s)%s",
+                    name,
+                    str(error.code),
+                    error.session_id,
+                    detail,
                 )
             else:
-                LOGGER.warning("%s failed: %s", name, str(error.code))
+                LOGGER.warning("%s failed: %s%s", name, str(error.code), detail)
             return {"ok": False, **error.payload()}
         return {"ok": True, **result}
 

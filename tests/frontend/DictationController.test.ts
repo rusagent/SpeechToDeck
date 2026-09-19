@@ -383,10 +383,12 @@ describe("transcript validation (§78)", () => {
 });
 
 describe("maximum recording duration (§76)", () => {
-    it("automatically stops recording at the configured maximum and transcribes", async () => {
+    // v0.2.5: the cap is the fixed §44 constant (60 s) mirrored by the
+    // controller's watchdog; the user-facing duration setting is gone.
+    it("automatically stops recording at the fixed maximum cap and transcribes", async () => {
         vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
         try {
-            const rig = createTestRig({ maxRecordingSeconds: 2 });
+            const rig = createTestRig();
             rig.keyboard.open();
             await rig.controller.start();
             await rig.controller.handleMicrophonePressed();
@@ -397,10 +399,10 @@ describe("maximum recording duration (§76)", () => {
             await vi.advanceTimersByTimeAsync(0);
             expect(rig.controller.getSnapshot().kind).toBe("recording");
 
-            await vi.advanceTimersByTimeAsync(1_999);
+            await vi.advanceTimersByTimeAsync(59_999);
             expect(rig.controller.getSnapshot().kind).toBe("recording");
 
-            rig.clock.advance(2_000);
+            rig.clock.advance(60_000);
             await vi.advanceTimersByTimeAsync(1);
             expect(rig.controller.getSnapshot().kind).toBe("stopping");
             expect(rig.speech.stopCalls).toEqual(["id-1"]);

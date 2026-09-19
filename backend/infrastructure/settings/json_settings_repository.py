@@ -34,11 +34,16 @@ _WIRE_FIELDS = (
     "computeBackend",
     "modelId",
     "language",
-    "maxRecordingSeconds",
-    "vadEnabled",
     "outputMode",
 )
 _KNOWN_FIELDS = frozenset(_WIRE_FIELDS)
+
+# v0.2.5: `maxRecordingSeconds` and `vadEnabled` left the settings document
+# (owner declutter). Devices updated from v0.2.4 carry both keys in their
+# persisted settings.json (e.g. maxRecordingSeconds 110 / vadEnabled true),
+# so load TOLERATES them — stripped before validation, never rejected, and
+# never written back (the wire snapshot no longer carries them).
+_LEGACY_FIELDS = frozenset({"maxRecordingSeconds", "vadEnabled"})
 
 _COMPUTE_BACKENDS = frozenset({"auto", "vulkan", "cpu"})
 _OUTPUT_MODES = frozenset({"direct-insert", "clipboard-only"})
@@ -46,9 +51,6 @@ _OUTPUT_MODES = frozenset({"direct-insert", "clipboard-only"})
 _MODEL_ID_RE = re.compile(r"^[a-z0-9][a-z0-9._-]{0,63}$")
 # "system" | "auto" | explicit language code (e.g. "en", "pt-BR").
 _LANGUAGE_RE = re.compile(r"^(system|auto|[a-zA-Z]{2,8}(-[a-zA-Z0-9]{1,8})*)$")
-
-# §44: default maximum recording is 60 s; 600 s is the accepted sanity bound.
-_MAX_RECORDING_BOUNDS = (1, 600)
 
 
 def _require_dict(value: object) -> dict[str, object]:
@@ -105,24 +107,12 @@ def _validate_fields(raw: dict[str, object]) -> Settings:
     if _LANGUAGE_RE.fullmatch(language) is None:
         raise SettingsInvalidError("language has an invalid format", detail=f"got {language!r}")
 
-    max_recording = raw.get("maxRecordingSeconds")
-    if not isinstance(max_recording, int) or isinstance(max_recording, bool):
-        raise SettingsInvalidError("maxRecordingSeconds must be an integer")
-    low, high = _MAX_RECORDING_BOUNDS
-    if not low <= max_recording <= high:
-        raise SettingsInvalidError(
-            f"maxRecordingSeconds must be between {low} and {high}",
-            detail=f"got {max_recording}",
-        )
-
     return Settings(
         schema_version=CURRENT_SCHEMA_VERSION,
         enabled=_require_bool(raw, "enabled"),
         compute_backend=compute_backend,  # type: ignore[arg-type]  # validated above
         model_id=model_id,
         language=language,
-        max_recording_seconds=max_recording,
-        vad_enabled=_require_bool(raw, "vadEnabled"),
         output_mode=output_mode,  # type: ignore[arg-type]  # validated above
     )
 
@@ -158,8 +148,16 @@ def _apply_migrations(raw: dict[str, object]) -> dict[str, object]:
 
 
 def settings_from_payload(raw: object) -> Settings:
-    """Validate a wire payload (post-migration shape) into Settings (§55)."""
+    """Validate a wire payload (post-migration shape) into Settings (§55).
+
+    Legacy keys (`maxRecordingSeconds`, `vadEnabled`) are tolerated on load:
+    they are stripped before the unknown-field check, so a v0.2.4 device
+    settings.json loads unchanged instead of being rejected — and since the
+    resulting wire snapshot omits them, the next save drops them (never
+    written back).
+    """
     data = _require_dict(raw)
+    data = {key: value for key, value in data.items() if key not in _LEGACY_FIELDS}
     unknown = sorted(set(data) - _KNOWN_FIELDS)
     if unknown:
         raise SettingsInvalidError(
@@ -201,8 +199,6 @@ class JsonSettingsRepository:
                 compute_backend="auto",
                 model_id="base",
                 language="system",
-                max_recording_seconds=60,
-                vad_enabled=True,
                 output_mode="direct-insert",
             )
         except OSError as exc:

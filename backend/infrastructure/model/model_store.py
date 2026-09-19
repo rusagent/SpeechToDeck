@@ -29,6 +29,7 @@ import asyncio
 import contextlib
 import hashlib
 import http.client
+import json
 import logging
 import os
 import ssl
@@ -67,6 +68,26 @@ PROGRESS_HEARTBEAT_S = 0.1
 _URLOPEN_TIMEOUT_S = 30.0
 
 _PART_SUFFIX = ".part"
+
+
+def _user_agent() -> str:
+    """`SpeechToDeck/<version>` request identity for model downloads.
+
+    Citizen-grade hardening (v0.2.5): the store's proven failure class was
+    never the transport, but an unidentified default UA invites rate limits
+    on the model hosts. The version comes from the loader-installed
+    package.json once per process; a missing or malformed file degrades to a
+    bare product token instead of failing downloads.
+    """
+    try:
+        package_json = Path(__file__).resolve().parents[3] / "package.json"
+        version = json.loads(package_json.read_text(encoding="utf-8"))["version"]
+    except (OSError, ValueError, KeyError, TypeError):
+        return "SpeechToDeck"
+    return f"SpeechToDeck/{version}" if isinstance(version, str) and version else "SpeechToDeck"
+
+
+_USER_AGENT = _user_agent()
 
 LOGGER = logging.getLogger("speech.model")
 
@@ -190,7 +211,9 @@ def _urlopen(url: str) -> http.client.HTTPResponse:
     resolved TLS context (loader certifi context under the Decky loader,
     explicit system CA chain otherwise) so on-device downloads verify against
     a CA store the frozen loader interpreter actually resolves."""
-    request = urllib.request.Request(url, headers={"Accept": "*/*"}, method="GET")
+    request = urllib.request.Request(
+        url, headers={"Accept": "*/*", "User-Agent": _USER_AGENT}, method="GET"
+    )
     host = _url_host(url)
     context, _ = resolve_download_tls_context()
     try:
