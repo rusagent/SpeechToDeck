@@ -37,14 +37,27 @@ EVENT_RECORDING_LEVEL = "recording_level"
 # settings were removed from the settings document (owner declutter); the
 # daemon still needs both, so the supervisor emits this shipped cap and VAD
 # enabled as fixed constants (daemon_supervisor.daemon_config_toml) and the
-# transcription watchdog budgets from it. Preserves the v0.2.4 effective
-# behavior (60 s cap, VAD on).
-DEFAULT_MAX_RECORDING_SECONDS = 60
+# transcription watchdog budgets from it.
+# v0.2.10 (ADR-012): the cap is a 24 h runaway-recording VALVE, not a UX
+# limit — recording is practically unlimited. Upstream has no true
+# unlimited mode: `max_duration_secs = 0` auto-stops within ~100 ms (NOT
+# unlimited, daemon.rs:3463), so the largest honest bound is a value no
+# dictation ever reaches. Multi-hour recordings are bounded instead by the
+# §71 watchdogs, which scale with the recorded duration (speech_service /
+# voxtype_client). The VAD comment above is historical: VAD is fixed OFF
+# since v0.2.6 (silero model not bundled).
+DEFAULT_MAX_RECORDING_SECONDS = 86400
 
 
 @dataclass(frozen=True)
 class Settings:
     """Plugin settings snapshot (wire shape in spec §54).
+
+    `language` is the language for MULTILINGUAL models ("system" sentinel →
+    upstream "auto", explicit tags pass through); it is IGNORED for
+    single-language models, whose declared language is forced in the daemon
+    config regardless of this value (ADR-012; supersedes the narrower
+    ADR-011 English-only forcing).
 
     v0.2.5: `maxRecordingSeconds` and `vadEnabled` left the document (owner
     declutter). The settings repository still tolerates both keys on load —

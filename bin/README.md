@@ -78,12 +78,15 @@ state_file = "<runtime>/voxtype/state"
 enabled = false                     # recording is driven by our client only
 
 [audio]
-max_duration_secs = 60              # FIXED v0.2.5 (was settings.maxRecordingSeconds; §44 cap,
-                                    # rationale: daemon_supervisor.py docstring/IMPLEMENTATION_STATUS)
+max_duration_secs = 86400           # FIXED since v0.2.10 (ADR-012): 24 h runaway-recording
+                                    # VALVE — recording is practically unlimited; upstream
+                                    # has no true unlimited mode (0 auto-stops in ~100 ms)
 
 [whisper]
 model = "<abs path to our ggml file>"   # absolute path to OUR downloaded model
-language = "<auto | code>"          # settings "system" maps to "auto"
+language = "<code | auto>"          # ADR-012: single-language models force their declared
+                                    # language (stale settings ignored); otherwise settings
+                                    # "system" maps to "auto", explicit codes pass through
 on_demand_loading = false           # model stays loaded (§82)
 eager_processing = false            # one-shot dictation only
 
@@ -139,6 +142,12 @@ bin/<variant> --config <generated.toml> record cancel
   object on stdout. Exit codes: **0** transcribed, **3** empty, **4**
   timed out, **1** failed. The backend maps these to the §42/§71 outcomes;
   stdout is never logged (the JSON embeds transcript text, §73).
+  `<bounded>` scales with the recorded duration (ADR-012):
+  `max(120 s, 2 × recorded)` — short recordings keep the historical 120 s
+  floor, long ones get transcription headroom instead of a bogus timeout.
+  The application-level watchdog scales too (`max(90 s, 2 × recorded +
+  30 s)`), staying above the CLI budget so upstream exit 4 remains the
+  primary timeout path.
 - `record cancel` writes a cancel trigger file in the runtime dir; the
   daemon observes it and returns to idle without producing output (§72).
 - Control signals are SIGUSR1 (start) / SIGUSR2 (stop); the CLI locates the

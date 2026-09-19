@@ -148,8 +148,11 @@ def test_generated_daemon_config_carries_upstream_keys(tmp_path: Path) -> None:
         assert config["engine"] == "whisper"
         assert config["state_file"] == str(paths.status_file)
         assert config["hotkey"]["enabled"] is False
-        # v0.2.5: fixed §44 cap (settings fields removed); v0.2.6: VAD fixed
-        # off (silero model not bundled, voxtype continues without it).
+        # v0.2.10 (ADR-012): the §44 bound is the 24 h runaway valve — the
+        # literal is the owner-agreed oracle, not the module constant.
+        # v0.2.6: VAD fixed off (silero model not bundled, voxtype continues
+        # without it).
+        assert config["audio"]["max_duration_secs"] == 86400
         assert config["audio"]["max_duration_secs"] == DEFAULT_MAX_RECORDING_SECONDS
         assert config["vad"]["enabled"] is False
         assert config["whisper"]["model"] == str(paths.models_dir / "ggml-base.bin")
@@ -202,32 +205,58 @@ def test_generated_daemon_config_maps_language_and_model(tmp_path: Path) -> None
     assert config["vad"]["enabled"] is False
 
 
-def test_daemon_config_forces_english_for_en_only_models() -> None:
-    """ADR-011 language forcing, all branches: whisper .en-only models
-    (multilingual=false) cannot auto-detect NOR honor any other language, so
-    EVERY mapping resolves to "en" for them — explicit codes included (on
-    device, an en-only model receiving "de" transcribed broken output).
-    Multilingual models keep the legacy mapping ("system" → "auto", explicit
-    codes pass through). The v0.2.6 VAD line is fixed off."""
+def test_daemon_config_effective_language_matrix() -> None:
+    """ADR-012 effective-language derivation, all branches: a model that
+    declares exactly ONE language gets it REGARDLESS of settings.language —
+    a stale persisted override (german model + "en") must never reach the
+    daemon, which would transcribe with the wrong language. Multilingual
+    general models keep the legacy mapping ("system" → "auto", explicit
+    codes pass through). English-only models are covered by the same rule
+    (distil-en declares ["en"]); the ADR-011 multilingual=false fallback
+    stays for admissible entries without declared languages."""
     import tomllib
 
-    from backend.domain.contracts import Settings
+    from backend.domain.contracts import ModelInfo, Settings
+
+    def model(*, multilingual: bool, languages: tuple[str, ...] | None) -> ModelInfo:
+        return ModelInfo(
+            id="m",
+            engine="whisper",
+            multilingual=multilingual,
+            filename="ggml-m.bin",
+            download_url="https://example.test/m.bin",
+            sha256="0" * 64,
+            size_bytes=1,
+            languages=languages,
+        )
+
+    german = model(multilingual=True, languages=("de",))  # catalog Primeline shape
+    base = model(multilingual=True, languages=None)  # catalog tiny/base/small shape
+    distil_en = model(multilingual=False, languages=("en",))  # catalog distil shape
+    en_undeclared = model(multilingual=False, languages=None)  # ADR-011 fallback
+    multi = model(multilingual=True, languages=("en", "de"))  # serves several
 
     cases = [
-        # (multilingual, language sentinel/code, expected daemon language)
-        (False, "system", "en"),
-        (False, "auto", "en"),
-        (False, "de", "en"),  # explicit code: an en-only model cannot honor it
-        (True, "system", "auto"),
-        (True, "auto", "auto"),
-        (True, "de", "de"),
+        # (model_info, settings language, expected daemon language)
+        (german, "en", "de"),  # stale override ignored: the model decides
+        (german, "system", "de"),
+        (german, "fr", "de"),
+        (base, "fr", "fr"),  # legacy mapping: explicit codes pass through
+        (base, "system", "auto"),
+        (distil_en, "de", "en"),  # en-only: explicit code cannot be honored
+        (distil_en, "system", "en"),
+        (en_undeclared, "system", "en"),  # ADR-011 fallback, unchanged
+        (multi, "system", "auto"),  # several languages: the user picks
+        (multi, "de", "de"),
+        (None, "system", "auto"),  # unwired/unknown model: legacy mapping
+        (None, "de", "de"),
     ]
-    for multilingual, language, expected in cases:
+    for model_info, language, expected in cases:
         settings = Settings(
             schema_version=1,
             enabled=True,
             compute_backend="cpu",
-            model_id="base",
+            model_id="m",
             language=language,
             output_mode="direct-insert",
         )
@@ -236,18 +265,17 @@ def test_daemon_config_forces_english_for_en_only_models() -> None:
             state_file=Path("/rt/state"),
             output_file=Path("/rt/transcript.out"),
             model_path=Path("/models/m.bin"),
-            model_multilingual=multilingual,
+            model_info=model_info,
         )
         config = tomllib.loads(toml)
-        assert config["whisper"]["language"] == expected, (multilingual, language)
-        # v0.2.6: the silero VAD model is not bundled; the config no longer
-        # enables a feature voxtype can never initialize.
-        assert config["vad"]["enabled"] is False
+        assert config["whisper"]["language"] == expected, (model_info, language)
 
 
-def test_supervisor_resolves_multilingual_flag_for_config(tmp_path: Path) -> None:
-    """The supervisor feeds the selected model's manifest flag into the config
-    build (composition wires model_info_for=manifest.by_id)."""
+def test_supervisor_passes_model_languages_to_config(tmp_path: Path) -> None:
+    """The supervisor feeds the selected model's manifest info (declared
+    languages) into the config build (composition wires
+    model_info_for=manifest.by_id): the german catalog model forces "de"
+    even though the settings still carry the "system" sentinel."""
     import tomllib
 
     from backend.domain.contracts import ModelInfo
@@ -260,18 +288,19 @@ def test_supervisor_resolves_multilingual_flag_for_config(tmp_path: Path) -> Non
             return ModelInfo(
                 id=model_id,
                 engine="whisper",
-                multilingual=False,
+                multilingual=True,
                 filename=f"ggml-{model_id}.bin",
                 download_url="https://example.test/m.bin",
                 sha256="0" * 64,
                 size_bytes=1,
+                languages=("de",),
             )
 
         supervisor = make_supervisor(paths, publisher, model_info_for=model_info_for)
         await supervisor.start(DEFAULT_SETTINGS)  # language="system"
         assert supervisor.is_running()
         config = tomllib.loads(paths.daemon_config.read_text(encoding="utf-8"))
-        assert config["whisper"]["language"] == "en"  # en-only model: system → en
+        assert config["whisper"]["language"] == "de"  # declared language wins
         await supervisor.stop()
 
     asyncio.run(scenario())

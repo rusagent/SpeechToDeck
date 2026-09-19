@@ -139,9 +139,9 @@ def daemon_preexec(parent_pid: int) -> Callable[[], None] | None:
 # loaded model manifest so downloads/checksums stay under our control).
 ModelPathResolver = Callable[[str], Path]
 
-# Resolved manifest info for the selected model (ADR-011 language forcing:
-# the config build needs the multilingual flag); None when the id is unknown
-# or the resolver is not wired (legacy behavior).
+# Resolved manifest info for the selected model (ADR-012 effective-language
+# derivation: the config build needs the declared languages); None when the
+# id is unknown or the resolver is not wired (legacy behavior).
 ModelInfoResolver = Callable[[str], ModelInfo | None]
 
 
@@ -181,13 +181,43 @@ def _toml_string(value: str) -> str:
     return json.dumps(value)
 
 
+def _effective_language(settings_language: str, model_info: ModelInfo | None) -> str:
+    """Effective [whisper] language for the generated config (ADR-012).
+
+    Precedence:
+
+    1. The model declares exactly one language (curated catalog,
+       `languages` in defaults/models.json) → that language, ALWAYS. A
+       specialized model cannot honor anything else, so a stale persisted
+       settings.language (e.g. german model + "en") is ignored here rather
+       than reaching the daemon. This subsumes the ADR-011 English-only
+       forcing for the shipped catalog (distil-en declares ["en"]).
+    2. Known English-only model WITHOUT declared languages
+       (multilingual=false) → "en" (ADR-011 fallback, unchanged: .en
+       checkpoints cannot auto-detect and cannot honor other languages).
+    3. Otherwise the legacy mapping: "system" → "auto" (our sentinel has no
+       upstream equivalent), explicit tags pass through. Covers multilingual
+       general models, models declaring several languages (the user picks
+       among them), and the unwired/unknown-model case.
+    """
+    language = "auto" if settings_language == "system" else settings_language
+    if model_info is None:
+        return language
+    languages = model_info.languages
+    if languages is not None and len(languages) == 1:
+        return languages[0]
+    if not model_info.multilingual:
+        return "en"
+    return language
+
+
 def daemon_config_toml(
     settings: Settings,
     *,
     state_file: Path,
     output_file: Path,
     model_path: Path,
-    model_multilingual: bool | None = None,
+    model_info: ModelInfo | None = None,
 ) -> str:
     """Generate the daemon TOML for one start (verified upstream v1.0.1 keys).
 
@@ -198,20 +228,26 @@ def daemon_config_toml(
     - `engine = "whisper"` — top-level engine selection;
     - `state_file` — bare-word state file; the daemon deletes it on shutdown
       (missing file = stopped for consumers);
-    - `[audio] max_duration_secs` — §44 recording bound. v0.2.5: the
-      maximum-recording-duration setting was removed from the settings
-      document (owner declutter), so the shipped cap
-      (`DEFAULT_MAX_RECORDING_SECONDS`, 60 s) is emitted as a FIXED constant
-      — preserving the v0.2.4 effective default rather than inventing a new
-      runtime value (decision recorded in IMPLEMENTATION_STATUS.md);
+    - `[audio] max_duration_secs` — §44 recording bound. v0.2.10 (ADR-012):
+      a 24 h runaway-recording valve (`DEFAULT_MAX_RECORDING_SECONDS`),
+      emitted as a FIXED constant — recording is practically unlimited
+      (upstream has no true unlimited mode: 0 auto-stops within ~100 ms).
+      v0.2.5 removed the setting from the settings document (owner
+      declutter), so no user value reaches this key;
     - `[whisper] model` — absolute path to OUR downloaded ggml file (upstream
       accepts ids or absolute .bin paths; the absolute path keeps downloads
       and checksums under our ModelStore control);
-    - `[whisper] language` — our "system" setting has no upstream equivalent,
-      so it maps to "auto" at this adapter boundary; codes pass through;
-      English-only models (multilingual=false, ADR-011) cannot auto-detect
-      NOR honor any other language, so every mapping resolves to "en" for
-      them (on-device 2026-09-19: an en-only model with an explicit "de"
+    - `[whisper] language` — effective-language derivation (ADR-012): a
+      model that declares exactly ONE language in the manifest gets that
+      language REGARDLESS of settings.language (a specialized model cannot
+      honor anything else; a stale persisted override like
+      german-model + settings "en" must never reach the daemon). Otherwise
+      the legacy mapping applies — settings "system" maps to "auto" (no
+      upstream equivalent), explicit codes pass through — except for a known
+      English-only model without declared languages
+      (multilingual=false, ADR-011 fallback), which is pinned to "en"
+      because .en checkpoints cannot auto-detect NOR honor any other
+      language (on-device 2026-09-19: an en-only model with an explicit "de"
       produced broken transcription);
     - `[whisper] on_demand_loading = false` — the model stays loaded (§82);
     - `[whisper] eager_processing = false` — one-shot dictation only;
@@ -227,16 +263,7 @@ def daemon_config_toml(
       opt-in (`Option<StreamingConfig>`), so streaming stays disabled;
     - `[hotkey] enabled = false` — recording is driven by our client only.
     """
-    language = "auto" if settings.language == "system" else settings.language
-    # ADR-011 language forcing: whisper .en-only models (multilingual=false)
-    # cannot auto-detect and cannot honor any other language, so EVERY mapping
-    # resolves to "en" for them — explicit codes included (an en-only model
-    # receiving "de" transcribes broken output; "en" is the only functional
-    # choice). Multilingual models are unaffected ("system" → "auto", explicit
-    # codes pass through). None (model info unavailable) keeps the legacy
-    # mapping.
-    if model_multilingual is False:
-        language = "en"
+    language = _effective_language(settings.language, model_info)
     lines = [
         f"engine = {_toml_string('whisper')}",
         f"state_file = {_toml_string(str(state_file))}",
@@ -245,7 +272,8 @@ def daemon_config_toml(
         "enabled = false",
         "",
         "[audio]",
-        # Fixed §44 cap (v0.2.5): see the docstring mapping notes above.
+        # Fixed §44 valve (v0.2.10, ADR-012): see the docstring mapping
+        # notes above.
         f"max_duration_secs = {DEFAULT_MAX_RECORDING_SECONDS}",
         "",
         "[whisper]",
@@ -281,7 +309,7 @@ def write_daemon_config(
     settings: Settings,
     model_path: Path,
     *,
-    model_multilingual: bool | None = None,
+    model_info: ModelInfo | None = None,
 ) -> Path:
     """Write the generated daemon config atomically; return its path (§55)."""
     payload = daemon_config_toml(
@@ -289,7 +317,7 @@ def write_daemon_config(
         state_file=paths.status_file,
         output_file=paths.output_file,
         model_path=model_path,
-        model_multilingual=model_multilingual,
+        model_info=model_info,
     )
     config_path = paths.daemon_config
     config_path.parent.mkdir(parents=True, exist_ok=True)
@@ -389,8 +417,9 @@ class SpeechDaemonSupervisor:
         the digest-verified private executable copy (§53: source AND copy)."""
         # The config exists before resolution: the §47 auto probe runs the
         # candidate binary against exactly this configuration. The selected
-        # model's multilingual flag drives the ADR-011 language forcing in the
-        # config build (English-only models cannot auto-detect).
+        # model's manifest info drives the ADR-012 effective-language
+        # derivation in the config build (single-language models force their
+        # declared language).
         model_info = (
             self._model_info_for(settings.model_id) if self._model_info_for is not None else None
         )
@@ -399,7 +428,7 @@ class SpeechDaemonSupervisor:
             self._paths,
             settings,
             self._model_path_for(settings.model_id),
-            model_multilingual=None if model_info is None else model_info.multilingual,
+            model_info=model_info,
         )
         resolved = await self._resolver.resolve(settings.compute_backend, config_path=config_path)
         if not resolved.binary.is_file():
