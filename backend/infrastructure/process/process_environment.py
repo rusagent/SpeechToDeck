@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import contextlib
 import os
+from collections.abc import Callable
 from pathlib import Path
 
 from backend.domain.errors import ManifestInvalidError
@@ -198,20 +199,40 @@ def ensure_directories(paths: PluginPaths) -> None:
         os.chmod(directory, DIR_MODE)
 
 
-def session_runtime_dir(base: Path | None = None) -> str | None:
+def _data_dir_owner_uid(data_dir: Path) -> int:
+    """Uid of the plugin data directory's owner (the daemon's user on device)."""
+    return os.stat(data_dir).st_uid
+
+
+def session_runtime_dir(
+    data_dir: Path,
+    *,
+    session_base: Path | None = None,
+    uid_resolver: Callable[[Path], int] | None = None,
+) -> str | None:
     """The REAL user session runtime dir, for audio-server discovery only.
 
     Precedence: the plugin process's own `XDG_RUNTIME_DIR`, then the
     XDG-standard `/run/user/<uid>` when it actually exists. The fallback is
     load-bearing on device: the Decky-loader-spawned plugin process carries
     NO `XDG_RUNTIME_DIR` at all (daemon env proved it 2026-09-18 22:19 — the
-    first PIPEWIRE_RUNTIME_DIR fix never fired). `None` means "no session
-    known": callers must omit the audio path instead of inventing one.
+    first PIPEWIRE_RUNTIME_DIR fix never fired).
+
+    Deck defect 2026-09-19 (cold boot): the plugin backend itself was
+    spawned as ROOT, so `os.getuid()` resolved `/run/user/0`, which does
+    not exist — the key was omitted again and every recording failed with
+    `snd_pcm_open: Host is down (112)`. The backend process's uid is
+    therefore NOT a usable signal; the daemon always runs as the data
+    directory's owner (the loader chowns it to `deck`), so the uid comes
+    from `os.stat(data_dir).st_uid` (seam: `uid_resolver`), never from the
+    backend process itself. `None` means "no session known": callers must
+    omit the audio path instead of inventing one.
     """
     from_env = os.environ.get("XDG_RUNTIME_DIR")
     if from_env:
         return from_env
-    candidate = (base or Path("/run/user")) / str(os.getuid())
+    resolver = uid_resolver or _data_dir_owner_uid
+    candidate = (session_base or Path("/run/user")) / str(resolver(data_dir))
     if candidate.is_dir():
         return str(candidate)
     return None
@@ -244,7 +265,7 @@ def child_environment(data_dir: Path, *, session_base: Path | None = None) -> di
         "LANG": "C.UTF-8",
         "LC_ALL": "C.UTF-8",
     }
-    session_dir = session_runtime_dir(session_base)
+    session_dir = session_runtime_dir(data_dir, session_base=session_base)
     if session_dir is not None:
         env["PIPEWIRE_RUNTIME_DIR"] = session_dir
     return env
