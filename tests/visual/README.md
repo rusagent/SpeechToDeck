@@ -41,10 +41,10 @@ titled section so it fills the frame. Writes JPEG screenshots
 ≤80KB) to `.tmp/ui-visual/` and prints the numeric `data-overflow-x`
 probe for 390px and 768px page widths.
 
-### Download-modal representation (v0.2.5)
+### Download-modal representation
 
 The real download modal is a fullscreen Steam overlay: the on-device CDP
-capture (v0.2.5) measured `ModalOverlayContent` at the full 854px
+capture measured `ModalOverlayContent` at the full 854px
 browserview width, with the dialog box drawn by `ModalRoot` (Steam's
 GenericDialogModal) centered inside. A 410px QAM column crop cannot contain
 that surface, so `panel-modal-en` (`modalShot`) captures the whole overlay
@@ -61,9 +61,9 @@ disabled delete, Delete all inactive.
 
 `index.html?case=panel|mic|setup|dictation&locale=en|de&state=ready|recording|error&variant=<setup>&dictation=<idle|recording|transcript>&catalog=none|ready|modal|manage&scroll=<Section>`
 
-- `panel` — the real `SettingsPanel` (§80 sections Runtime/Speech/Output/
+- `panel` — the real `SettingsPanel` (sections Runtime/Speech/Output/
   Diagnostics).
-- `mic` — the real `MicrophoneButton` in all four §20 states (ready,
+- `mic` — the real `MicrophoneButton` in all four visual states (ready,
   recording with elapsed timer, processing spinner, error with localized
   flash).
 - `catalog=manage` — additionally opens the REAL manage modal (in-app model

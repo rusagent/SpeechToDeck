@@ -1,6 +1,6 @@
 /**
  * Visual-harness render smoke: every captured state must mount without
- * throwing and render the expected real surface (§19/§20/§80 acceptance).
+ * throwing and render the expected real surface (acceptance check).
  * The @decky/ui primitives are stubbed exactly like the other contract
  * tests — outside Steam they cannot resolve — while the components under
  * test are the real presentation components.
@@ -63,7 +63,7 @@ vi.mock("@decky/ui", async () => {
                     ? { "data-nprogress": String(props.nProgress) }
                     : {}),
             }),
-        // Steam modal structure (v0.2.5 on-device fix): the download modal
+        // Steam modal structure (on-device fix): the download modal
         // renders ModalRoot + the dialog primitives. The smoke test only
         // captures the modal node (showModal below), so plain divs suffice.
         ModalRoot: (props: { children?: Children }) => h("div", null, props.children),
@@ -147,12 +147,12 @@ describe("visual harness smoke", () => {
             try {
                 expect(host.childElementCount).toBeGreaterThan(0);
                 if (params.caseId === "panel") {
-                    // Panel title and §80 sections render as titled sections.
+                    // Panel title and sections render as titled sections.
                     // The plugin name is the brand string in every locale.
                     const panelTitle = "SpeechToDeck";
                     expect(host.querySelector(`[data-panel-title="${panelTitle}"]`)).not.toBeNull();
-                    // Honest boot-load failed state (v0.2.9): the panel
-                    // early-returns with alert + hint + Retry — the §80
+                    // Honest boot-load failed state: the panel
+                    // early-returns with alert + hint + Retry — the panel
                     // sections and the eternal spinner never render.
                     if (params.settingsLoad === "failed") {
                         expect(host.querySelector('[role="alert"]')?.textContent).toContain(
@@ -171,7 +171,7 @@ describe("visual harness smoke", () => {
                     expect(
                         host.querySelector(`[data-panel-title="${speechTitle}"]`),
                     ).not.toBeNull();
-                    // Model-select cases (ADR-011, v0.2.5): the REAL select
+                    // Model-select cases: the REAL select
                     // renders the canned defaults/models.json catalog; the
                     // modal variant additionally opens the REAL download
                     // modal through the production path.
@@ -192,7 +192,7 @@ describe("visual harness smoke", () => {
                     // The real setup-progress surface: present while running
                     // or failed, hidden on the terminal ready snapshot. The
                     // hydrated-failed case renders the failed state from the
-                    // §30 status report alone (no live event).
+                    // Status report alone (no live event).
                     const setupBlock = host.querySelector("[data-setup-progress]");
                     if (params.setup === "ready") {
                         expect(setupBlock).toBeNull();
@@ -211,7 +211,7 @@ describe("visual harness smoke", () => {
                             params.setup === "failed" || params.setup === "hydrated-failed";
                         expect(setupBlock?.querySelector("button") !== null).toBe(failed);
                         if (params.setup === "hydrated-failed") {
-                            // The hydrated failure carries the stored §68 code.
+                            // The hydrated failure carries the stored error code.
                             expect(setupBlock?.textContent).toContain("MODEL_DOWNLOAD_FAILED");
                         }
                         if (failed && params.locale === "de") {
@@ -219,7 +219,7 @@ describe("visual harness smoke", () => {
                         }
                     }
                 } else if (params.caseId === "dictation") {
-                    // The v0.2 dictation card: big button from the §8 state
+                    // The dictation card: big button from the state
                     // union; the recording variant carries a 24-bar strip fed
                     // by real frames; the transcript variant the settled
                     // transcript + clipboard block.
@@ -257,11 +257,11 @@ describe("visual harness smoke", () => {
                         expect(host.querySelector("[data-transcript-block]")).toBeNull();
                     }
                 } else {
-                    // All four §20 button states in one clip.
+                    // All four button states in one clip.
                     for (const state of ["ready", "recording", "processing", "error"]) {
                         expect(host.querySelector(`button[data-state="${state}"]`)).not.toBeNull();
                     }
-                    // Recording timer + localized §68 error flash.
+                    // Recording timer + localized error flash.
                     expect(
                         host.querySelector('button[data-state="recording"]')?.textContent,
                     ).toMatch(/^\d{2}:\d{2}$/);

@@ -1,5 +1,6 @@
 /**
- * Visual-harness entry (spec §19/§20/§80/§107 acceptance surface).
+ * Visual-harness entry (acceptance surface for the real presentation
+ * components).
  *
  * Mounts the REAL presentation components — SettingsPanel and
  * MicrophoneButton — with the repository's existing fakes
@@ -57,7 +58,7 @@ export type HarnessSetupVariant = keyof typeof SETUP_SNAPSHOTS | "hydrated-faile
 export type HarnessDictationVariant = "idle" | "recording" | "transcript";
 
 /**
- * Model-catalog wiring for the panel case (ADR-011, v0.2.6): `ready` mounts
+ * Model-catalog wiring for the panel case: `ready` mounts
  * the REAL ModelSelect over a canned `list_models` snapshot matching the
  * committed defaults/models.json (General + one native-labeled group per
  * language); `modal` additionally opens the REAL download modal (via the
@@ -84,7 +85,7 @@ export interface HarnessParams {
     /** Model-catalog wiring for the panel case (default `none`). */
     readonly catalog?: HarnessCatalogVariant;
     /**
-     * Panel boot-load variant (v0.2.9 install-wedge lane): `failed` mounts
+     * Panel boot-load variant (install-wedge lane): `failed` mounts
      * the REAL panel's honest failed state (alert + hint + Retry) through an
      * outright load rejection — the same early-return view a wedged
      * (never-settling) boot load shows after its 10 s deadline, without
@@ -123,8 +124,8 @@ export const CAPTURED_CASES: readonly HarnessParams[] = [
         dictation: "idle",
         scroll: null,
     },
-    // Honest boot-load failed state (v0.2.9 install-wedge lane): the panel
-    // early-returns with alert + hint + Retry; no §80 sections render.
+    // Honest boot-load failed state (install-wedge lane): the panel
+    // early-returns with alert + hint + Retry; no panel sections render.
     {
         caseId: "panel",
         locale: "en",
@@ -192,7 +193,7 @@ export const CAPTURED_CASES: readonly HarnessParams[] = [
         scroll: null,
     },
     // Hydrated failure: no live event at all — the panel shows the failed
-    // state because the real adapter rebuilt it from the §30 status report.
+    // state because the real adapter rebuilt it from the status report.
     {
         caseId: "setup",
         locale: "en",
@@ -201,7 +202,7 @@ export const CAPTURED_CASES: readonly HarnessParams[] = [
         dictation: "idle",
         scroll: null,
     },
-    // Dictation card (v0.2): idle big button, live recording with REAL
+    // Dictation card: idle big button, live recording with REAL
     // received frames, and the settled transcript + clipboard block.
     {
         caseId: "dictation",
@@ -235,7 +236,7 @@ export const CAPTURED_CASES: readonly HarnessParams[] = [
         dictation: "transcript",
         scroll: null,
     },
-    // Model-select flow (ADR-011, v0.2.6): the REAL ModelSelect over the full
+    // Model-select flow: the REAL ModelSelect over the full
     // canned list_models snapshot matching defaults/models.json — the
     // all-language grouped catalog (General + Deutsch/English/Français/
     // 日本語), independent of the persisted language setting.
@@ -280,7 +281,7 @@ export const CAPTURED_CASES: readonly HarnessParams[] = [
 
 /**
  * Canned `list_models` payload matching the committed defaults/models.json
- * catalog (ADR-011): the legacy trio installed, the German full-precision
+ * catalog: the legacy trio installed, the German full-precision
  * model installed for install-state variety in the per-language group, every
  * other curated entry not installed. Sizes and descriptions mirror the real
  * manifest; the store payload never carries digests.
@@ -435,7 +436,7 @@ const clock = new SystemClock();
 
 /**
  * The real hydration chain for the `hydrated-failed` case: a REAL adapter
- * over a transport seeded with the failed §30 status report. The panel
+ * over a transport seeded with the failed status report. The panel
  * mounts with an empty setup store and reconstructs the failed state through
  * the production `hydrateSetupFromStatus` path — no live event involved.
  */
@@ -568,7 +569,7 @@ function PanelCase({
     const hydration = setup === "hydrated-failed" ? hydratedFailureCase() : null;
     const setupSnapshot: SetupProgressSnapshot | null =
         setup === "none" || setup === "hydrated-failed" ? null : SETUP_SNAPSHOTS[setup];
-    // ADR-011 catalog wiring: the REAL model select consumes the store
+    // Catalog wiring: the REAL model select consumes the store
     // side-channel exactly like the composed panel (load is inert here — the
     // store is pre-populated through the production publish paths).
     const baseSettingsPort = new FakeSettingsPort();
@@ -656,7 +657,7 @@ function MicCase({ locale }: { locale: Locale }): React.ReactElement {
 }
 
 /**
- * Dictation-card case (v0.2): the REAL card over the REAL level store. The
+ * Dictation-card case: the REAL card over the REAL level store. The
  * `recording`/`transcript` variants publish REAL payload-shaped frames
  * (envelope numbers only) through the store's production publish path — the
  * rendered bars are exactly what real `recording_level` events produce; no

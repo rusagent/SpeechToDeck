@@ -209,8 +209,8 @@
         100% { left: 100%; }
     }
     /* Steam modal host emulated for the harness (showModal + ModalRoot),
-       mirroring the REAL structure verified on device (CDP DOM capture,
-       v0.2.5) and in the Steam client bundle: showModal mounts its node RAW
+       mirroring the REAL structure verified on device (CDP DOM capture)
+       and in the Steam client bundle: showModal mounts its node RAW
        into a fullscreen ModalOverlayContent; ModalRoot (Steam's
        GenericDialogModal) draws the centered dialog box with the DialogHeader
        title, DialogBody content and DialogFooter buttons. Esc, the X close
@@ -419,7 +419,7 @@
         // Real ButtonItem renders the row label next to the action button.
         // Callers that pass the SAME string as label and children (setup
         // retry, diagnostics restart) render the single button exactly as
-        // before; the catalog picker (ADR-011) passes a rich label node plus
+        // before; the catalog picker passes a rich label node plus
         // a short action child and gets the label block above the button.
         const label = props.label;
         const showLabelBlock = label !== undefined && label !== props.children;
@@ -446,7 +446,7 @@
     }
 
     /**
-     * Steam modal structure stand-ins (v0.2.5 on-device fix). The REAL
+     * Steam modal structure stand-ins (on-device fix). The REAL
      * components resolve from Steam's webpack runtime at loader time
      * (@decky/ui dist/components/Modal.js + Dialog.js); on the device the
      * loader-injected DFL global exposes exactly these names (runtime-probed

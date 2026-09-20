@@ -190,7 +190,7 @@ function overflowProbe(width, query) {
     console.log(`overflow probe at ${width}px: ${match?.[0] ?? "marker missing"}`);
 }
 
-// Download modal (v0.2.5 on-device fix): the REAL surface is a fullscreen
+// Download modal (on-device fix): the REAL surface is a fullscreen
 // Steam overlay — the on-device CDP capture measured ModalOverlayContent at
 // the full 854px browserview width with the dialog box drawn by ModalRoot
 // centered inside — so a 410px QAM column crop cannot contain it. The honest
@@ -276,8 +276,8 @@ function storeShot() {
 // Panel clips (QAM column: top of the decluttered panel, EN + DE).
 shot("panel-en-top", "case=panel&locale=en");
 shot("panel-de-top", "case=panel&locale=de");
-// Honest boot-load failed state (v0.2.9 install-wedge lane): the panel's
-// early-return view with alert, hint and Retry — no §80 sections render.
+// Honest boot-load failed state (install-wedge lane): the panel's
+// early-return view with alert, hint and Retry — no panel sections render.
 shot("panel-load-failed-en", "case=panel&load=failed&locale=en", { height: 400 });
 // Setup progress, REAL panel with the dedicated store preset per state:
 // active-indeterminate daemon step, determinate download at 37%, failed with
@@ -287,19 +287,19 @@ shot("setup-download-en", "case=setup&variant=download&locale=en", { height: 320
 shot("setup-failed-en", "case=setup&variant=failed&locale=en", { height: 400 });
 shot("setup-failed-de", "case=setup&variant=failed&locale=de", { height: 400 });
 shot("setup-ready-hidden-en", "case=setup&variant=ready&locale=en", { height: 320 });
-// Hydrated failure: the panel shows the failed state from the §30 status
+// Hydrated failure: the panel shows the failed state from the status
 // report alone (real adapter hydration, no live setup_progress event).
 shot("setup-hydrated-failed-en", "case=setup&variant=hydrated-failed&locale=en", { height: 400 });
-// Microphone button, all four §20 states in one clip (EN + DE error text).
+// Microphone button, all four states in one clip (EN + DE error text).
 shot("mic-states-en", "case=mic&locale=en", { height: 160 });
 shot("mic-states-de", "case=mic&locale=de", { height: 160 });
-// Dictation card (v0.2): idle big button, live recording strip fed with
+// Dictation card: idle big button, live recording strip fed with
 // real received frames, settled transcript + clipboard block (EN + DE).
 shot("dictation-idle-en", "case=dictation&dictation=idle&locale=en", { height: 300 });
 shot("dictation-recording-en", "case=dictation&dictation=recording&locale=en", { height: 300 });
 shot("dictation-transcript-en", "case=dictation&dictation=transcript&locale=en", { height: 420 });
 shot("dictation-transcript-de", "case=dictation&dictation=transcript&locale=de", { height: 420 });
-// Model-select flow (ADR-011, v0.2.6): the REAL Speech section reading
+// Model-select flow: the REAL Speech section reading
 // Model → (conditional) Language over the full canned list_models snapshot
 // (all-language grouped catalog), then the REAL download modal opened
 // through the production openModelDownloadModal path and completed through
