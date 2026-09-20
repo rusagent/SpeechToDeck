@@ -22,6 +22,7 @@ from backend.domain.contracts import (
 )
 from backend.domain.errors import (
     ModelDownloadCancelledError,
+    ModelDownloadFailedError,
     ModelNotInstalledError,
 )
 from backend.infrastructure.model.model_manifest import MODEL_ID_RE, ModelManifest
@@ -103,6 +104,33 @@ class ModelService:
             },
         )
         LOGGER.info("model downloaded id=%s", info.id)
+
+    async def delete_model(self, model_id: str) -> dict[str, object]:
+        """Delete one installed model file (in-app model cleanup, owner request).
+
+        The path never crosses the boundary as input: the id resolves against
+        the strict manifest and the store derives `<data_dir>/models/<filename>`
+        (§109 — unknown or traversal ids fail with the stable
+        MODEL_NOT_INSTALLED code). A download writing this model's artifact is
+        a coded rejection (the same MODEL_DOWNLOAD_FAILED family the download
+        lifecycle reports; the detail names the conflict for the journal). The
+        selected model is rejected upstream by the Application, which owns the
+        settings seam — a successful delete therefore never touches settings.
+        Removing an already-absent file is an idempotent no-op reporting no
+        freedBytes (§67 optional-additive payload pattern).
+        """
+        info = self._resolve(model_id)
+        if self._store.downloading_model_id() == info.id:
+            raise ModelDownloadFailedError("model download is in flight", detail=f"id={model_id}")
+        freed = await self._store.remove(model_id)
+        if freed is None:
+            LOGGER.info("model delete no-op (file already absent) id=%s", info.id)
+        else:
+            LOGGER.info("model deleted id=%s freed=%d", info.id, freed)
+        payload: dict[str, object] = {"modelId": info.id}
+        if freed is not None:
+            payload["freedBytes"] = freed
+        return payload
 
     def cancel_download(self) -> bool:
         """§30 `cancel_model_download`: True when a download was cancelled."""

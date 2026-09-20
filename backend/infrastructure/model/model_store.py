@@ -362,6 +362,11 @@ class ModelStore:
         self._on_progress = on_progress
         self._download_lock = asyncio.Lock()
         self._download_task: asyncio.Task[None] | None = None
+        # The model whose artifact write is under the download lock right now
+        # (in-app model cleanup: `delete_model` must reject exactly this
+        # model). Set inside the lock, so it is authoritative for the file
+        # being written; a queued (not yet started) download holds no claim.
+        self._downloading_id: str | None = None
 
     def _resolve(self, model_id: str) -> ModelInfo:
         """Validate a model id against the manifest (§109)."""
@@ -412,6 +417,7 @@ class ModelStore:
         info = self._resolve(model_id)
         async with self._download_lock:  # §52: one download at a time
             self._download_task = asyncio.current_task()
+            self._downloading_id = info.id
             try:
                 await self._download_locked(info)
             except ModelDownloadCancelled:
@@ -420,6 +426,7 @@ class ModelStore:
                 raise ModelDownloadCancelled() from None
             finally:
                 self._download_task = None
+                self._downloading_id = None
 
     async def _download_locked(self, info: ModelInfo) -> None:
         final_path = self._model_path(info)
@@ -507,17 +514,36 @@ class ModelStore:
             final_total = reported_total if reported_total is not None else received
             await _maybe_await(self._on_progress(info.id, final_total, reported_total))
 
-    async def remove(self, model_id: str) -> None:
-        """Remove an installed model; removing a missing model is idempotent."""
+    async def remove(self, model_id: str) -> int | None:
+        """Remove an installed model; removing a missing model is idempotent.
+
+        Returns the freed artifact size in bytes, or None when the file was
+        already absent (the caller's §67 optional-additive payload omits the
+        freedBytes field in that case, matching the sizeBytes pattern).
+        A stale `.part` leftover from an interrupted download is removed too.
+        """
         info = self._resolve(model_id)
         path = self._model_path(info)
 
-        def _remove() -> None:
+        def _remove() -> int | None:
+            try:
+                freed = path.stat().st_size
+            except FileNotFoundError:
+                freed = None
             path.unlink(missing_ok=True)
             part = path.with_name(path.name + _PART_SUFFIX)
             part.unlink(missing_ok=True)
+            return freed
 
-        await asyncio.to_thread(_remove)
+        return await asyncio.to_thread(_remove)
+
+    def downloading_model_id(self) -> str | None:
+        """The model whose artifact write is in flight right now, if any.
+
+        Set only while the §52 download lock is held, so a True match is the
+        authoritative per-model claim the delete path must respect.
+        """
+        return self._downloading_id
 
     def cancel_download(self) -> bool:
         """Cancel the active download, if any (§52 single download)."""

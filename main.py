@@ -1,6 +1,7 @@
 """Decky plugin entrypoint: deliberately thin facade (spec §31).
 
-Exposes exactly the §30 callables and delegates every concern to the composed
+Exposes exactly the §30 callables (plus the owner-requested `delete_model`
+in-app model cleanup route) and delegates every concern to the composed
 application (backend/composition.py). The application is composed lazily on
 first use under a lock: the Decky loader runs `_migration` before `_main`
 (observed on device, journal 2026-09-17), so no hook may assume `_main` has
@@ -62,7 +63,9 @@ DISPOSE_TIMEOUT_S = 4.0
 # the daemon acknowledgement paths (each internally bounded at
 # ACK_TIMEOUT_S = 2 s, voxtype_client.py:56). Routes whose legitimate
 # worst-case latency exceeds this get explicit entries below; everything
-# unlisted uses the default.
+# unlisted uses the default. `delete_model` (in-app model cleanup) is
+# deliberately unlisted: it is a manifest-resolved single unlink — a fast
+# route under the default, not a latency outlier.
 CALLABLE_DEFAULT_BUDGET_S = 30.0
 
 # Per-route budgets for §30 callables with legitimately longer latency
@@ -193,6 +196,9 @@ class Plugin:
 
     async def cancel_model_download(self) -> dict[str, object]:
         return await self._call("cancel_model_download", lambda app: app.cancel_model_download())
+
+    async def delete_model(self, model_id: str) -> dict[str, object]:
+        return await self._call("delete_model", lambda app: app.delete_model(model_id))
 
     async def restart_runtime(self) -> dict[str, object]:
         return await self._call("restart_runtime", lambda app: _restart(app))

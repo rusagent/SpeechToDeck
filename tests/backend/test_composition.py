@@ -58,6 +58,7 @@ SPEC_CALLABLES = {
     "list_models",
     "download_model",
     "cancel_model_download",
+    "delete_model",
     "restart_runtime",
 }
 

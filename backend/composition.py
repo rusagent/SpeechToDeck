@@ -693,6 +693,23 @@ class Application:
         cancelled = self.models.cancel_download()
         return {"cancelled": cancelled}
 
+    async def delete_model(self, model_id: str) -> dict[str, object]:
+        """Delete one installed model file (in-app model cleanup, owner request).
+
+        Active-model protection: the selected model is never deletable — the
+        settings document keeps referencing it and the runtime needs it. The
+        guard reads the persisted settings HERE, in the Application: this class
+        owns the settings seam (same split as the `start_recording` model
+        guard), while ModelService stays settings-free. The rejection carries
+        the stable §68 SETTINGS_INVALID code. A successful delete never writes
+        settings: the selected model cannot be the deleted one, so `model_id`
+        always remains a valid reference.
+        """
+        settings = await self.settings_repository.load()
+        if settings.model_id == model_id:
+            raise SettingsInvalidError("cannot delete the selected model", detail=f"id={model_id}")
+        return await self.models.delete_model(model_id)
+
     # ── helpers ──────────────────────────────────────────────────────────────
 
     async def _publish_runtime_unavailable(self, detail: str) -> None:
