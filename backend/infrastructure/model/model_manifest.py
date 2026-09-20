@@ -1,4 +1,4 @@
-"""Model manifest loader with strict validation (spec §50).
+"""Model manifest loader with strict validation.
 
 Validation rules mirror `scripts/validate-manifests.mjs` exactly: a manifest
 that the CI gate would reject must also fail closed at runtime. Digests are
@@ -17,7 +17,7 @@ from backend.domain.errors import ManifestInvalidError
 SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
 MODEL_ID_RE = re.compile(r"^[a-z0-9][a-z0-9._-]*$")
 
-# Additive curated-catalog rules (ADR-011), mirrored exactly by
+# Curated-catalog rules, mirrored exactly by
 # scripts/validate-manifests.mjs: lowercase BCP-47-ish language codes, a
 # short English description, a hard 2 GiB size cap and per-model filenames
 # unique across the catalog.
@@ -25,13 +25,13 @@ LANGUAGE_CODE_RE = re.compile(r"^[a-z]{2,8}(-[a-z0-9]{1,8})*$")
 MAX_DESCRIPTION_CHARS = 200
 MAX_MODEL_SIZE_BYTES = 2147483648
 
-# Curated v1 model set (spec §48).
+# Curated model set that must always ship.
 REQUIRED_MODEL_IDS = ("tiny", "base", "small")
 ALLOWED_ENGINES = frozenset({"whisper"})
 
 
 class ModelManifest:
-    """Immutable loaded manifest (spec §50)."""
+    """Immutable loaded manifest."""
 
     def __init__(self, models: tuple[ModelInfo, ...]) -> None:
         self._models = models
@@ -86,10 +86,10 @@ def _validate(models_raw: object) -> tuple[ModelInfo, ...]:
         if not isinstance(filename, str) or len(filename) == 0:
             errors.append(f"{label}.filename: must be a non-empty string")
         elif "/" in filename or "\\" in filename or ".." in filename:
-            # §109: reject path traversal; model files live in the data dir only.
+            # Reject path traversal; model files live in the data dir only.
             errors.append(f"{label}.filename: must be a plain file name, got {filename!r}")
         elif filename in seen_filenames:
-            # ADR-011: the filename is the local store name; two models sharing
+            # The filename is the local store name; two models sharing
             # it would overwrite each other's artifact.
             errors.append(f"{label}.filename: duplicate filename {filename!r}")
         else:
@@ -118,7 +118,7 @@ def _validate(models_raw: object) -> tuple[ModelInfo, ...]:
 
         size_bytes: int | None = None
         if "sizeBytes" not in entry:
-            # ADR-011: required so the picker can show a human-readable size
+            # Required so the picker can show a human-readable size
             # before download without network probes.
             errors.append(f"{label}.sizeBytes: is required")
         else:
@@ -201,7 +201,7 @@ def _validate(models_raw: object) -> tuple[ModelInfo, ...]:
 
 
 def load_model_manifest(path: Path) -> ModelManifest:
-    """Load and strictly validate defaults/models.json; fail closed (§50)."""
+    """Load and strictly validate defaults/models.json; fail closed."""
     try:
         raw_bytes = path.read_bytes()
     except OSError as exc:

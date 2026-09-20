@@ -1,9 +1,9 @@
-"""Settings persistence: atomic writes and the schema migration chain (§54-§56).
+"""Settings persistence: atomic writes and the schema migration chain.
 
 The backend owns persistence; the frontend never writes settings files
-directly (§55). Writes are atomic (serialize → tmp file → flush → fsync →
+directly. Writes are atomic (serialize → tmp file → flush → fsync →
 rename). Unknown fields are rejected deliberately; schema versions migrate
-upward through an explicit chain and fail closed on gaps (§56).
+upward through an explicit chain and fail closed on gaps.
 """
 
 from __future__ import annotations
@@ -20,7 +20,8 @@ from backend.domain.errors import SettingsInvalidError
 
 CURRENT_SCHEMA_VERSION = 1
 
-# §56: key = source schemaVersion, value = migrator producing version + 1.
+# Migration chain: key = source schemaVersion, value = migrator producing
+# version + 1.
 # v1 is the current format, so the chain is empty today. When v2 is designed,
 # register `1: migrate_v1_to_v2` here; `load` walks the chain upward and fails
 # closed on any missing step.
@@ -38,11 +39,12 @@ _WIRE_FIELDS = (
 )
 _KNOWN_FIELDS = frozenset(_WIRE_FIELDS)
 
-# v0.2.5: `maxRecordingSeconds` and `vadEnabled` left the settings document
-# (owner declutter). Devices updated from v0.2.4 carry both keys in their
-# persisted settings.json (e.g. maxRecordingSeconds 110 / vadEnabled true),
-# so load TOLERATES them — stripped before validation, never rejected, and
-# never written back (the wire snapshot no longer carries them).
+# `maxRecordingSeconds` and `vadEnabled` left the settings document
+# (owner declutter). Devices updated from earlier releases carry both keys in
+# their persisted settings.json (e.g. maxRecordingSeconds 110 / vadEnabled
+# true), so load TOLERATES them — stripped before validation, never
+# rejected, and never written back (the wire snapshot no longer carries
+# them).
 _LEGACY_FIELDS = frozenset({"maxRecordingSeconds", "vadEnabled"})
 
 _COMPUTE_BACKENDS = frozenset({"auto", "vulkan", "cpu"})
@@ -118,7 +120,7 @@ def _validate_fields(raw: dict[str, object]) -> Settings:
 
 
 def _apply_migrations(raw: dict[str, object]) -> dict[str, object]:
-    """Walk the §56 migration chain upward; fail closed on gaps."""
+    """Walk the migration chain upward; fail closed on gaps."""
     version = raw.get("schemaVersion")
     if not isinstance(version, int) or isinstance(version, bool):
         raise SettingsInvalidError("schemaVersion must be an integer")
@@ -148,11 +150,12 @@ def _apply_migrations(raw: dict[str, object]) -> dict[str, object]:
 
 
 def settings_from_payload(raw: object) -> Settings:
-    """Validate a wire payload (post-migration shape) into Settings (§55).
+    """Validate a wire payload (post-migration shape) into Settings.
 
     Legacy keys (`maxRecordingSeconds`, `vadEnabled`) are tolerated on load:
-    they are stripped before the unknown-field check, so a v0.2.4 device
-    settings.json loads unchanged instead of being rejected — and since the
+    they are stripped before the unknown-field check, so a settings file
+    from an older release loads unchanged instead of being rejected — and
+    since the
     resulting wire snapshot omits them, the next save drops them (never
     written back).
     """
@@ -174,7 +177,7 @@ def settings_from_payload(raw: object) -> Settings:
 
 
 class JsonSettingsRepository:
-    """Atomic JSON settings persistence under the plugin data dir (§55)."""
+    """Atomic JSON settings persistence under the plugin data dir."""
 
     def __init__(self, path: Path) -> None:
         self._path = path
@@ -192,7 +195,7 @@ class JsonSettingsRepository:
         try:
             raw_bytes = self._path.read_bytes()
         except FileNotFoundError:
-            # First run: the §54 defaults, never persisted implicitly.
+            # First run: the shipped defaults, never persisted implicitly.
             return Settings(
                 schema_version=CURRENT_SCHEMA_VERSION,
                 enabled=True,
@@ -224,7 +227,7 @@ class JsonSettingsRepository:
         self._path.parent.mkdir(parents=True, exist_ok=True)
         tmp_path = self._path.with_name(self._path.name + ".tmp")
         try:
-            # §55: serialize → write temporary file → flush → rename.
+            # Serialize → write temporary file → flush → rename.
             fd = os.open(tmp_path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
             with os.fdopen(fd, "w", encoding="utf-8") as handle:
                 handle.write(serialized)

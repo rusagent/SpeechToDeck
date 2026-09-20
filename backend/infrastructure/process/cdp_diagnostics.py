@@ -1,4 +1,4 @@
-"""CDP diagnostics probe (v0.1.6) — optional, read-only, degraded-friendly.
+"""CDP diagnostics probe — optional, read-only, degraded-friendly.
 
 The production keyboard mount does NOT depend on CDP (see
 ``src/infrastructure/steam/SteamWindowRegistry`` — the mount enumerates the
@@ -6,14 +6,14 @@ SharedJSContext window-store registry instead). This module is the OPTIONAL
 diagnostics half: when the user enabled "Allow Remote CEF Debugging", it
 reports cross-view facts the plugin frontend cannot observe itself — which
 page targets exist and whether the Steam virtual keyboard DOM
-(``[class*="VirtualKeyboard"]``) is present/visible in them (verified on deck
-hardware, ``.tmp/cdp/kb-deep.out``).
+(``[class*="VirtualKeyboard"]``) is present/visible in them (verified on
+deck hardware).
 
-Every step is bounded (§71) and every failure degrades into a stable reason
-code (§105) instead of an exception: CDP unavailability must never affect the
-plugin's functional surface. The probe is read-only (§58): it never evaluates
-mutating code and never reads field contents; transcripts never pass through
-(§73).
+Every step is bounded and every failure degrades into a stable reason
+code instead of an exception: CDP unavailability must never affect the
+plugin's functional surface. The probe is read-only: it never evaluates
+mutating code and never reads field contents; transcripts never pass
+through.
 """
 
 from __future__ import annotations
@@ -30,9 +30,9 @@ from backend.infrastructure.process.cdp_client import (
 LOGGER = logging.getLogger("plugin.cdp")
 
 # The stable exact title of the main gamepadui target (verified on deck
-# hardware 2026-09-17), plus the URL pattern fallback: the SP window is the
+# hardware), plus the URL pattern fallback: the SP window is the
 # only page target whose URL carries "createflags=" without a
-# "browserviewpopup=" marker (kb-deep.out lines 2-6).
+# "browserviewpopup=" marker.
 SP_TITLE = "Steam Big Picture Mode"
 
 KEYBOARD_PROBE_EXPRESSION = (
@@ -69,7 +69,7 @@ class CdpDiagnostics:
     async def probe(self) -> dict[str, object]:
         """Cross-view keyboard facts, or a typed degrade report.
 
-        Payload shape (additive optional field of ``get_status``, §67):
+        Payload shape (additive optional field of ``get_status``):
         ``{cdpAvailable, spTargetSeen, keyboardSeen, keyboardVisible, reason}``.
         ``reason`` is a stable lowercase code or None:
         ``remote-cdp-disabled`` | ``sp-target-not-found`` | ``probe-failed``.
@@ -92,7 +92,7 @@ class CdpDiagnostics:
         try:
             session_id = await self._client.attach(sp["targetId"])
             # The keyboard container is permanent in the SP document; presence
-            # plus the visibility class is the whole observation (§58: read-only).
+            # plus the visibility class is the whole observation (read-only).
             value = await self._client.evaluate(session_id, KEYBOARD_PROBE_EXPRESSION)
             if isinstance(value, str):
                 parsed = json.loads(value)

@@ -1,4 +1,4 @@
-"""Live audio-level stream from the daemon's audio.sock (v0.2, §61/§106).
+"""Live audio-level stream from the daemon's audio.sock.
 
 Connects to the pinned runtime's audio-level broadcast socket
 (`PluginPaths.audio_socket`; the hub is started unconditionally at daemon
@@ -17,7 +17,7 @@ publisher cannot grow the vector unboundedly). This is an amplitude
 envelope, not an FFT — the frontend renders a live level strip, not a
 spectrum.
 
-Lifecycle (§61: no idle loops): `start()` is called only after a recording
+Lifecycle (no idle loops): `start()` is called only after a recording
 start was acknowledged and `stop()` when the session ends (stop, cancel,
 failure, disable, dispose, runtime loss) — the stream never runs while idle.
 The daemon emits frames only while a recording session provides a sample
@@ -30,7 +30,7 @@ and the self-healing listener can respawn (upstream issue #391), leaving the
 socket file briefly unconnectable. A bounded backoff reconnect therefore
 runs while started, mirroring upstream's own reference bridge.
 
-Containment (§106): the stream is additive presentation surface. Every
+Containment: the stream is additive presentation surface. Every
 failure — missing socket, refused connection, parse drop, publisher error —
 is contained (static log line plus a counter), retried while started, and
 can never fail the recording itself.
@@ -58,7 +58,7 @@ from backend.infrastructure.process.level_frames import (
 
 LOGGER = logging.getLogger("speech.levels")
 
-#: Event cadence (§61/§66: 15 Hz coalesced vectors ≈ well under 2 KB/s).
+#: Event cadence (15 Hz coalesced vectors ≈ well under 2 KB/s).
 LEVEL_EVENT_HZ = 15
 
 #: Upper bound on frames per event vector (burst cushion over 100 Hz / 15 Hz).
@@ -72,7 +72,7 @@ _PEAK_DECIMALS = 3
 
 
 class LevelSocketClient:
-    """Coalesces audio.sock frames into `recording_level` events (§30)."""
+    """Coalesces audio.sock frames into `recording_level` events."""
 
     def __init__(
         self,
@@ -96,7 +96,7 @@ class LevelSocketClient:
         self._clock = clock
         self._task: asyncio.Task[None] | None = None
         self._stop_requested = False
-        # §74-style local diagnostics; surfaced only through get_status.
+        # Local diagnostics counters; surfaced only through get_status.
         self.dropped_frames = 0
         self.published_events = 0
         self.reconnects = 0
@@ -108,8 +108,8 @@ class LevelSocketClient:
 
     async def start(self) -> None:
         """Begin streaming (idempotent, restartable). Called only while a
-        recording session is active; never raises into the recording path
-        (§106). A previous stop does not fence a new start — every recording
+        recording session is active; never raises into the recording path.
+        A previous stop does not fence a new start — every recording
         session gets a fresh stream."""
         if self.is_running:
             return
@@ -188,7 +188,7 @@ class LevelSocketClient:
             data = await reader.readexactly(FRAME_BYTES)
             frame = parse_frame(data)
             if frame is None:
-                # Corrupt/foreign window: dropped, never rendered (§106).
+                # Corrupt/foreign window: dropped, never rendered.
                 self.dropped_frames += 1
                 continue
             buffer.append(frame)
@@ -221,7 +221,7 @@ class LevelSocketClient:
         except asyncio.CancelledError:
             raise
         except Exception:
-            # Contained (§106): an event is feedback, not control flow, and
-            # frame values are amplitude numbers, not §73 content — but the
-            # log stays static anyway.
+            # Contained: an event is feedback, not control flow, and
+            # frame values are amplitude numbers, not transcript content —
+            # but the log stays static anyway.
             LOGGER.warning("recording_level publish failed; event dropped")

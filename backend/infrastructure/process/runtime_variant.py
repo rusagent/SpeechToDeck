@@ -1,4 +1,4 @@
-"""Pinned runtime artifact resolution per compute variant (§35, §47, §53).
+"""Pinned runtime artifact resolution per compute variant.
 
 Upstream Voxtype v1.0.1 ships one binary per compute backend: the compute
 path is decided by WHICH binary runs, not by a CLI flag. This module owns:
@@ -6,10 +6,10 @@ path is decided by WHICH binary runs, not by a CLI flag. This module owns:
 - loading `defaults/runtime-manifest.json` with one pinned artifact per
   variant (validation mirrors `scripts/validate-manifests.mjs`; anything
   unpinned or malformed is a hard RUNTIME_START_FAILED — never a fallback,
-  never a download, §53/§109);
+  never a download);
 - mapping the settings compute backend onto a variant: `cpu` runs the avx2
   build, `vulkan` runs the vulkan build, and `auto` applies the explicit
-  §47 probe policy — the vulkan binary is executed once with a cheap
+  probe policy — the vulkan binary is executed once with a cheap
   non-recording invocation (`voxtype info variants --json`, verified
   upstream: read-only inventory, no daemon, no model, no capture) and a
   failure falls back to avx2. The fallback is the documented auto policy,
@@ -37,19 +37,19 @@ from backend.infrastructure.process.process_environment import (
 
 LOGGER = logging.getLogger("speech.runtime")
 
-# Settings-facing backend → manifest artifact variant (§47).
+# Settings-facing backend → manifest artifact variant.
 BACKEND_VARIANTS = {"cpu": "cpu", "vulkan": "vulkan"}
 VALID_VARIANTS = frozenset({"cpu", "vulkan"})
 
 _SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
 
-# §47 auto probe: bounded, non-recording, read-only inventory invocation.
+# Auto-backend probe: bounded, non-recording, read-only inventory invocation.
 DEFAULT_PROBE_TIMEOUT_S = 10.0
 
 
 @dataclass(frozen=True)
 class PinnedArtifact:
-    """One pinned native runtime artifact (§53)."""
+    """One pinned native runtime artifact."""
 
     artifact_id: str
     variant: str
@@ -62,11 +62,11 @@ class PinnedArtifact:
 
 
 def load_pinned_runtime_artifacts(manifest_path: Path) -> dict[str, PinnedArtifact]:
-    """Load defaults/runtime-manifest.json keyed by compute variant (§53).
+    """Load defaults/runtime-manifest.json keyed by compute variant.
 
     Fails closed unless every artifact is fully pinned: empty or malformed
     digests, missing provenance, unknown or duplicated variants are hard
-    `RUNTIME_START_FAILED` errors — never a fallback or a download (§109).
+    `RUNTIME_START_FAILED` errors — never a fallback or a download.
     """
     try:
         raw = json.loads(manifest_path.read_bytes().decode("utf-8"))
@@ -153,7 +153,7 @@ class ResolvedRuntime:
 
     @property
     def backend(self) -> str:
-        """Settings-facing backend name (§67 metrics vocabulary)."""
+        """Settings-facing backend name (metrics vocabulary)."""
         return self.variant
 
 
@@ -161,9 +161,9 @@ class RuntimeVariantResolver:
     """Selects the pinned runtime binary for a settings compute backend.
 
     Explicit backends resolve deterministically (no probe). The `auto`
-    decision (§47) is probed at most once per session and cached, so the
+    decision is probed at most once per session and cached, so the
     client and the supervisor always address the same binary. An explicit
-    backend change (settings-driven §65 restart) takes effect immediately;
+    backend change (settings-driven restart) takes effect immediately;
     `auto` keeps its session decision.
     """
 
@@ -214,7 +214,7 @@ class RuntimeVariantResolver:
         return self._selected
 
     async def _auto_variant(self, config_path: Path) -> str:
-        """§47 explicit auto policy: probe vulkan, fall back to avx2."""
+        """Explicit auto policy: probe vulkan, fall back to avx2."""
         if await self._probe(self, config_path):
             return "vulkan"
         LOGGER.info("vulkan probe failed; auto policy falls back to the avx2 binary (§47)")
@@ -232,12 +232,12 @@ class RuntimeVariantResolver:
         return artifact
 
     async def _probe_vulkan_binary(self, _resolver: object, config_path: Path) -> bool:
-        """Run the vulkan binary's read-only inventory once, bounded (§47).
+        """Run the vulkan binary's read-only inventory once, bounded.
 
         `voxtype info variants --json` (verified upstream, `src/cli/info.rs`)
         performs no recording, needs no daemon and loads no model; a non-zero
         exit, a crash or a timeout means this system cannot run the vulkan
-        build and the §47 fallback applies.
+        build and the auto fallback applies.
         """
         binary = self._paths.runtime_binary("vulkan")
         argv = [str(binary), "--config", str(config_path), "info", "variants", "--json"]
@@ -264,7 +264,7 @@ class RuntimeVariantResolver:
 
 
 def hash_binary(path: Path) -> str:
-    """SHA-256 of the exact artifact bytes (§53 verification)."""
+    """SHA-256 of the exact artifact bytes (pinned-artifact verification)."""
     digest = hashlib.sha256()
     with path.open("rb") as handle:
         for block in iter(lambda: handle.read(1024 * 1024), b""):

@@ -1,16 +1,16 @@
-"""Event-driven runtime status consumption (spec §41).
+"""Event-driven runtime status consumption.
 
 The native daemon writes one bare status word — `idle`, `recording`,
 `streaming` or `transcribing` — into its state file (upstream config key
 `state_file`, a plain non-atomic write on every state change) and DELETES
 the file on shutdown; a missing file therefore means "stopped" (synthesized
 by this module, never by the daemon). The transcript for the current
-recording (§42) and its `.done` completion sidecar land in the same
+recording and its `.done` completion sidecar land in the same
 directory.
 
 `StatusFileWatcher` consumes changes via Linux inotify and dispatches typed
 internal events. There is deliberately **no timer loop and no filesystem
-polling** (§41). `RuntimeStatusMonitor` turns status changes into typed
+polling**. `RuntimeStatusMonitor` turns status changes into typed
 `runtime_status` events on the EventPublisher port. Errors are never
 synthesized here: a state file carries no error word upstream, so error
 mapping belongs to the client's stop outcomes.
@@ -52,10 +52,10 @@ _READ_BUFFER_SIZE = 64 * 1024
 # daemon deletes the file instead, and consumers synthesize the state.
 KNOWN_DAEMON_STATES = frozenset({"idle", "recording", "streaming", "transcribing"})
 
-# Adapter mapping onto our §41/§99 runtime_status vocabulary. `streaming` is
+# Adapter mapping onto the runtime_status vocabulary. `streaming` is
 # the upstream live-partial capture state (disabled in our generated config,
 # mapped defensively): the daemon is actively capturing, so it maps to
-# "recording" rather than being dropped by the §99 boundary.
+# "recording" rather than being dropped at the vocabulary boundary.
 MONITOR_STATE_MAP = {
     "idle": "idle",
     "recording": "recording",
@@ -77,7 +77,7 @@ class StatusSnapshot:
 
 
 def parse_status_word(data: bytes | str) -> StatusSnapshot | None:
-    """Parse a bare-word daemon status; None when malformed (§90 coverage)."""
+    """Parse a bare-word daemon status; None when malformed."""
     try:
         word = (data.decode("utf-8") if isinstance(data, bytes) else data).strip()
     except UnicodeDecodeError:
@@ -89,7 +89,7 @@ def parse_status_word(data: bytes | str) -> StatusSnapshot | None:
 
 @dataclass(frozen=True)
 class WatchEvent:
-    """Typed internal status event (§41)."""
+    """Typed internal status event."""
 
     kind: Literal["status", "output"]
     snapshot: StatusSnapshot | None = None  # status only; None = malformed word
@@ -106,7 +106,7 @@ class _Waiter:
 
 
 class StatusFileWatcher:
-    """inotify-based watcher over the native runtime directory (§41)."""
+    """inotify-based watcher over the native runtime directory."""
 
     def __init__(self, runtime_dir: Path) -> None:
         self._runtime_dir = runtime_dir
@@ -144,7 +144,7 @@ class StatusFileWatcher:
         # Initial state: the current state file, or a synthesized "stopped"
         # when it is absent (the daemon deletes it on shutdown; missing file
         # = stopped). A leftover transcript from a previous run is
-        # intentionally not announced; the client clears it (§42).
+        # intentionally not announced; the client clears it.
         self._dispatch(self._current_status_event())
 
     def close(self) -> None:
@@ -195,7 +195,7 @@ class StatusFileWatcher:
         return event.snapshot if event is not None else None
 
     def _current_status_event(self) -> WatchEvent:
-        """Read the state file now; a missing file is a stopped state (§41)."""
+        """Read the state file now; a missing file is a stopped state."""
         try:
             snapshot = parse_status_word(self._status_file.read_bytes())
         except FileNotFoundError:
@@ -224,7 +224,7 @@ class StatusFileWatcher:
             if name == STATUS_FILENAME:
                 if mask & _IN_DELETE:
                     # The daemon removes the state file on shutdown; that
-                    # deletion IS the stopped transition (§41).
+                    # deletion IS the stopped transition.
                     stopped = StatusSnapshot(state="stopped")
                     self._dispatch(WatchEvent(kind="status", snapshot=stopped))
                 else:
@@ -253,7 +253,7 @@ class StatusFileWatcher:
 
 
 class RuntimeStatusMonitor:
-    """§41: consumes daemon state changes and emits `runtime_status` events."""
+    """Consumes daemon state changes and emits `runtime_status` events."""
 
     def __init__(self, watcher: StatusFileWatcher, publisher: EventPublisher) -> None:
         self._watcher = watcher

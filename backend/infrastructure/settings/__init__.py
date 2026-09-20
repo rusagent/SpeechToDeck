@@ -1,1 +1,1 @@
-"""Settings persistence (spec §5, §54-§56)."""
+"""Settings persistence."""

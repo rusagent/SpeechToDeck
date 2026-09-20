@@ -1,10 +1,10 @@
-"""Decky plugin entrypoint: deliberately thin facade (spec §31).
+"""Decky plugin entrypoint: deliberately thin facade.
 
-Exposes exactly the §30 callables (plus the owner-requested `delete_model`
+Exposes exactly the backend callables (plus the owner-requested `delete_model`
 in-app model cleanup route) and delegates every concern to the composed
 application (backend/composition.py). The application is composed lazily on
 first use under a lock: the Decky loader runs `_migration` before `_main`
-(observed on device, journal 2026-09-17), so no hook may assume `_main` has
+(observed on device), so no hook may assume `_main` has
 composed the backend first. This module contains no process management, no
 model downloads, no filesystem business logic, and no transcription state
 transitions.
@@ -43,14 +43,14 @@ LOGGER = logging.getLogger("plugin.lifecycle")
 
 _DATA_DIR_ENV = "SPEECHTODECK_DATA_DIR"
 
-# ── §71 budgets (loader v3.2.9 install/reload-race audit) ────────────────────
+# ── callable budgets (verified against the Decky loader's unload behavior) ───
 # The loader waits for a plugin callable reply WITHOUT a timeout (loader
-# v3.2.9 messages.py:39-44) and bounds the backend only at unload: SIGTERM,
+# messages.py:39-44) and bounds the backend only at unload: SIGTERM,
 # then SIGKILL after 5 s (plugin.py:161-183). One hung await therefore froze
 # the panel forever ("Loading settings…" with a healthy backend), and a hung
-# teardown dies mid-flight under the SIGKILL. Every §30 callable and the
+# teardown dies mid-flight under the SIGKILL. Every callable and the
 # disposal therefore run under an explicit, documented budget: no wait on any
-# callable path is unbounded (§71).
+# callable path is unbounded.
 #
 # Disposal must always fit the loader's ~5 s SIGKILL budget with margin: 4 s
 # leaves ~1 s for the loader's own shutdown bookkeeping around our teardown.
@@ -68,29 +68,29 @@ DISPOSE_TIMEOUT_S = 4.0
 # route under the default, not a latency outlier.
 CALLABLE_DEFAULT_BUDGET_S = 30.0
 
-# Per-route budgets for §30 callables with legitimately longer latency
-# (§71: generous but always bounded). Keys are the callable names as passed
+# Per-route budgets for callables with legitimately longer latency
+# (generous but always bounded). Keys are the callable names as passed
 # to `Plugin._call`.
 CALLABLE_BUDGET_S: dict[str, float] = {
     # `record stop --wait` transcription scales with the recording
     # (max(120 s, 2x recorded) + 5 s CLI grace — voxtype_client.py:74-87). The
-    # 24 h recording valve (ADR-012) is a runaway guard, not a use case, so
-    # 1 h covers ≈30 min of recorded dictation — far beyond the §74
+    # 24 h recording valve is a runaway guard, not a use case, so
+    # 1 h covers ≈30 min of recorded dictation — far beyond the
     # mic-button flow.
     "stop_recording": 3600.0,
     # `download_model` awaits the FULL download (model_service.py:79-105);
     # 1 h covers the largest curated model (1.6 GB, defaults/models.json) at
     # a poor-but-plausible ≈0.5 MB/s deck Wi-Fi.
     "download_model": 3600.0,
-    # `update_settings` may drive the full §82 lifecycle transition under the
-    # lifecycle lock (composition.py:531-556): a first-run enable can download
-    # the model (with the §70 retry ladder), and every runtime-relevant change
+    # `update_settings` may drive the full startup lifecycle transition under
+    # the lifecycle lock: a first-run enable can download
+    # the model (with the retry ladder), and every runtime-relevant change
     # restarts the daemon with up to MODEL_WARMUP_TIMEOUT_S = 60 s warmup
-    # (composition.py:72) plus the ≤5 s §38 shutdown ladder — the same
+    # plus the ≤5 s shutdown ladder — the same
     # worst case as download_model.
     "update_settings": 3600.0,
-    # `restart_runtime` re-runs the whole §82 path (composition.py:429-449):
-    # §38 shutdown + runtime verify + model ensure/download + start + 60 s
+    # `restart_runtime` re-runs the whole startup path:
+    # shutdown + runtime verify + model ensure/download + start + 60 s
     # warmup — the same worst case as update_settings.
     "restart_runtime": 3600.0,
 }
@@ -103,11 +103,11 @@ def _resolve_data_dir() -> Path:
     `DECKY_PLUGIN_RUNTIME_DIR`: the loader maps it to `$DECKY_HOME/data/<plugin>`
     and pre-creates it before start (loader plugin.py:72-79). Despite the
     "RUNTIME" name it is the persistent per-plugin data dir — the loader never
-    clears it and no `DECKY_PLUGIN_DATA_DIR` global exists (loader audit
-    2026-09-17, finding 5: `DECKY_PLUGIN_HOME` does not exist). Our app-level
+    clears it, no `DECKY_PLUGIN_DATA_DIR` global exists, and
+    `DECKY_PLUGIN_HOME` does not exist. Our app-level
     transient state stays scoped under `<data_dir>/runtime`
     (`PluginPaths.runtime_dir`). The override also lets tests and tooling
-    isolate all writable state (§109: writable paths restricted to the plugin
+    isolate all writable state (writable paths stay restricted to the plugin
     data directory).
     """
     override = os.environ.get(_DATA_DIR_ENV)
@@ -138,7 +138,7 @@ def _resolve_event_publisher() -> EventPublisher | None:
 
 
 class Plugin:
-    """Thin §31 facade: every callable delegates; none implements logic."""
+    """Thin facade: every callable delegates; none implements logic."""
 
     def __init__(self) -> None:
         self._app: Application | None = None
@@ -147,7 +147,7 @@ class Plugin:
         self._disposed: bool = False
         self._compose_lock = asyncio.Lock()
 
-    # ── Decky lifecycle hooks (§31) ──────────────────────────────────────────
+    # ── Decky lifecycle hooks ────────────────────────────────────────────────
 
     async def _main(self) -> None:
         if _DECKY is None:
@@ -165,7 +165,7 @@ class Plugin:
         app = await self._ensure_app()
         await app.migrate_settings()
 
-    # ── §30 callables ────────────────────────────────────────────────────────
+    # ── backend callables ────────────────────────────────────────────────────
 
     async def get_capabilities(self) -> dict[str, object]:
         return await self._call("get_capabilities", lambda app: app.get_capabilities())
@@ -206,13 +206,13 @@ class Plugin:
     # ── internals ────────────────────────────────────────────────────────────
 
     async def _ensure_app(self) -> Application:
-        """Double-checked lazy composition (§31 lifecycle order).
+        """Double-checked lazy composition following the loader lifecycle order.
 
         The Decky loader may call any hook first (`_migration` runs before
         `_main` on device), so the first caller composes once under the lock
         and every later caller reuses the same Application. After
         `_unload`/`_uninstall` the facade is disposed and fails closed with
-        the stable §68 INTERNAL_ERROR code.
+        the stable INTERNAL_ERROR code.
         """
         if self._app is not None:
             return self._app
@@ -233,8 +233,8 @@ class Plugin:
         The facade detaches before awaiting `dispose()` so a callable racing
         the unload fails closed instead of touching a half-disposed backend.
 
-        §71: the dispose await is bounded at `DISPOSE_TIMEOUT_S` (4 s), inside
-        the loader's unload budget (loader v3.2.9 plugin.py:161-183: SIGTERM,
+        The dispose await is bounded at `DISPOSE_TIMEOUT_S` (4 s), inside
+        the loader's unload budget (plugin.py:161-183: SIGTERM,
         then SIGKILL after 5 s — 4 s leaves ~1 s of margin for the loader's
         own shutdown bookkeeping). On expiry the operation is cancelled, the
         detach-before-dispose ordering above has already failed the surface
@@ -263,26 +263,26 @@ class Plugin:
         name: str,
         operation: Callable[[Application], Awaitable[dict[str, object]]],
     ) -> dict[str, object]:
-        """§68: stable coded results across the Decky boundary; UI text is
-        mapped from `code` on the frontend, never from exception strings.
+        """Stable, coded results across the Decky boundary; the UI maps text
+        from `code` on the frontend, never from exception strings.
 
         Diagnosability choke point: a failed callable is logged here exactly
-        once (WARNING) with the callable name, the stable §68 code, the
+        once (WARNING) with the callable name, the stable error code, the
         session id when the error carries one, and the error's diagnosable
-        detail string (HTTP status/errno + host — §73-safe by construction:
+        detail string (HTTP status/errno + host — safe by construction:
         details never carry transcript or audio content). Inner layers stay
         quiet for these coded failures, so one journal line names the failing
         press, its layer and the reason. Successful calls stay quiet (no log
-        spam). A user-initiated model-download cancel (§52) is completion,
+        spam). A user-initiated model-download cancel is completion,
         not failure: it logs at INFO without "failed" wording so a routine
-        cancel never reads like a network failure in the journal (on-device
-        v0.2.4 finding).
+        cancel never reads like a network failure in the journal (an
+        on-device finding).
 
-        §71: the operation runs under its per-route budget
+        The operation runs under its per-route budget
         (`CALLABLE_BUDGET_S`, default `CALLABLE_DEFAULT_BUDGET_S`); a hung
         operation is cancelled and surfaces through this same choke point as
-        the stable §68 INTERNAL_ERROR envelope, because the loader itself
-        waits for a callable reply without a timeout (loader v3.2.9
+        the stable INTERNAL_ERROR envelope, because the loader itself
+        waits for a callable reply without a timeout (loader
         messages.py:39-44).
         """
         budget = CALLABLE_BUDGET_S.get(name, CALLABLE_DEFAULT_BUDGET_S)
@@ -317,14 +317,14 @@ async def _budgeted(
     app: Application,
     budget: float,
 ) -> dict[str, object]:
-    """Run one §30 operation under its §71 budget (loader v3.2.9 audit).
+    """Run one backend operation under its callable budget.
 
     The loader waits for a callable reply without a timeout (messages.py:39-44),
     so this budget is the only bound: on expiry the operation is cancelled and
-    re-raised as the stable §68 INTERNAL_ERROR, so `_call`'s single choke point
+    re-raised as the stable INTERNAL_ERROR, so `_call`'s single choke point
     logs it once and the frontend receives a normal coded failure instead of an
     eternal wait. The detail carries only the callable name and budget — no
-    transcript or audio content (§73).
+    transcript or audio content.
     """
     try:
         return await asyncio.wait_for(operation(app), budget)

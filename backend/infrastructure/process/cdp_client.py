@@ -1,29 +1,28 @@
-"""Minimal Chrome DevTools Protocol client over a stdlib WebSocket (v0.1.6).
+"""Minimal Chrome DevTools Protocol client over a stdlib WebSocket.
 
 The Steam client exposes a local CEF debugging endpoint on
 ``127.0.0.1:8080`` (user setting "Allow Remote CEF Debugging", verified on
-deck hardware 2026-09-17, ``.tmp/cdp/kb-deep.out``). Shipped plugins reach
-foreign Steam UI views exactly through this endpoint — enumerate page
-targets, attach over one browser WebSocket with flattened sessions and run
-``Runtime.evaluate`` in the target document (CssLoader ``css_browserhook.py``,
-decky-loader ``injector.py``; audit ``.tmp/audit/cross-view-injection.md``).
+deck hardware). Shipped plugins reach foreign Steam UI views exactly through
+this endpoint — enumerate page targets, attach over one browser WebSocket
+with flattened sessions and run ``Runtime.evaluate`` in the target document
+(the CssLoader ``css_browserhook.py`` / decky-loader ``injector.py`` pattern).
 
 This module is the transport half of that integration:
 
 - a dependency-free RFC6455 WebSocket client (masked client frames, an
   incremental frame parser handling fragmentation plus ping/pong/close) built
-  on asyncio streams — the backend is stdlib-only (spec §100/§101: the Decky
-  runtime ships no third-party packages);
+  on asyncio streams — the backend is stdlib-only because the Decky
+  runtime ships no third-party packages;
 - a tiny CDP wrapper: ``/json/version`` + ``/json/list`` discovery, browser
   socket, ``Target.getTargets``/``setDiscoverTargets``/``attachToTarget``
   (flatten), per-session ``Runtime.evaluate``,
   ``Page.addScriptToEvaluateOnNewDocument``, ``Runtime.addBinding`` with
   ``Runtime.bindingCalled`` event delivery, and ``Input.insertText``.
 
-Every wait is bounded (spec §71). All failures surface as ``CdpError``
-subclasses so the keyboard host can degrade with a stable reason (§105)
+Every wait is bounded. All failures surface as ``CdpError``
+subclasses so the keyboard host can degrade with a stable reason
 instead of crashing. Transcript text never passes through this module's
-logging (§73): only methods, session ids and result shapes are logged.
+logging: only methods, session ids and result shapes are logged.
 """
 
 from __future__ import annotations
@@ -44,7 +43,7 @@ from urllib.parse import urlparse
 
 LOGGER = logging.getLogger("plugin.cdp")
 
-# RFC6455 frame opcodes (§5.2).
+# RFC 6455 frame opcodes.
 OP_CONT = 0x0
 OP_TEXT = 0x1
 OP_CLOSE = 0x8
@@ -52,7 +51,7 @@ OP_PING = 0x9
 OP_PONG = 0xA
 
 _WS_GUID = "258EAFA5-E914-47DA-95CA-C5AB0DC85B11"
-_MAX_FRAME_BYTES = 8 * 1024 * 1024  # responses stay far below this; a bound per §71
+_MAX_FRAME_BYTES = 8 * 1024 * 1024  # responses stay far below this; every wait stays bounded
 
 
 class CdpError(ConnectionError):
@@ -68,14 +67,14 @@ class CdpProtocolError(CdpError):
 
 
 class CdpTimeoutError(CdpError, TimeoutError):
-    """A bounded CDP wait expired (spec §71: no wait is unbounded)."""
+    """A bounded CDP wait expired — no wait is unbounded."""
 
 
 # ── RFC6455 frame codec ──────────────────────────────────────────────────────
 
 
 def encode_client_frame(opcode: int, payload: bytes) -> bytes:
-    """One masked client frame (RFC6455 §5.1: client frames MUST be masked)."""
+    """One masked client frame (RFC 6455: client frames MUST be masked)."""
     mask = os.urandom(4)
     header = bytearray([0x80 | opcode])
     length = len(payload)
@@ -96,7 +95,7 @@ def decode_frame(buffer: bytes | bytearray) -> tuple[int, bytes, int, bool] | No
     """Parse one complete frame from the front of ``buffer``.
 
     Returns ``(opcode, payload, consumed, fin)`` or ``None`` when the buffer
-    holds an incomplete frame. Server frames are unmasked (RFC6455 §5.1); a
+    holds an incomplete frame. Server frames are unmasked per RFC 6455; a
     masked server frame is accepted defensively and unmasked anyway. Raises
     ``CdpProtocolError`` on reserved bits set or frames beyond the size bound.
     """
@@ -160,7 +159,7 @@ class WebSocketConnection:
     async def connect(
         cls, host: str, port: int, path: str, *, open_timeout: float
     ) -> WebSocketConnection:
-        """HTTP/1.1 Upgrade handshake (RFC6455 §4.1) with a bounded wait."""
+        """HTTP/1.1 Upgrade handshake (RFC 6455 section 4.1) with a bounded wait."""
         key = base64.b64encode(os.urandom(16)).decode("ascii")
         request = (
             f"GET {path} HTTP/1.1\r\n"
@@ -213,7 +212,7 @@ class WebSocketConnection:
     async def recv_message(self) -> tuple[int, bytes]:
         """Next complete message: ``(OP_TEXT, payload)`` or ``(OP_CLOSE, _)``.
 
-        Pings are answered in-line (RFC6455 §5.5.2-§5.5.3); pongs are dropped.
+        Pings are answered in-line (RFC 6455 sections 5.5.2-5.5.3); pongs are dropped.
         Fragmented data messages are reassembled until the FIN piece arrives.
         """
         while True:
@@ -415,14 +414,14 @@ class CdpClient:
         """One bulk insertion op into the session's focused editable.
 
         ``Input.insertText`` emulates inserting text that does not come from
-        key presses — the complete string in a single operation (spec §2.2).
+        key presses — the complete string in a single operation.
         """
         await self._call("Input.insertText", {"text": text}, session_id=session_id)
 
     # ── internals ──
 
     async def _http_get_json(self, path: str) -> Any:
-        """Blocking discovery HTTP on a worker thread (spec §100)."""
+        """Blocking discovery HTTP on a worker thread."""
         url = f"http://{self._host}:{self._port}{path}"
 
         def fetch() -> Any:

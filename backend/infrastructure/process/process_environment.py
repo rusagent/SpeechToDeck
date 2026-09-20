@@ -1,6 +1,6 @@
-"""Child-process environment and plugin path policy (§39, §40, §109, §110).
+"""Child-process environment and plugin path policy.
 
-All writable paths live under the Decky plugin data directory (§109); the
+All writable paths live under the Decky plugin data directory; the
 native runtime binaries are read from the plugin install directory (the Decky
 loader places each `remote_binary` entry at `<plugin_dir>/bin/<name>`).
 
@@ -63,9 +63,9 @@ def resolve_defaults_file(plugin_root: Path, filename: str) -> Path:
     path is returned so fail-closed loaders report a stable location.
     Read-only existence probes only; no filesystem effects.
 
-    §109 traversal hardening: after resolution the candidate must stay
+    Traversal hardening: after resolution the candidate must stay
     inside the plugin root (both sanctioned layouts live there); any
-    resolved path that escapes it is rejected with the stable §68
+    resolved path that escapes it is rejected with the stable
     `MANIFEST_INVALID` code instead of being returned.
     """
     root = plugin_root.resolve()
@@ -109,7 +109,7 @@ class PluginPaths:
         return self.plugin_root / DEFAULTS_DIRNAME
 
     def runtime_binary(self, variant: str) -> Path:
-        """Pinned binary for a compute variant (§53: resolved, never guessed).
+        """Pinned binary for a compute variant (resolved, never guessed).
 
         `variant` is a settings-facing backend (`cpu`/`vulkan`) mapped to the
         exact loader-installed binary name. Unknown variants fail closed via
@@ -182,7 +182,7 @@ class PluginPaths:
 
 
 def ensure_directories(paths: PluginPaths) -> None:
-    """Create writable directories with user-only permissions (§109, §110).
+    """Create writable directories with user-only permissions.
 
     The native runtime directory must exist before any child starts: the
     inotify watcher binds to it and the daemon derives it from
@@ -215,10 +215,9 @@ def session_runtime_dir(
     Precedence: the plugin process's own `XDG_RUNTIME_DIR`, then the
     XDG-standard `/run/user/<uid>` when it actually exists. The fallback is
     load-bearing on device: the Decky-loader-spawned plugin process carries
-    NO `XDG_RUNTIME_DIR` at all (daemon env proved it 2026-09-18 22:19 — the
-    first PIPEWIRE_RUNTIME_DIR fix never fired).
+    NO `XDG_RUNTIME_DIR` at all (proved from the daemon environment).
 
-    Deck defect 2026-09-19 (cold boot): the plugin backend itself was
+    Cold-boot on-device finding: the plugin backend itself was
     spawned as ROOT, so `os.getuid()` resolved `/run/user/0`, which does
     not exist — the key was omitted again and every recording failed with
     `snd_pcm_open: Host is down (112)`. The backend process's uid is
@@ -239,14 +238,14 @@ def session_runtime_dir(
 
 
 def child_environment(data_dir: Path, *, session_base: Path | None = None) -> dict[str, str]:
-    """Minimal environment for native children (§40, §109).
+    """Minimal environment for native children.
 
     Only deterministic variables are forwarded; HOME points into the plugin
     data dir and XDG_RUNTIME_DIR into the plugin runtime dir so naive child
-    writes cannot escape the plugin data directory (§109). Both directories
+    writes cannot escape the plugin data directory. Both directories
     must exist (see `ensure_directories`) before children are spawned.
 
-    Audio-server exception (deck defect 2026-09-18): the daemon captures
+    Audio-server exception (on-device finding): the daemon captures
     through ALSA's pipewire PCM plugin, and libpipewire resolves the session
     server socket (`pipewire-0`) from PIPEWIRE_RUNTIME_DIR, falling back to
     XDG_RUNTIME_DIR. With only the override below the daemon had no reachable
@@ -272,7 +271,7 @@ def child_environment(data_dir: Path, *, session_base: Path | None = None) -> di
 
 
 def apply_private_file_mode(path: Path) -> None:
-    """Best-effort user-only file permissions (§110).
+    """Best-effort user-only file permissions.
 
     Permission enforcement is defense in depth; the data dir is already 0o700,
     so failure here never blocks the operation.

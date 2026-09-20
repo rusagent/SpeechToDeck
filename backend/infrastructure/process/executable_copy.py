@@ -1,9 +1,9 @@
-"""Digest-verified private executable copy for daemon spawns (§53).
+"""Digest-verified private executable copy for daemon spawns.
 
 The supervisor never executes `bin/<name>` directly. Installing an update
 over the RUNNING plugin rewrites `bin/` in place, and a direct write to the
-file a daemon is executing fails with `[Errno 26] Text file busy`
-(deck 2026-09-18, install-over-running-plugin). Linux allows
+file a daemon is executing fails with `[Errno 26] Text file busy` when the
+plugin is refreshed while running. Linux allows
 rename-over-a-running-executable, so executing a private copy under the
 plugin data dir removes the hazard structurally: refreshing the cache below
 never touches the inode a running daemon still executes.
@@ -18,7 +18,7 @@ against the pinned manifest). When the copy is missing or its digest drifted
 daemon keeps executing the previous inode unaffected. Any I/O failure (or a
 re-hash mismatch, i.e. the source changed mid-copy) raises the stable
 `RuntimeStartError` — the caller must never fall back to spawning anything
-unverified (§53).
+unverified.
 """
 
 from __future__ import annotations
@@ -42,7 +42,7 @@ def ensure_executable_copy(source: Path, target_dir: Path, *, source_digest: str
     """Return the digest-verified private copy of `source`, refreshing it when
     the cache is missing or drifted (see module docstring for the invariant).
 
-    `source_digest` is the caller's §53-verified source hash; the copy is
+    `source_digest` is the caller's verified source hash; the copy is
     verified against the same digest (source AND copy against the pinned
     manifest digest).
     """

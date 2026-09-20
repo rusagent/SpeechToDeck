@@ -1,4 +1,4 @@
-"""System-clipboard writer for finished transcripts (v0.2 owner design).
+"""System-clipboard writer for finished transcripts.
 
 Writes the transcript into the X11 CLIPBOARD of the Game Mode XWayland
 server so the Steam virtual keyboard's own Paste key (STEAM+X on-screen
@@ -16,10 +16,10 @@ plugin process), so — unlike DeckyClipboard — no sudo/runuser wrapper is
 needed. xclip is invoked as a strict argument array with a bounded timeout;
 stdout/stderr are DEVNULL so the daemonized child that owns the CLIPBOARD
 selection cannot hold our pipes and stall the wait, and no transcript text
-is ever logged (§73). The staging file lives inside the plugin data dir
-(§109) with user-only permissions.
+is ever logged. The staging file lives inside the plugin data dir
+with user-only permissions.
 
-Pin decision (v0.2.0, recorded in IMPLEMENTATION_STATUS.md): upstream xclip
+Pin decision: upstream xclip
 (astrand/xclip) publishes no prebuilt release binaries, and the only bundled
 binary in the audited ecosystem is an unofficial third-party build behind a
 raw repository URL — not a trustworthy pinned source for an executed
@@ -53,7 +53,7 @@ DEFAULT_DISPLAY = ":0"
 
 
 class XclipClipboardWriter:
-    """`ClipboardWriter` over the bundled/installed `bin/xclip` (§32 port)."""
+    """`ClipboardWriter` over the bundled/installed `bin/xclip`."""
 
     def __init__(
         self,
@@ -75,7 +75,7 @@ class XclipClipboardWriter:
         return self._binary_path.is_file()
 
     async def write_text(self, text: str) -> ClipboardStatus:
-        """Copy `text` into the X11 CLIPBOARD; never raises (§32 contract).
+        """Copy `text` into the X11 CLIPBOARD; never raises.
 
         Expected failure modes map to a `ClipboardStatus`: "skipped" when no
         xclip binary exists (no pin installed), "failed" for spawn/timeout/
@@ -96,7 +96,7 @@ class XclipClipboardWriter:
     # ── internals ────────────────────────────────────────────────────────────
 
     def _stage_text(self, text: str) -> Path | None:
-        """Write the text into a private file under the runtime dir (§109).
+        """Write the text into a private file under the runtime dir.
 
         The staging file follows the app-level transient-state policy
         (`<data_dir>/runtime`, 0o700 dir) and gets user-only file mode.

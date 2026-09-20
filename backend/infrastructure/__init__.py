@@ -1,1 +1,1 @@
-"""Backend infrastructure adapters (spec §5)."""
+"""Backend infrastructure adapters."""
