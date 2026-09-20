@@ -7,7 +7,7 @@
  * (owner list): the Microphone/Available chip row, the Maximum Recording
  * Duration slider, the VAD toggle, the runtime-health row and the whole
  * Diagnostics section are gone — the panel reads as Dictation card / (setup
- * when needed) / Runtime (Enabled + Compute backend) / Speech (Model, with
+ * when needed) / Runtime (Enabled) / Speech (Model, with
  * the Language picker below it only while the selected model does not pin a
  * language) / Output (Output mode). Application/runtime state is consumed
  * through `useSyncExternalStore` over the controller store (§102); only
@@ -36,7 +36,6 @@ import { LevelMeterStore } from "../../application/ports/LevelMeterPort";
 import type { PanelTranscriptSnapshot } from "../../application/ports/PanelTranscriptPort";
 import { translate } from "../i18n/messages";
 import type { Locale, MessageKey } from "../i18n/messages";
-import { ComputeBackendPicker } from "./ComputeBackendPicker";
 import type { DiagnosticsSource } from "./DiagnosticsSource";
 import { DictationCard } from "./DictationCard";
 import { LanguagePicker } from "./LanguagePicker";
@@ -355,13 +354,6 @@ export function SettingsPanel({
                         label={translate(locale, "setting.enabled")}
                         checked={value.enabled}
                         onChange={(checked) => update({ enabled: checked })}
-                    />
-                </PanelSectionRow>
-                <PanelSectionRow>
-                    <ComputeBackendPicker
-                        value={value.computeBackend}
-                        locale={locale}
-                        onChange={(backend) => update({ computeBackend: backend })}
                     />
                 </PanelSectionRow>
             </PanelSection>

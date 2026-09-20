@@ -23,7 +23,6 @@ export const EN_MESSAGES = {
     "section.dictation": "Dictation",
 
     "setting.enabled": "Enable plugin",
-    "setting.computeBackend": "Compute backend",
     "setting.model": "Model",
     "setting.language": "Language",
     "setting.outputMode": "Output mode",
@@ -36,9 +35,6 @@ export const EN_MESSAGES = {
     // one-time loader reload fired (two consecutive load-deadline timeouts).
     "setting.loadFailedReloading": "Reloading the plugin backend …",
 
-    "option.backend.auto": "Auto (Vulkan if available)",
-    "option.backend.vulkan": "Vulkan",
-    "option.backend.cpu": "CPU",
     "option.model.tiny": "Tiny (fastest)",
     "option.model.base": "Base (default)",
     "option.model.small": "Small (most accurate)",
@@ -56,10 +52,6 @@ export const EN_MESSAGES = {
     "option.output.direct-insert": "Direct insert",
     "option.output.clipboard-only": "Clipboard only",
 
-    "hint.backend.auto": "Checks for Vulkan and uses the CPU when Vulkan is unavailable.",
-    "hint.backend.vulkan":
-        "Vulkan is required. If it fails, an error is shown - no silent switch to CPU.",
-    "hint.backend.cpu": "Uses the CPU only.",
     "hint.language.system": "Same as auto-detect: the spoken language is detected automatically.",
     "hint.language.auto": "Detects the spoken language automatically.",
     "hint.language.explicit": "Transcriptions are made in this language.",
@@ -129,7 +121,6 @@ export const DE_MESSAGES: Record<MessageKey, string> = {
     "section.dictation": "Diktieren",
 
     "setting.enabled": "Plugin aktivieren",
-    "setting.computeBackend": "Recheneinheit",
     "setting.model": "Modell",
     "setting.language": "Sprache",
     "setting.outputMode": "Ausgabemodus",
@@ -141,9 +132,6 @@ export const DE_MESSAGES: Record<MessageKey, string> = {
         "Schließe und öffne dieses Panel erneut. Falls es bestehen bleibt, lade das Plugin neu und öffne es wieder.",
     "setting.loadFailedReloading": "Plugin-Backend wird neu geladen …",
 
-    "option.backend.auto": "Automatisch (Vulkan, falls verfügbar)",
-    "option.backend.vulkan": "Vulkan",
-    "option.backend.cpu": "CPU",
     "option.model.tiny": "Tiny (am schnellsten)",
     "option.model.base": "Base (Standard)",
     "option.model.small": "Small (am genauesten)",
@@ -161,10 +149,6 @@ export const DE_MESSAGES: Record<MessageKey, string> = {
     "option.output.direct-insert": "Direkt einfügen",
     "option.output.clipboard-only": "Nur Zwischenablage",
 
-    "hint.backend.auto": "Prüft Vulkan und nutzt die CPU, wenn Vulkan nicht verfügbar ist.",
-    "hint.backend.vulkan":
-        "Vulkan ist erforderlich. Schlägt es fehl, wird ein Fehler angezeigt - kein stiller Wechsel zu CPU.",
-    "hint.backend.cpu": "Nutzt nur die CPU.",
     "hint.language.system":
         "Wie Automatisch erkennen: Die gesprochene Sprache wird automatisch erkannt.",
     "hint.language.auto": "Erkennt die gesprochene Sprache automatisch.",

@@ -183,12 +183,14 @@ describe("SettingsPanel", () => {
 
         // §80 sections: runtime, speech, output. Kept rows only.
         expect(await screen.findByText(/Enable plugin/)).not.toBeNull();
-        expect(screen.getAllByText(/Compute backend/).length).toBeGreaterThan(0);
         expect(screen.getAllByText(/Language/).length).toBeGreaterThan(0);
         expect(screen.getAllByText(/Output mode/).length).toBeGreaterThan(0);
 
-        // v0.2.5 owner declutter: the removed rows and the whole Diagnostics
-        // section are gone.
+        // Removed rows and the whole Diagnostics section stay gone (v0.2.5
+        // owner declutter; the Compute backend select followed later — owner
+        // decision that the Vulkan/CPU choice is an internal concern, the
+        // setting stays "auto" and is simply never rendered).
+        expect(screen.queryByText(/Compute backend/)).toBeNull();
         expect(screen.queryByText(/Runtime health/)).toBeNull();
         expect(screen.queryByText(/Maximum recording duration/)).toBeNull();
         expect(screen.queryByText(/Voice activity detection/)).toBeNull();
