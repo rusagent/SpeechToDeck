@@ -152,6 +152,37 @@ describe("ModelCatalogStore", () => {
         expect(store.getSnapshot().failure).toBeNull();
     });
 
+    // In-app model cleanup (owner request): a successful delete_model marks
+    // the model not installed for immediate honest feedback while the
+    // authoritative list_models refresh is still in flight.
+    it("marks the deleted model not installed and leaves the rest untouched", () => {
+        const store = new ModelCatalogStore();
+        store.setModels([...MODELS]);
+        store.publishProgress(progress("distil-small-en", 10, 200));
+
+        const listener = vi.fn();
+        store.subscribe(listener);
+        store.markDeleted("base");
+
+        expect(store.getSnapshot().models.find((model) => model.id === "base")?.installed).toBe(
+            false,
+        );
+        expect(store.getSnapshot().models.find((model) => model.id === "base")?.sizeBytes).toBe(
+            147951465,
+        );
+        expect(store.getSnapshot().models.find((model) => model.id === "distil-small-en")).toEqual(
+            MODELS[1],
+        ); // untouched entry keeps its identity and state
+        // The backend rejects deleting a model with a download in flight, so
+        // a delete never touches that state either.
+        expect(store.getSnapshot().download).toEqual({ modelId: "distil-small-en", percent: 5 });
+        expect(listener).toHaveBeenCalledTimes(1);
+
+        // Marking an unknown id is a harmless no-op over the same rows.
+        store.markDeleted("nonexistent");
+        expect(store.getSnapshot().models).toHaveLength(2);
+    });
+
     it("keeps snapshot identity stable when nothing changed (§102)", () => {
         const store = new ModelCatalogStore();
         const first = store.getSnapshot();

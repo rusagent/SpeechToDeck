@@ -87,7 +87,7 @@ const COMPLETION_HOLD_MS = 500;
 const CONTROLLED_DROPDOWN: { controlled: boolean } = { controlled: true };
 
 /** Decimal units, matching how the HF repos advertise artifact sizes. */
-function formatSize(bytes: number): string {
+export function formatSize(bytes: number): string {
     if (bytes >= 1_000_000_000) {
         return `${(bytes / 1_000_000_000).toFixed(1)} GB`;
     }

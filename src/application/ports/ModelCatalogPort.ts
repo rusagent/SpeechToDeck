@@ -247,6 +247,23 @@ export class ModelCatalogStore {
         this.notify();
     }
 
+    /**
+     * Marks one model's install state cleared after a successful
+     * `delete_model` callable (in-app model cleanup): immediate honest
+     * feedback while the authoritative catalog refresh (the existing
+     * `list_models` path) is still in flight. Download state is untouched —
+     * the backend rejects deleting a model whose download is in flight.
+     */
+    markDeleted(modelId: string): void {
+        this.snapshot = {
+            ...this.snapshot,
+            models: this.snapshot.models.map((model) =>
+                model.id === modelId ? { ...model, installed: false } : model,
+            ),
+        };
+        this.notify();
+    }
+
     private notify(): void {
         for (const listener of [...this.listeners]) {
             listener();
@@ -264,4 +281,13 @@ export interface ModelCatalogPort {
 
     /** Cancels the active download, if any. */
     cancelDownload(): Promise<void>;
+
+    /**
+     * Deletes one installed model's artifact backend-side (in-app model
+     * cleanup): the id is the ONLY input — the backend resolves the file
+     * path from its strict manifest. The selected model and a model with a
+     * download in flight are coded rejections; an already-absent artifact is
+     * an idempotent success.
+     */
+    deleteModel(modelId: string): Promise<void>;
 }

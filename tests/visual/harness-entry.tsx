@@ -34,6 +34,7 @@ import type { CatalogModel } from "../../src/application/ports/ModelCatalogPort"
 import { ModelCatalogStore } from "../../src/application/ports/ModelCatalogPort";
 import type { SettingsPort } from "../../src/application/ports/SettingsPort";
 import { openModelDownloadModal } from "../../src/presentation/settings/ModelSelect";
+import { openManageModelsModal } from "../../src/presentation/settings/ManageModels";
 import { DeckyBackendClient } from "../../src/infrastructure/decky/DeckyBackendClient";
 import { DeckySpeechAdapter } from "../../src/infrastructure/decky/DeckySpeechAdapter";
 import { copyTextToClipboard } from "../../src/infrastructure/system/PanelClipboard";
@@ -64,8 +65,12 @@ export type HarnessDictationVariant = "idle" | "recording" | "transcript";
  * through the production publishComplete path — install flip plus the held
  * final 100% frame — so the capture shows the REAL completion hold (full
  * bar, Cancel hidden) before the modal's short hold elapses and it closes.
+ * `manage` opens the REAL manage modal (in-app model cleanup) over the same
+ * canned catalog via the production openManageModelsModal path — the
+ * installed list with sizes, the selected model's disabled delete and the
+ * Delete all inactive action.
  */
-export type HarnessCatalogVariant = "none" | "ready" | "modal";
+export type HarnessCatalogVariant = "none" | "ready" | "modal" | "manage";
 
 export interface HarnessParams {
     readonly caseId: HarnessCaseId;
@@ -256,6 +261,19 @@ export const CAPTURED_CASES: readonly HarnessParams[] = [
         setup: "none",
         dictation: "idle",
         catalog: "modal",
+        scroll: null,
+    },
+    // In-app model cleanup (owner request): the REAL manage modal over the
+    // canned catalog (four installed models — three general, one German
+    // specialist). The selected model ("base") renders its delete disabled;
+    // the other rows carry their localized Delete action.
+    {
+        caseId: "panel",
+        locale: "en",
+        stateKind: "ready",
+        setup: "none",
+        dictation: "idle",
+        catalog: "manage",
         scroll: null,
     },
 ];
@@ -511,6 +529,27 @@ function failedBootLoadPort(): SettingsPort {
     };
 }
 
+/**
+ * Opens the REAL manage modal through the production path for the `manage`
+ * capture variant (mount-time trigger standing in for the user's press on
+ * the Manage models affordance; the modal itself is the real component over
+ * the real store). The selected model is "base" — its delete renders
+ * disabled exactly as in the composed panel; delete/refresh handlers are
+ * inert (the capture shows the list, not an in-flight deletion).
+ */
+function ManageOpener({ store, locale }: { store: ModelCatalogStore; locale: Locale }): null {
+    React.useEffect(() => {
+        openManageModelsModal({
+            store,
+            locale,
+            selectedModelId: "base",
+            onDelete: () => Promise.resolve(),
+            onRefresh: () => Promise.resolve(),
+        });
+    }, [store, locale]);
+    return null;
+}
+
 function PanelCase({
     locale,
     stateKind,
@@ -547,6 +586,7 @@ function PanelCase({
                   load: () => Promise.resolve(),
                   download: () => undefined,
                   cancel: () => undefined,
+                  deleteModel: () => Promise.resolve(),
               };
     return (
         <>
@@ -565,6 +605,9 @@ function PanelCase({
             />
             {catalogStore !== null && catalog === "modal" ? (
                 <ModalOpener store={catalogStore} locale={locale} />
+            ) : null}
+            {catalogStore !== null && catalog === "manage" ? (
+                <ManageOpener store={catalogStore} locale={locale} />
             ) : null}
         </>
     );
@@ -740,7 +783,9 @@ function paramsFromLocation(): HarnessParams {
         rawDictation === "recording" || rawDictation === "transcript" ? rawDictation : "idle";
     const rawCatalog = search.get("catalog");
     const catalog: HarnessCatalogVariant =
-        rawCatalog === "ready" || rawCatalog === "modal" ? rawCatalog : "none";
+        rawCatalog === "ready" || rawCatalog === "modal" || rawCatalog === "manage"
+            ? rawCatalog
+            : "none";
     const load = search.get("load");
     return {
         caseId,
@@ -802,8 +847,11 @@ if (
         const modalCard = document.querySelector<HTMLElement>(".decky-modal-dialog");
         if (modalCard) {
             const modalRect = modalCard.getBoundingClientRect();
+            // The manage modal carries its own marker; the download modal is
+            // the remaining ModalRoot dialog (only one modal is ever open).
+            const manageModal = document.querySelector<HTMLElement>("[data-manage-modal]");
             regions.push({
-                name: "downloadModal",
+                name: manageModal !== null ? "manageModal" : "downloadModal",
                 top: Math.round(modalRect.top + window.scrollY),
                 height: Math.round(modalRect.height),
             });

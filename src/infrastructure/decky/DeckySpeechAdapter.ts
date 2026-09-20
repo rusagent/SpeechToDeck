@@ -52,6 +52,7 @@ export const SPEECH_CALLABLES = {
     listModels: "list_models",
     downloadModel: "download_model",
     cancelModelDownload: "cancel_model_download",
+    deleteModel: "delete_model",
 } as const;
 
 export const SPEECH_EVENTS = {
@@ -259,6 +260,21 @@ export class DeckySpeechAdapter implements SpeechPort {
     /** Cancels the active download, if any (§52). */
     async cancelModelDownload(): Promise<void> {
         await this.backend.call(SPEECH_CALLABLES.cancelModelDownload);
+    }
+
+    /**
+     * Deletes one installed model's artifact backend-side (in-app model
+     * cleanup): the id is the only input — the backend resolves the path
+     * from its strict manifest (never a frontend path). On success the
+     * catalog store's install state flips immediately (markDeleted); the
+     * authoritative refresh stays with the existing `list_models` path the
+     * caller drives afterwards. A coded rejection (selected model, download
+     * in flight, unknown id) propagates untouched — the manage modal owns
+     * the inline error presentation; the store keeps its previous state.
+     */
+    async deleteModel(modelId: string): Promise<void> {
+        await this.backend.call(SPEECH_CALLABLES.deleteModel, modelId);
+        this.modelCatalog.markDeleted(modelId);
     }
 
     subscribe(listener: SpeechEventListener): Disposable {

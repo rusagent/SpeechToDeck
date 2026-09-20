@@ -76,6 +76,14 @@ vi.mock("@decky/ui", async () => {
         DialogFooter: (props: { children?: Children }) => h("div", null, props.children),
         DialogButton: (props: { onClick?: () => void; children?: Children }) =>
             h("button", { onClick: props.onClick }, props.children),
+        // Steam's confirm dialog (in-app model cleanup): the smoke only
+        // mounts the surfaces — the confirm opens on a user press, so a
+        // plain rendering stub suffices here (behavior covered by
+        // ManageModels.test.tsx).
+        ConfirmModal: (props: Record<string, unknown> & { children?: Children }) => {
+            const { children, ...rest } = props;
+            return h("div", rest, children);
+        },
         showModal: (node: Children) => {
             modalCapture.current = { node, closed: false };
             return {
@@ -170,13 +178,14 @@ describe("visual harness smoke", () => {
                     if (params.catalog !== undefined && params.catalog !== "none") {
                         expect(host.querySelector("[data-model-select]")).not.toBeNull();
                         expect(host.textContent).toContain("Model");
-                        if (params.catalog === "modal") {
-                            // The download modal opened with the localized
-                            // turbo title (strTitle from the showModal props).
+                        if (params.catalog === "ready") {
+                            expect(modalCapture.current).toBeNull();
+                        } else {
+                            // The download modal (catalog=modal) and the manage
+                            // modal (catalog=manage) both opened through their
+                            // production showModal paths and are still open.
                             expect(modalCapture.current).not.toBeNull();
                             expect(modalCapture.current?.closed).toBe(false);
-                        } else {
-                            expect(modalCapture.current).toBeNull();
                         }
                     }
                 } else if (params.caseId === "setup") {

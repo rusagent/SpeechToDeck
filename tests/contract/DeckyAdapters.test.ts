@@ -330,6 +330,54 @@ describe("DeckySpeechAdapter", () => {
         ]);
     });
 
+    it("deletes through delete_model with the id alone and flips the store's install state", async () => {
+        // In-app model cleanup (owner request): the id is the ONLY input —
+        // the backend resolves the artifact path from its strict manifest.
+        // Success marks the model not installed (immediate honest feedback;
+        // the authoritative refresh stays with the caller's list_models
+        // path). A coded rejection propagates and leaves the store untouched.
+        const transport = new FakeDeckyTransport();
+        transport.callResponses.set("delete_model", { modelId: "base", freedBytes: 147951465 });
+        const adapter = new DeckySpeechAdapter(new DeckyBackendClient(transport));
+        adapter.modelCatalog.setModels([
+            {
+                id: "base",
+                engine: "whisper",
+                multilingual: true,
+                filename: "ggml-base.bin",
+                installed: true,
+            },
+            {
+                id: "tiny",
+                engine: "whisper",
+                multilingual: true,
+                filename: "ggml-tiny.bin",
+                installed: true,
+            },
+        ]);
+
+        await adapter.deleteModel("base");
+
+        expect(transport.calls.map((call) => call.route)).toEqual(["delete_model"]);
+        expect(transport.calls[0]?.args).toEqual(["base"]);
+        expect(
+            adapter.modelCatalog.getSnapshot().models.find((m) => m.id === "base")?.installed,
+        ).toBe(false);
+        expect(
+            adapter.modelCatalog.getSnapshot().models.find((m) => m.id === "tiny")?.installed,
+        ).toBe(true);
+
+        // Coded rejection (selected model / download in flight / unknown id):
+        // surfaces unchanged, store keeps its previous state.
+        transport.callErrors.set("delete_model", new DictationError("SETTINGS_INVALID"));
+        await expect(adapter.deleteModel("tiny")).rejects.toMatchObject({
+            code: "SETTINGS_INVALID",
+        });
+        expect(
+            adapter.modelCatalog.getSnapshot().models.find((m) => m.id === "tiny")?.installed,
+        ).toBe(true);
+    });
+
     it("feeds guarded model_download events into the catalog store and drops the rest", () => {
         const transport = new FakeDeckyTransport();
         const adapter = new DeckySpeechAdapter(new DeckyBackendClient(transport));

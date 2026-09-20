@@ -84,6 +84,7 @@ class PluginCompositionRoot implements Disposable {
         readonly load: () => Promise<void>;
         readonly download: (modelId: string) => void;
         readonly cancel: () => void;
+        readonly deleteModel: (modelId: string) => Promise<void>;
     };
     /** Install-wedge self-heal wiring for the plugin panel (v0.2.9). */
     readonly selfHeal: {
@@ -191,6 +192,22 @@ class PluginCompositionRoot implements Disposable {
                         detail: error instanceof Error ? error.message : String(error),
                     });
                 });
+            },
+            // In-app model cleanup (owner request): the id is the only input
+            // — the backend resolves the artifact path from its strict
+            // manifest. The manage modal awaits the result and owns the
+            // inline error presentation, so the coded rejection is logged
+            // here AND rethrown (never silently swallowed).
+            deleteModel: async (modelId: string) => {
+                try {
+                    await speechPort.deleteModel(modelId);
+                } catch (error) {
+                    this.logger.warn("model delete failed", {
+                        modelId,
+                        detail: error instanceof Error ? error.message : String(error),
+                    });
+                    throw error;
+                }
             },
         };
 

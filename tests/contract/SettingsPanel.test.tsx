@@ -14,6 +14,7 @@
 
 import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import type { ReactNode } from "react";
 import { SettingsPanel } from "../../src/presentation/settings/SettingsPanel";
 import type { SettingsPanelProps } from "../../src/presentation/settings/SettingsPanel";
 import type { DiagnosticsSource } from "../../src/presentation/settings/DiagnosticsSource";
@@ -41,6 +42,7 @@ vi.mock("@decky/ui", async () => {
     const React = await import("react");
     const h = React.createElement;
     type Children = import("react").ReactNode;
+    const showModalNodes: Children[] = [];
     return {
         PanelSection: (props: { title?: string; children?: Children }) =>
             h("section", { "data-panel-title": props.title }, props.children),
@@ -97,10 +99,30 @@ vi.mock("@decky/ui", async () => {
                 h("span", { "data-field-label": props.label }, props.label),
                 h("span", { "data-field-value": props.label }, props.children),
             ),
+        // Manage-models affordance + modal host stubs (in-app model cleanup):
+        // DialogButton forwards disabled; showModal captures the opened node
+        // (the manage modal's internals are covered by ManageModels.test.tsx).
+        DialogButton: (props: { onClick?: () => void; disabled?: boolean; children?: Children }) =>
+            h(
+                "button",
+                { onClick: props.onClick, disabled: props.disabled === true },
+                props.children,
+            ),
+        ConfirmModal: (props: Record<string, unknown> & { children?: Children }) =>
+            h("div", { "data-confirm": "true" }, props.children),
+        showModal: (node: Children) => {
+            showModalNodes.push(node);
+            return { Close: () => undefined, Update: () => undefined };
+        },
+        __showModalNodes: showModalNodes,
     };
 });
 
 afterEach(cleanup);
+
+// The test-only export from the mock (typed through the module shape).
+const deckyUi = await import("@decky/ui");
+const showModalNodes = (deckyUi as unknown as { __showModalNodes: ReactNode[] }).__showModalNodes;
 
 function fakeDiagnostics(): DiagnosticsSource {
     return {
@@ -219,6 +241,7 @@ describe("SettingsPanel", () => {
             load: async () => undefined,
             download: () => undefined,
             cancel: () => undefined,
+            deleteModel: async () => undefined,
         };
         const { container } = render(
             <SettingsPanel
@@ -258,6 +281,7 @@ describe("SettingsPanel", () => {
             load: async () => undefined,
             download: () => undefined,
             cancel: () => undefined,
+            deleteModel: async () => undefined,
         };
         const settings = new FakeSettingsPort();
         settings.value = { ...settings.value, modelId: "distil-small-en", language: "de" };
@@ -296,6 +320,7 @@ describe("SettingsPanel", () => {
             load: async () => undefined,
             download: () => undefined,
             cancel: () => undefined,
+            deleteModel: async () => undefined,
         };
         const settings = new FakeSettingsPort();
         settings.value = { ...settings.value, modelId: "unknown-legacy-model", language: "fr" };
@@ -314,6 +339,78 @@ describe("SettingsPanel", () => {
         const language = container.querySelector('[data-dropdown="Language"]');
         expect(language).not.toBeNull();
         expect(language?.textContent).toContain("fr");
+    });
+
+    it("renders the Manage models affordance below the Model select and opens the manage modal", async () => {
+        // In-app model cleanup (owner request): the affordance renders only
+        // over a LOADED catalog and opens the modal through the production
+        // openManageModelsModal path (its internals are covered by
+        // ManageModels.test.tsx).
+        const store = new ModelCatalogStore();
+        store.setModels([
+            {
+                id: "base",
+                engine: "whisper",
+                multilingual: true,
+                filename: "ggml-base.bin",
+                installed: true,
+            },
+        ]);
+        const modelCatalog = {
+            store,
+            load: async () => undefined,
+            download: () => undefined,
+            cancel: () => undefined,
+            deleteModel: async () => undefined,
+        };
+        const { container } = render(
+            <SettingsPanel
+                settings={new FakeSettingsPort()}
+                store={new FakeStateStore({ kind: "booting" })}
+                setupProgress={fakeSetupStore()}
+                diagnostics={fakeDiagnostics()}
+                clock={stubClock()}
+                modelCatalog={modelCatalog}
+            />,
+        );
+        await screen.findByText(/Enable plugin/);
+
+        const manage = screen.getByRole("button", { name: "Manage models" });
+        // Below the Model select, inside the Speech section.
+        const speechSection = container.querySelector('[data-panel-title="Speech"]');
+        expect(speechSection).not.toBeNull();
+        expect(speechSection?.contains(manage)).toBe(true);
+        const modelSelect = container.querySelector('[data-dropdown="Model"]');
+        expect(modelSelect).not.toBeNull();
+        expect(
+            modelSelect!.compareDocumentPosition(manage) & Node.DOCUMENT_POSITION_FOLLOWING,
+        ).toBeTruthy();
+
+        fireEvent.click(manage);
+        expect(showModalNodes).toHaveLength(1);
+    });
+
+    it("hides the Manage models affordance while the catalog is unavailable (§57)", async () => {
+        const modelCatalog = {
+            store: new ModelCatalogStore(), // never loaded: no models
+            load: async () => undefined,
+            download: () => undefined,
+            cancel: () => undefined,
+            deleteModel: async () => undefined,
+        };
+        render(
+            <SettingsPanel
+                settings={new FakeSettingsPort()}
+                store={new FakeStateStore({ kind: "booting" })}
+                setupProgress={fakeSetupStore()}
+                diagnostics={fakeDiagnostics()}
+                clock={stubClock()}
+                modelCatalog={modelCatalog}
+            />,
+        );
+        await screen.findByText(/Enable plugin/);
+
+        expect(screen.queryByRole("button", { name: "Manage models" })).toBeNull();
     });
 
     it("rerenders the dictation card from controller-store state changes (§102)", async () => {

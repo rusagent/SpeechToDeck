@@ -67,6 +67,24 @@ export const EN_MESSAGES = {
     "model.modal.close": "Close",
     "model.modal.failed": "Download failed",
     "model.catalog.unavailable": "The model catalog could not be loaded.",
+    // In-app model cleanup (owner request): the manage modal under the
+    // Model select. Honest wording: deletion is local and reversible by
+    // re-downloading; the selected model can never be deleted.
+    "model.manage.open": "Manage models",
+    "model.manage.title": "Manage models",
+    "model.manage.hint":
+        "Installed models can be deleted to free up space. Deleted models can be downloaded again at any time.",
+    "model.manage.selected": "selected",
+    "model.manage.delete": "Delete",
+    "model.manage.deleteAll": "Delete all inactive",
+    "model.manage.deleting": "Deleting…",
+    "model.manage.deleteFailed": "Deleting the model failed.",
+    "model.manage.confirmTitle": "Delete model",
+    "model.manage.confirmAllTitle": "Delete inactive models",
+    "model.manage.confirmSingle":
+        "The model is removed from disk. You can download it again at any time.",
+    "model.manage.confirmAll":
+        "The inactive models are removed from disk. You can download them again at any time. The selected model is kept.",
 
     "runtime.status.starting": "Starting",
     "runtime.status.ready": "Ready",
@@ -165,6 +183,24 @@ export const DE_MESSAGES: Record<MessageKey, string> = {
     "model.modal.close": "Schließen",
     "model.modal.failed": "Download fehlgeschlagen",
     "model.catalog.unavailable": "Die Modell-Liste konnte nicht geladen werden.",
+    // In-app model cleanup (owner request): the manage modal under the
+    // Model select. Honest wording: deletion is local and reversible by
+    // re-downloading; the selected model can never be deleted.
+    "model.manage.open": "Modelle verwalten",
+    "model.manage.title": "Modelle verwalten",
+    "model.manage.hint":
+        "Installierte Modelle können gelöscht werden, um Speicherplatz freizugeben. Gelöschte Modelle kannst du jederzeit erneut herunterladen.",
+    "model.manage.selected": "ausgewählt",
+    "model.manage.delete": "Löschen",
+    "model.manage.deleteAll": "Alle inaktiven löschen",
+    "model.manage.deleting": "Wird gelöscht…",
+    "model.manage.deleteFailed": "Löschen des Modells ist fehlgeschlagen.",
+    "model.manage.confirmTitle": "Modell löschen",
+    "model.manage.confirmAllTitle": "Inaktive Modelle löschen",
+    "model.manage.confirmSingle":
+        "Das Modell wird von der Festplatte entfernt. Du kannst es jederzeit erneut herunterladen.",
+    "model.manage.confirmAll":
+        "Die inaktiven Modelle werden von der Festplatte entfernt. Du kannst sie jederzeit erneut herunterladen. Das ausgewählte Modell bleibt erhalten.",
 
     "runtime.status.starting": "Startet",
     "runtime.status.ready": "Bereit",

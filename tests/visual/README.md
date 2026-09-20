@@ -53,17 +53,22 @@ title header, body, footer — over the dimmed page, with Steam's close icon
 above it. It is a representative crop of a fullscreen surface, not the QAM
 column; the stand-in mirrors the verified real structure (fullscreen
 overlay, raw node mount, `closeModal` dismissal funnel) rather than a
-freehand card.
+freehand card. `panel-manage-en` (in-app model cleanup) captures the REAL
+manage modal the same way: installed list with sizes, the selected model's
+disabled delete, Delete all inactive.
 
 ## States
 
-`index.html?case=panel|mic&locale=en|de&state=ready|recording|error&scroll=<Section>`
+`index.html?case=panel|mic|setup|dictation&locale=en|de&state=ready|recording|error&variant=<setup>&dictation=<idle|recording|transcript>&catalog=none|ready|modal|manage&scroll=<Section>`
 
 - `panel` — the real `SettingsPanel` (§80 sections Runtime/Speech/Output/
   Diagnostics).
 - `mic` — the real `MicrophoneButton` in all four §20 states (ready,
   recording with elapsed timer, processing spinner, error with localized
   flash).
+- `catalog=manage` — additionally opens the REAL manage modal (in-app model
+  cleanup) over the canned catalog through the production
+  `openManageModelsModal` path.
 
 ## jsdom smoke
 

@@ -174,6 +174,9 @@
         cursor: pointer;
     }
     .decky-button[disabled] { opacity: 0.5; cursor: default; }
+    /* Steam's destructive ConfirmModal OK (bDestructiveWarning): the repo's
+       cited warning state color (#ff5c5c). */
+    .decky-button[data-destructive-warning] { background: #eb5545; border-color: #eb5545; }
     .decky-buttonitem { margin-bottom: 6px; }
     .decky-buttonitem-label {
         display: block;
@@ -523,6 +526,51 @@
     }
 
     /**
+     * Steam's ConfirmModal (decky/ui ConfirmModalProps): title, description
+     * and the OK/Cancel button pair; bDestructiveWarning marks the OK
+     * button with the warning color. The real dialog closes itself after
+     * either press (the modal host owns the close); this static re-creation
+     * only guarantees the import resolves and the visual tokens render —
+     * confirm interactions are covered by the component tests.
+     */
+    function ConfirmModal(props) {
+        const {
+            strTitle,
+            strDescription,
+            strOKButtonText,
+            strCancelButtonText,
+            onOK,
+            onCancel,
+            bDestructiveWarning,
+        } = props;
+        return h(
+            ModalRoot,
+            { closeModal: onCancel },
+            strTitle !== undefined ? h(DialogHeader, null, strTitle) : null,
+            h(
+                DialogBody,
+                null,
+                strDescription !== undefined ? h(DialogBodyText, null, strDescription) : null,
+                h(
+                    "div",
+                    { className: "decky-modal-footer" },
+                    h(
+                        DialogButton,
+                        {
+                            onClick: onOK,
+                            ...(bDestructiveWarning === true
+                                ? { "data-destructive-warning": "true" }
+                                : {}),
+                        },
+                        strOKButtonText ?? "OK",
+                    ),
+                    h(DialogButton, { onClick: onCancel }, strCancelButtonText ?? "Cancel"),
+                ),
+            ),
+        );
+    }
+
+    /**
      * Emulated Steam modal host for the harness: renders the given React node
      * RAW into a fullscreen overlay outside #visual-root — exactly the
      * boundary the real showModal provides (it adds no chrome of its own; the
@@ -578,6 +626,7 @@
         DialogBodyText,
         DialogFooter,
         DialogButton,
+        ConfirmModal,
         showModal,
     };
 })();

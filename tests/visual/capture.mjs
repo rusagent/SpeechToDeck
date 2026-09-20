@@ -206,10 +206,10 @@ function overflowProbe(width, query) {
 // both passes end inside the hold window — after the 300 ms settle fallback,
 // before the 500 ms close. The extra flag overrides the earlier budget
 // (Chromium's last switch wins).
-function modalShot(name, query, width = 640, height = 450) {
+function modalShot(name, query, { width = 640, height = 450, region = "downloadModal" } = {}) {
     const holdWindow = ["--virtual-time-budget=400"];
     const geometry = readGeometry(query, height, holdWindow);
-    findRegion(geometry, "downloadModal");
+    findRegion(geometry, region);
     const png = path.join(out, `${name}.png`);
     const jpg = path.join(out, `${name}.jpg`);
     execFileSync(
@@ -311,6 +311,15 @@ shot("panel-speech-en", "case=panel&catalog=ready&locale=en", {
     sectionTitle: "Speech",
 });
 modalShot("panel-modal-en", "case=panel&catalog=modal&locale=en");
+// In-app model cleanup (owner request): the REAL manage modal opened through
+// the production openManageModelsModal path over the canned catalog — the
+// installed list with names + sizes, the selected model's disabled delete,
+// the Delete-all-inactive action and the Close control (fullscreen-overlay
+// style via modalShot, same 640px representative width as the download
+// modal).
+modalShot("panel-manage-en", "case=panel&catalog=manage&locale=en", {
+    region: "manageModal",
+});
 storeShot();
 
 // Numeric overflow checks at the acceptance widths (no bitmaps needed).

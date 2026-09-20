@@ -25,7 +25,14 @@
  */
 
 import * as React from "react";
-import { ButtonItem, DropdownItem, PanelSection, PanelSectionRow, ToggleField } from "@decky/ui";
+import {
+    ButtonItem,
+    DialogButton,
+    DropdownItem,
+    PanelSection,
+    PanelSectionRow,
+    ToggleField,
+} from "@decky/ui";
 import type { DictationState } from "../../domain/DictationState";
 import type { StateStore } from "../../application/DictationController";
 import type { ClockPort } from "../../application/ports/ClockPort";
@@ -39,6 +46,7 @@ import type { Locale, MessageKey } from "../i18n/messages";
 import type { DiagnosticsSource } from "./DiagnosticsSource";
 import { DictationCard } from "./DictationCard";
 import { LanguagePicker } from "./LanguagePicker";
+import { openManageModelsModal } from "./ManageModels";
 import { ModelSelect } from "./ModelSelect";
 import { SetupProgressPanel } from "./SetupProgressPanel";
 
@@ -65,13 +73,15 @@ export interface SettingsPanelProps {
      * Additive curated model catalog wiring (ADR-011): guarded catalog store
      * + download handlers composed by the composition root. The model
      * select renders only when provided (§99 additive surface — never a
-     * fake control).
+     * fake control). `deleteModel` drives the in-app model cleanup callable;
+     * the Manage models affordance renders only over a loaded catalog.
      */
     readonly modelCatalog?: {
         readonly store: StateStore<ModelCatalogSnapshot>;
         readonly load: () => Promise<void>;
         readonly download: (modelId: string) => void;
         readonly cancel: () => void;
+        readonly deleteModel: (modelId: string) => Promise<void>;
     };
     /**
      * Additive install-wedge self-heal wiring (v0.2.9): the panel reports
@@ -369,6 +379,30 @@ export function SettingsPanel({
                             onDownload={modelCatalog.download}
                             onCancel={modelCatalog.cancel}
                         />
+                    </PanelSectionRow>
+                ) : null}
+                {/* In-app model cleanup (owner request): the affordance
+                    renders only over a LOADED catalog (§57: reported, never
+                    assumed) and opens the manage modal through the
+                    production path. */}
+                {modelCatalog !== undefined &&
+                catalogSnapshot !== null &&
+                catalogSnapshot.models.length > 0 ? (
+                    <PanelSectionRow>
+                        <DialogButton
+                            data-manage-open="true"
+                            onClick={() =>
+                                openManageModelsModal({
+                                    store: modelCatalog.store,
+                                    locale,
+                                    selectedModelId: value.modelId,
+                                    onDelete: modelCatalog.deleteModel,
+                                    onRefresh: modelCatalog.load,
+                                })
+                            }
+                        >
+                            {translate(locale, "model.manage.open")}
+                        </DialogButton>
                     </PanelSectionRow>
                 ) : null}
                 {showLanguagePicker ? (
