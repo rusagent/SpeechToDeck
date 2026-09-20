@@ -91,7 +91,9 @@ pnpm typecheck && pnpm test && pnpm lint && pnpm build
 - **Your models are safe:** downloaded transcription models and settings live
   outside the plugin code directory (`~/homebrew/data/SpeechToDeck`), so they
   survive every update. A full uninstall leaves them on disk by design; delete
-  that folder if you want to reclaim the space.
+  that folder if you want to reclaim the space. Single models can also be
+  deleted in-app via Manage models in the Speech settings - the selected model
+  is kept, and anything deleted can be downloaded again at any time.
 
 ## Layout
 
