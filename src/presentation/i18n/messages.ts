@@ -29,6 +29,9 @@ export const EN_MESSAGES = {
     "setting.outputMode": "Output mode",
     "setting.loading": "Loading settings…",
     "setting.saveFailed": "Saving settings failed. The change was not persisted.",
+    "setting.loadFailed": "Backend is not responding.",
+    "setting.loadFailedHint":
+        "Close and reopen this panel. If it persists, reload the plugin and open it again.",
 
     "option.backend.auto": "Auto (Vulkan if available)",
     "option.backend.vulkan": "Vulkan",
@@ -130,6 +133,9 @@ export const DE_MESSAGES: Record<MessageKey, string> = {
     "setting.loading": "Einstellungen werden geladen…",
     "setting.saveFailed":
         "Speichern der Einstellungen fehlgeschlagen. Die Änderung wurde nicht übernommen.",
+    "setting.loadFailed": "Das Backend antwortet nicht.",
+    "setting.loadFailedHint":
+        "Schließe und öffne dieses Panel erneut. Falls es bestehen bleibt, lade das Plugin neu und öffne es wieder.",
 
     "option.backend.auto": "Automatisch (Vulkan, falls verfügbar)",
     "option.backend.vulkan": "Vulkan",

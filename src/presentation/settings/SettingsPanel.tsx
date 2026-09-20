@@ -12,12 +12,17 @@
  * language) / Output (Output mode). Application/runtime state is consumed
  * through `useSyncExternalStore` over the controller store (§102); only
  * this panel and the microphone mount subscribe to relevant state (§66).
+ * The initial settings load is honest about failure: a load that neither
+ * resolves nor rejects within 10 s (a wedged backend callable) leaves the
+ * loading state with a failed message and a Retry control instead of an
+ * eternal spinner; the deadline is measured on the injected monotonic clock.
  */
 
 import * as React from "react";
-import { DropdownItem, PanelSection, PanelSectionRow, ToggleField } from "@decky/ui";
+import { ButtonItem, DropdownItem, PanelSection, PanelSectionRow, ToggleField } from "@decky/ui";
 import type { DictationState } from "../../domain/DictationState";
 import type { StateStore } from "../../application/DictationController";
+import type { ClockPort } from "../../application/ports/ClockPort";
 import type { PluginSettings, SettingsPort } from "../../application/ports/SettingsPort";
 import type { SetupProgressSnapshot } from "../../application/ports/SetupProgressPort";
 import type { ModelCatalogSnapshot } from "../../application/ports/ModelCatalogPort";
@@ -37,6 +42,8 @@ export interface SettingsPanelProps {
     readonly store: StateStore<DictationState>;
     readonly setupProgress: StateStore<SetupProgressSnapshot | null>;
     readonly diagnostics: DiagnosticsSource;
+    /** Monotonic clock for the settings-load deadline (§7.1 durations only). */
+    readonly clock: ClockPort;
     readonly locale?: Locale;
     /**
      * Additive v0.2 dictation card wiring (owner pivot): stores + press/copy
@@ -65,6 +72,9 @@ export interface SettingsPanelProps {
 
 const OUTPUT_MODES: readonly PluginSettings["outputMode"][] = ["direct-insert", "clipboard-only"];
 
+/** How long the initial settings load may stay unanswered before failing. */
+const SETTINGS_LOAD_TIMEOUT_MS = 10_000;
+
 function optionLabel(locale: Locale, prefix: string, value: string): string {
     return translate(locale, `${prefix}.${value}` as MessageKey);
 }
@@ -74,12 +84,18 @@ export function SettingsPanel({
     store,
     setupProgress,
     diagnostics,
+    clock,
     locale = "en",
     dictation,
     modelCatalog,
 }: SettingsPanelProps): React.ReactElement {
     const [value, setValue] = React.useState<PluginSettings | null>(null);
     const [saveError, setSaveError] = React.useState(false);
+    // Honest load failure (the eternal-spinner fix): set when the load
+    // rejects or outlives the 10 s deadline; `loadAttempt` re-arms the load
+    // effect for Retry.
+    const [loadFailed, setLoadFailed] = React.useState(false);
+    const [loadAttempt, setLoadAttempt] = React.useState(0);
     // Bound, render-stable store accessors (§102): useSyncExternalStore calls
     // these as plain functions, so unbound class methods would lose `this`.
     // Same closure pattern as the microphone-button bridge (§66).
@@ -145,16 +161,31 @@ export function SettingsPanel({
 
     React.useEffect(() => {
         let cancelled = false;
+        // The deadline lives on the injected monotonic clock (§7.1 durations
+        // only); the window timer is just the wakeup, and the clock decides
+        // whether the deadline actually elapsed when it fires.
+        const deadline = clock.nowMonotonicMs() + SETTINGS_LOAD_TIMEOUT_MS;
+        const wakeup = window.setTimeout(() => {
+            if (!cancelled && clock.nowMonotonicMs() >= deadline) {
+                setLoadFailed(true);
+            }
+        }, SETTINGS_LOAD_TIMEOUT_MS);
         settings
             .load()
             .then((loaded) => {
                 if (!cancelled) {
+                    // A late success after the timeout fired still renders
+                    // normally (pinned behavior): the data wins over the
+                    // failed state once it arrives.
+                    window.clearTimeout(wakeup);
+                    setLoadFailed(false);
                     setValue(loaded);
                 }
             })
             .catch(() => {
                 if (!cancelled) {
-                    setValue(null);
+                    window.clearTimeout(wakeup);
+                    setLoadFailed(true);
                 }
             });
         // Failure hydration: a startup failure that fired before this panel
@@ -164,8 +195,9 @@ export function SettingsPanel({
         void diagnostics.hydrateSetupProgress();
         return () => {
             cancelled = true;
+            window.clearTimeout(wakeup);
         };
-    }, [settings, diagnostics]);
+    }, [settings, diagnostics, clock, loadAttempt]);
 
     // ADR-011: load the curated catalog once per panel mount; load failures
     // leave the store empty and the select reports the catalog as
@@ -189,12 +221,41 @@ export function SettingsPanel({
         });
     };
 
+    // Retry the initial load: back to the loading state with a fresh 10 s
+    // deadline (the effect re-runs per attempt; its cleanup retires the old
+    // wakeup timer).
+    const retryLoad = (): void => {
+        setLoadFailed(false);
+        setLoadAttempt((attempt) => attempt + 1);
+    };
+
     if (value === null) {
         return (
-            <PanelSection title={translate(locale, "panel.title")} spinner>
-                <PanelSectionRow>
-                    <span>{translate(locale, "setting.loading")}</span>
-                </PanelSectionRow>
+            <PanelSection title={translate(locale, "panel.title")} spinner={!loadFailed}>
+                {loadFailed ? (
+                    <>
+                        <PanelSectionRow>
+                            <span role="alert">{translate(locale, "setting.loadFailed")}</span>
+                        </PanelSectionRow>
+                        <PanelSectionRow>
+                            <span>{translate(locale, "setting.loadFailedHint")}</span>
+                        </PanelSectionRow>
+                        <PanelSectionRow>
+                            {/* Same generic retry label as the setup failed
+                                state; the control retries the settings load. */}
+                            <ButtonItem
+                                label={translate(locale, "setup.retry")}
+                                onClick={retryLoad}
+                            >
+                                {translate(locale, "setup.retry")}
+                            </ButtonItem>
+                        </PanelSectionRow>
+                    </>
+                ) : (
+                    <PanelSectionRow>
+                        <span>{translate(locale, "setting.loading")}</span>
+                    </PanelSectionRow>
+                )}
             </PanelSection>
         );
     }

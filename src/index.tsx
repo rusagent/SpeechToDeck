@@ -37,6 +37,7 @@ import { SettingsPanel } from "./presentation/settings/SettingsPanel";
 import type { DiagnosticsSource } from "./presentation/settings/DiagnosticsSource";
 import type { Disposable } from "./shared/Disposable";
 import { Logger } from "./shared/Logger";
+import type { ClockPort } from "./application/ports/ClockPort";
 import type { SettingsPort } from "./application/ports/SettingsPort";
 import type { DictationState } from "./domain/DictationState";
 
@@ -54,6 +55,8 @@ class PluginCompositionRoot implements Disposable {
     readonly controllerStore: StateStore<DictationState>;
     readonly setupProgress: SetupProgressStore;
     readonly diagnostics: DiagnosticsSource;
+    /** Monotonic clock: controller timings and the panel's load deadline. */
+    readonly clock: ClockPort;
     /** Additive v0.2 dictation card wiring for the plugin panel. */
     readonly dictation: {
         readonly levelMeter: LevelMeterStore;
@@ -103,12 +106,14 @@ class PluginCompositionRoot implements Disposable {
         const fallbackInserter = new SteamBulkPasteInserter(clipboard, pasteAction, keyboardHost);
         const textInserter = new KeyboardBridgeInserter(keyboardHost.bridge, fallbackInserter);
 
+        const clock = new SystemClock();
+        this.clock = clock;
         controller = new DictationController(
             speechPort,
             keyboardHost,
             textInserter,
             settingsAdapter,
-            new SystemClock(),
+            clock,
             new RandomIdGenerator(),
         );
         this.controllerStore = controller;
@@ -225,6 +230,7 @@ export default definePlugin(() => {
                 store={compositionRoot.controllerStore}
                 setupProgress={compositionRoot.setupProgress}
                 diagnostics={compositionRoot.diagnostics}
+                clock={compositionRoot.clock}
                 dictation={compositionRoot.dictation}
                 modelCatalog={compositionRoot.modelCatalog}
             />

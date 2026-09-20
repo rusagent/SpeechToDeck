@@ -36,6 +36,7 @@ import { openModelDownloadModal } from "../../src/presentation/settings/ModelSel
 import { DeckyBackendClient } from "../../src/infrastructure/decky/DeckyBackendClient";
 import { DeckySpeechAdapter } from "../../src/infrastructure/decky/DeckySpeechAdapter";
 import { copyTextToClipboard } from "../../src/infrastructure/system/PanelClipboard";
+import { SystemClock } from "../../src/infrastructure/system/SystemClock";
 import { FakeSettingsPort } from "../../tests/frontend/fakes/FakeSettingsPort";
 import {
     FAILED_GET_STATUS_REPORT,
@@ -391,6 +392,9 @@ function fakeDiagnostics(): DiagnosticsSource {
     };
 }
 
+/** Stateless monotonic clock wired exactly like the composition root's. */
+const clock = new SystemClock();
+
 /**
  * The real hydration chain for the `hydrated-failed` case: a REAL adapter
  * over a transport seeded with the failed §30 status report. The panel
@@ -518,6 +522,7 @@ function PanelCase({
                         : new FakeSnapshotStore<SetupProgressSnapshot | null>(setupSnapshot)
                 }
                 diagnostics={hydration ? hydration.diagnostics : fakeDiagnostics()}
+                clock={clock}
                 locale={locale}
                 {...(modelCatalog !== undefined ? { modelCatalog } : {})}
             />

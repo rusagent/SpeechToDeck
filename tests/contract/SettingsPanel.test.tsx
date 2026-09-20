@@ -6,7 +6,10 @@
  * useSyncExternalStore and threw on first mount; (v0.2.5 declutter) the
  * owner's panel carried dead weight — microphone chip, duration slider, VAD
  * toggle, runtime-health row, whole Diagnostics section — which this suite
- * proves removed, with Speech reading Language → Model.
+ * proves removed, with Speech reading Language → Model; (load-timeout fix)
+ * a wedged backend settings load left the eternal "Loading settings…"
+ * spinner — the panel must leave the loading state after 10 s on the
+ * injected monotonic clock and offer Retry.
  */
 
 import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
@@ -15,6 +18,8 @@ import { SettingsPanel } from "../../src/presentation/settings/SettingsPanel";
 import type { DiagnosticsSource } from "../../src/presentation/settings/DiagnosticsSource";
 import { DeckyBackendClient } from "../../src/infrastructure/decky/DeckyBackendClient";
 import { DeckySpeechAdapter } from "../../src/infrastructure/decky/DeckySpeechAdapter";
+import type { ClockPort } from "../../src/application/ports/ClockPort";
+import type { PluginSettings, SettingsPort } from "../../src/application/ports/SettingsPort";
 import type { SetupProgressSnapshot } from "../../src/application/ports/SetupProgressPort";
 import {
     FAILED_GET_STATUS_REPORT,
@@ -23,7 +28,7 @@ import {
     FakeSnapshotStore,
     FakeStateStore,
 } from "./helpers";
-import { FakeSettingsPort } from "../frontend/fakes/FakeSettingsPort";
+import { FakeSettingsPort, TEST_SETTINGS } from "../frontend/fakes/FakeSettingsPort";
 import { LevelMeterStore } from "../../src/application/ports/LevelMeterPort";
 import { ModelCatalogStore } from "../../src/application/ports/ModelCatalogPort";
 import type { DictationState } from "../../src/domain/DictationState";
@@ -116,6 +121,51 @@ function recordingState(): DictationState {
     };
 }
 
+/** Timeless clock for call sites that never reach the load deadline. */
+function stubClock(): ClockPort {
+    return { nowMonotonicMs: () => 0 };
+}
+
+/** Controllable monotonic clock for the load-deadline tests. */
+function fakeClock(): { clock: ClockPort; elapse: (ms: number) => void } {
+    let now = 0;
+    return {
+        clock: { nowMonotonicMs: () => now },
+        elapse: (ms: number) => {
+            now += ms;
+        },
+    };
+}
+
+/**
+ * Settings port whose load() hands the resolver to the test: the load stays
+ * pending until `resolveLoad` fires, and the call count proves Retry really
+ * restarted the load.
+ */
+function gatedSettingsPort(): {
+    port: SettingsPort;
+    resolveLoad: (value: PluginSettings) => void;
+    loadCalls: () => number;
+} {
+    const resolvers: Array<(value: PluginSettings) => void> = [];
+    let calls = 0;
+    return {
+        port: {
+            load: () =>
+                new Promise<PluginSettings>((resolve) => {
+                    calls += 1;
+                    resolvers.push(resolve);
+                }),
+            save: async () => undefined,
+        },
+        // The newest resolver is the live load: after a Retry the first
+        // attempt's promise is already cancelled, so FIFO would resolve a
+        // dead promise and the panel would wait forever.
+        resolveLoad: (value: PluginSettings) => resolvers.pop()?.(value),
+        loadCalls: () => calls,
+    };
+}
+
 describe("SettingsPanel", () => {
     it("mounts and renders the decluttered §80 sections without throwing (review finding F1)", async () => {
         const { container } = render(
@@ -124,6 +174,7 @@ describe("SettingsPanel", () => {
                 store={new FakeStateStore({ kind: "booting" })}
                 setupProgress={fakeSetupStore()}
                 diagnostics={fakeDiagnostics()}
+                clock={stubClock()}
             />,
         );
         expect(container.querySelector('[data-panel-title="SpeechToDeck"]')).not.toBeNull();
@@ -172,6 +223,7 @@ describe("SettingsPanel", () => {
                 store={new FakeStateStore({ kind: "booting" })}
                 setupProgress={fakeSetupStore()}
                 diagnostics={fakeDiagnostics()}
+                clock={stubClock()}
                 modelCatalog={modelCatalog}
             />,
         );
@@ -212,6 +264,7 @@ describe("SettingsPanel", () => {
                 store={new FakeStateStore({ kind: "booting" })}
                 setupProgress={fakeSetupStore()}
                 diagnostics={fakeDiagnostics()}
+                clock={stubClock()}
                 modelCatalog={modelCatalog}
             />,
         );
@@ -249,6 +302,7 @@ describe("SettingsPanel", () => {
                 store={new FakeStateStore({ kind: "booting" })}
                 setupProgress={fakeSetupStore()}
                 diagnostics={fakeDiagnostics()}
+                clock={stubClock()}
                 modelCatalog={modelCatalog}
             />,
         );
@@ -267,6 +321,7 @@ describe("SettingsPanel", () => {
                 store={store}
                 setupProgress={fakeSetupStore()}
                 diagnostics={fakeDiagnostics()}
+                clock={stubClock()}
                 dictation={{
                     levelMeter: new LevelMeterStore(),
                     transcript: new FakeSnapshotStore(null),
@@ -292,6 +347,7 @@ describe("SettingsPanel", () => {
                 store={new FakeStateStore({ kind: "booting" })}
                 setupProgress={setup}
                 diagnostics={fakeDiagnostics()}
+                clock={stubClock()}
             />,
         );
         expect(await screen.findByText(/Enable plugin/)).not.toBeNull();
@@ -320,6 +376,7 @@ describe("SettingsPanel", () => {
                 store={new FakeStateStore({ kind: "booting" })}
                 setupProgress={setup}
                 diagnostics={fakeDiagnostics()}
+                clock={stubClock()}
             />,
         );
         expect(await screen.findByText(/Enable plugin/)).not.toBeNull();
@@ -340,6 +397,7 @@ describe("SettingsPanel", () => {
                 store={new FakeStateStore({ kind: "booting" })}
                 setupProgress={fakeSetupStore(SETUP_SNAPSHOTS.download)}
                 diagnostics={fakeDiagnostics()}
+                clock={stubClock()}
             />,
         );
         expect(await screen.findByText(/Enable plugin/)).not.toBeNull();
@@ -362,6 +420,7 @@ describe("SettingsPanel", () => {
                 store={new FakeStateStore({ kind: "booting" })}
                 setupProgress={fakeSetupStore(SETUP_SNAPSHOTS.failed)}
                 diagnostics={diagnostics}
+                clock={stubClock()}
             />,
         );
 
@@ -393,6 +452,7 @@ describe("SettingsPanel", () => {
                         await backend.call("restart_runtime");
                     },
                 }}
+                clock={stubClock()}
             />,
         );
 
@@ -410,5 +470,111 @@ describe("SettingsPanel", () => {
         expect(container.querySelector('[data-setup-progress="model.ensure"]')).not.toBeNull();
         expect(container.querySelector('[data-setup-progress="failed"]')).toBeNull();
         expect(screen.queryByRole("button", { name: "Retry" })).toBeNull();
+    });
+});
+
+// Load-timeout decision points (the eternal-spinner defect): the deadline is
+// measured on the injected monotonic clock, the timer only wakes the check.
+describe("SettingsPanel settings-load timeout", () => {
+    afterEach(() => {
+        cleanup();
+        vi.useRealTimers();
+    });
+
+    function renderWithGate(gate: ReturnType<typeof gatedSettingsPort>, clock: ClockPort): void {
+        render(
+            <SettingsPanel
+                settings={gate.port}
+                store={new FakeStateStore({ kind: "booting" })}
+                setupProgress={fakeSetupStore()}
+                diagnostics={fakeDiagnostics()}
+                clock={clock}
+            />,
+        );
+    }
+
+    it("leaves the loading state with message, hint, and Retry when the load outlives 10 s", async () => {
+        vi.useFakeTimers();
+        const gate = gatedSettingsPort();
+        const { clock, elapse } = fakeClock();
+        renderWithGate(gate, clock);
+        expect(screen.getByText("Loading settings…")).not.toBeNull();
+
+        await act(async () => {
+            elapse(10_000);
+            vi.advanceTimersByTime(10_000);
+        });
+
+        expect(screen.queryByText("Loading settings…")).toBeNull();
+        expect(screen.getByText("Backend is not responding.")).not.toBeNull();
+        expect(
+            screen.getByText(
+                "Close and reopen this panel. If it persists, reload the plugin and open it again.",
+            ),
+        ).not.toBeNull();
+        expect(screen.getByRole("button", { name: "Retry" })).not.toBeNull();
+    });
+
+    it("restarts the load with a fresh deadline on Retry and clears the failed state", async () => {
+        vi.useFakeTimers();
+        const gate = gatedSettingsPort();
+        const { clock, elapse } = fakeClock();
+        renderWithGate(gate, clock);
+        await act(async () => {
+            elapse(10_000);
+            vi.advanceTimersByTime(10_000);
+        });
+        expect(screen.getByText("Backend is not responding.")).not.toBeNull();
+
+        fireEvent.click(screen.getByRole("button", { name: "Retry" }));
+
+        expect(screen.queryByText("Backend is not responding.")).toBeNull();
+        expect(screen.getByText("Loading settings…")).not.toBeNull();
+        expect(gate.loadCalls()).toBe(2);
+
+        await act(async () => {
+            gate.resolveLoad({ ...TEST_SETTINGS });
+        });
+        expect(screen.getByText(/Enable plugin/)).not.toBeNull();
+        expect(screen.queryByText("Backend is not responding.")).toBeNull();
+    });
+
+    it("renders the loaded panel when the load resolves before the deadline", async () => {
+        vi.useFakeTimers();
+        const gate = gatedSettingsPort();
+        const { clock, elapse } = fakeClock();
+        renderWithGate(gate, clock);
+        await act(async () => {
+            gate.resolveLoad({ ...TEST_SETTINGS });
+        });
+        expect(screen.getByText(/Enable plugin/)).not.toBeNull();
+
+        // Well past the original deadline: the success retired the wakeup,
+        // so the panel never flips into the failed state.
+        await act(async () => {
+            elapse(60_000);
+            vi.advanceTimersByTime(60_000);
+        });
+        expect(screen.getByText(/Enable plugin/)).not.toBeNull();
+        expect(screen.queryByText("Backend is not responding.")).toBeNull();
+    });
+
+    it("renders a late success normally when the load resolves after the timeout fired", async () => {
+        // Pinned behavior: data arriving late wins over the failed state.
+        vi.useFakeTimers();
+        const gate = gatedSettingsPort();
+        const { clock, elapse } = fakeClock();
+        renderWithGate(gate, clock);
+        await act(async () => {
+            elapse(10_000);
+            vi.advanceTimersByTime(10_000);
+        });
+        expect(screen.getByText("Backend is not responding.")).not.toBeNull();
+
+        await act(async () => {
+            gate.resolveLoad({ ...TEST_SETTINGS });
+        });
+        expect(screen.getByText(/Enable plugin/)).not.toBeNull();
+        expect(screen.queryByText("Backend is not responding.")).toBeNull();
     });
 });
