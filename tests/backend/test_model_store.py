@@ -1,4 +1,4 @@
-"""Model manifest loader + ModelStore tests (spec §50-§53, §109)."""
+"""Model manifest loader + ModelStore tests."""
 
 from __future__ import annotations
 
@@ -74,7 +74,7 @@ class FakeStream:
 
 
 class FakeFetcher:
-    """ModelHttpFetcher double: streams local bytes; no network (§90)."""
+    """ModelHttpFetcher double: streams local bytes; no network."""
 
     def __init__(
         self, payload: bytes = FAKE_BYTES, *, total: int | None = None, delay: float = 0.0
@@ -96,13 +96,13 @@ class FakeFetcher:
             self.concurrent -= 1
 
 
-# ── manifest loader (§50; rules mirror scripts/validate-manifests.mjs) ──────
+# ── manifest loader (rules mirror scripts/validate-manifests.mjs) ───────────
 
 
 def test_real_committed_manifest_loads() -> None:
     manifest = load_model_manifest(REAL_MODELS_MANIFEST)
     ids = [model.id for model in manifest.models]
-    # Curated v1 set (§48) plus the curated per-language catalog (ADR-011).
+    # Curated model set plus the curated per-language catalog.
     assert ids == [
         "tiny",
         "base",
@@ -123,7 +123,7 @@ def test_real_committed_manifest_loads() -> None:
         assert model.sha256 == model.sha256.lower()
         assert model.download_url.startswith("https://")
         assert "/" not in model.filename
-        # ADR-011: size required and within the cap, optional fields consistent.
+        # Catalog fields: size required and within the cap, optional fields consistent.
         assert model.size_bytes is not None
         assert 0 < model.size_bytes <= 2147483648
         if model.languages is not None:
@@ -168,7 +168,7 @@ def base_model_payload(**overrides: object) -> dict[str, object]:
 
 
 def duplicate_filename_payload() -> dict[str, object]:
-    """ADR-011: two catalog entries sharing one local store name."""
+    """Two catalog entries sharing one local store name."""
     entry: dict[str, object] = {
         "id": "base",
         "engine": "whisper",
@@ -265,7 +265,7 @@ def test_manifest_rules_fail_closed(
 
 
 def test_manifest_parses_additive_catalog_fields(tmp_path: Path) -> None:
-    """ADR-011: languages/description parse; absent → None; null → invalid."""
+    """Catalog fields: languages/description parse; absent → None; null → invalid."""
     entry: dict[str, object] = {
         "id": "distil-small-en",
         "engine": "whisper",
@@ -322,7 +322,7 @@ def test_duplicate_model_ids_fail_closed(tmp_path: Path) -> None:
     assert "duplicate" in str(excinfo.value.detail)
 
 
-# ── ModelStore (§51-§52, §109) ──────────────────────────────────────────────
+# ── ModelStore (download/remove/integrity) ──────────────────────────────────
 
 
 def make_store(
@@ -358,9 +358,9 @@ def test_download_happy_path_is_atomic_and_private(tmp_path: Path) -> None:
         final = models_dir / "ggml-base.bin"
         assert final.is_file()
         assert final.read_bytes() == FAKE_BYTES
-        assert not (models_dir / "ggml-base.bin.part").exists()  # §51
+        assert not (models_dir / "ggml-base.bin.part").exists()  # atomic install
         mode = stat.S_IMODE(final.stat().st_mode)
-        assert mode == 0o600  # §110
+        assert mode == 0o600  # user-only file mode
         assert await store.is_installed("base")
 
         progress = store.test_progress  # type: ignore[attr-defined]
@@ -383,7 +383,7 @@ def test_checksum_mismatch_leaves_no_artifact(tmp_path: Path) -> None:
         with pytest.raises(ModelChecksumFailedError):
             await store.download("base")
         assert not (models_dir / "ggml-base.bin").exists()
-        assert not (models_dir / "ggml-base.bin.part").exists()  # §51: never valid
+        assert not (models_dir / "ggml-base.bin.part").exists()  # never valid
 
     asyncio.run(scenario())
 
@@ -428,7 +428,7 @@ def test_downloads_are_serialized_by_single_lock(tmp_path: Path) -> None:
         (tmp_path / "models").mkdir(parents=True)
 
         await asyncio.gather(store.download("base"), store.download("tiny"))
-        assert fetcher.max_concurrent == 1  # §52
+        assert fetcher.max_concurrent == 1  # single download
         assert await store.is_installed("base")
         assert await store.is_installed("tiny")
 

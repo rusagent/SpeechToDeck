@@ -1,6 +1,6 @@
-"""Unit tests for the child-process environment policy (§40, §109).
+"""Unit tests for the child-process environment policy.
 
-On-device defect (deck 2026-09-18, daemon.log): with `XDG_RUNTIME_DIR`
+On-device defect (from the daemon log): with `XDG_RUNTIME_DIR`
 overridden to the plugin runtime dir, ALSA's pipewire PCM plugin could not
 find the session audio server — every `record start` failed with
 `snd_pcm_open: Host is down (112)`, no level frames were ever broadcast and

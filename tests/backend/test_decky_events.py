@@ -1,9 +1,9 @@
-"""DeckyEventPublisher unit tests (loader contract audit 2026-09-17, finding 1).
+"""DeckyEventPublisher unit tests.
 
 The production defect: the backend had no adapter from the `EventPublisher`
 port to the loader's `await decky_plugin.emit(event, payload)` API, so no
 backend event ever reached the frontend. These tests pin the adapter's two
-decision points: verbatim single-coroutine emission, and §106 containment
+decision points: verbatim single-coroutine emission, and containment
 (a failing emit is logged without payload text and never propagates).
 """
 
@@ -48,7 +48,7 @@ def test_publish_contained_when_emit_fails_and_never_logs_payload() -> None:
         emit = _EmitSpy(error=RuntimeError("socket closed"))
         publisher = DeckyEventPublisher(emit)
 
-        # §106: the event failure must never crash the caller.
+        # The event failure must never crash the caller.
         await publisher.publish(
             "transcript_ready", {"protocolVersion": 1, "text": "secret transcript body"}
         )

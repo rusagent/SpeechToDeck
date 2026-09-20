@@ -88,7 +88,7 @@ class SlowStream:
 
 
 class SlowFetcher:
-    """ModelHttpFetcher double: one slow stream, no network (§90)."""
+    """ModelHttpFetcher double: one slow stream, no network."""
 
     def __init__(self, payload: bytes, delay: float = 0.05) -> None:
         self.stream = SlowStream(payload, delay)
@@ -168,7 +168,7 @@ def test_selected_model_cannot_be_deleted_and_settings_stay_untouched(tmp_path: 
         install(models_dir, "ggml-base.bin", FAKE_BYTES)
         install(models_dir, "ggml-tiny.bin", TINY_BYTES)
         before = await app.get_settings()
-        assert before["modelId"] == "base"  # the §54 default selection
+        assert before["modelId"] == "base"  # the shipped default selection
 
         with pytest.raises(SettingsInvalidError) as excinfo:
             await app.delete_model("base")
@@ -200,7 +200,7 @@ def test_delete_of_a_model_with_download_in_flight_is_rejected(tmp_path: Path) -
         task = asyncio.get_running_loop().create_task(app.models.download_model("tiny"))
         try:
             # Deterministic in-flight signal: the store id is set under the
-            # §52 download lock, exactly what the delete guard reads.
+            # download lock, exactly what the delete guard reads.
             assert await wait_until(
                 lambda: app.models.store.downloading_model_id() == "tiny",
                 timeout=2.0,
@@ -211,7 +211,7 @@ def test_delete_of_a_model_with_download_in_flight_is_rejected(tmp_path: Path) -
             assert excinfo.value.code is ErrorCode.MODEL_DOWNLOAD_FAILED
 
             # The guard is per model: another installed model deletes fine
-            # while the single in-flight download runs (§52).
+            # while the single in-flight download runs.
             result = await app.delete_model("small")
             assert result == {"modelId": "small", "freedBytes": len(SMALL_BYTES)}
         finally:
@@ -223,7 +223,7 @@ def test_delete_of_a_model_with_download_in_flight_is_rejected(tmp_path: Path) -
 
 
 def test_facade_maps_delete_failures_to_the_coded_envelope(tmp_path: Path) -> None:
-    """§68: a failed delete surfaces as the coded result, never an exception."""
+    """A failed delete surfaces as the coded result, never an exception."""
 
     async def scenario() -> None:
         app, _models_dir = build_app(tmp_path)

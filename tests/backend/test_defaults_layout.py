@@ -65,8 +65,8 @@ def test_packaged_layout_wins_when_both_exist(tmp_path: Path) -> None:
 
 
 def test_resolver_rejects_paths_outside_plugin_root(tmp_path: Path) -> None:
-    """§109 traversal hardening: a filename that resolves outside the plugin
-    root is never returned — the resolver fails closed with the stable §68
+    """Traversal hardening: a filename that resolves outside the plugin
+    root is never returned — the resolver fails closed with the stable
     `MANIFEST_INVALID` code, in both layouts and for existing targets."""
     root = tmp_path / "checkout"
     _stage_dev(root)
@@ -86,7 +86,7 @@ def test_composition_loads_manifest_from_installed_layout(tmp_path: Path) -> Non
     root = tmp_path / "SpeechToDeck"
     _stage_flattened(root)
     app = compose(plugin_root=root, data_dir=tmp_path / "data")
-    # Curated v1 set (§48) plus the ADR-011 per-language catalog entries,
+    # Curated model set plus the per-language catalog entries,
     # loaded through the flattened installed layout.
     assert {model.id for model in app.manifest.models} == {
         "tiny",
@@ -105,7 +105,7 @@ def test_composition_loads_manifest_from_installed_layout(tmp_path: Path) -> Non
 
 
 def test_remote_binary_entries_match_pinned_runtime_manifest() -> None:
-    """§53 integrity: the loader `remote_binary` entries (what the Decky
+    """Pin integrity: the loader `remote_binary` entries (what the Decky
     loader downloads at install time, verified by sha256hash) must be exactly
     the artifacts pinned in defaults/runtime-manifest.json (what the backend
     verifies at startup) — one pin, two consumers, zero drift."""

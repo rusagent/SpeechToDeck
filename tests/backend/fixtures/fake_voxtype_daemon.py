@@ -3,7 +3,7 @@
 Used only by tests/backend to exercise real process supervision, record-CLI
 acknowledgements, bare-word state files, atomic transcript writes with the
 `.done` completion sidecar, signal handling and process groups — without STT
-hardware, network or microphone (spec §90-§91).
+hardware, network or microphone.
 
 Surface parity with upstream peteonrails/voxtype v1.0.1 (the parts the
 backend adapters use):
@@ -174,7 +174,7 @@ class Daemon:
             crash.start()
 
         if self.args.grandchild_sentinel:
-            # Same process group on purpose: the supervisor's group kill (§38)
+            # Same process group on purpose: the supervisor's group kill
             # must reach it so no orphan survives.
             subprocess.Popen(
                 [

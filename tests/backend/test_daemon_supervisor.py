@@ -1,9 +1,9 @@
-"""SpeechDaemonSupervisor tests (spec §37-§39, §70-§71).
+"""SpeechDaemonSupervisor tests.
 
 Every happy-path test runs the real fixture daemon as a child process: real
 spawns, real signals, real process groups, real exit codes — no STT hardware.
 The supervisor starts the variant binary selected from the settings backend
-through the injected §47 probe (see test_runtime_variant.py for the
+through the injected probe (see test_runtime_variant.py for the
 selection/probe decision points themselves).
 """
 
@@ -148,9 +148,9 @@ def test_generated_daemon_config_carries_upstream_keys(tmp_path: Path) -> None:
         assert config["engine"] == "whisper"
         assert config["state_file"] == str(paths.status_file)
         assert config["hotkey"]["enabled"] is False
-        # v0.2.10 (ADR-012): the §44 bound is the 24 h runaway valve — the
+        # The recording bound is the 24 h runaway valve — the
         # literal is the owner-agreed oracle, not the module constant.
-        # v0.2.6: VAD fixed off (silero model not bundled, voxtype continues
+        # VAD fixed off (silero model not bundled, voxtype continues
         # without it).
         assert config["audio"]["max_duration_secs"] == 86400
         assert config["audio"]["max_duration_secs"] == DEFAULT_MAX_RECORDING_SECONDS
@@ -176,9 +176,9 @@ def test_generated_daemon_config_carries_upstream_keys(tmp_path: Path) -> None:
 
 
 def test_generated_daemon_config_maps_language_and_model(tmp_path: Path) -> None:
-    """v0.2.5: the removed max-duration/VAD settings no longer reach the
-    config; the audio/vad lines carry the fixed constants (60 s / disabled
-    since v0.2.6 — the silero VAD model is not bundled) regardless of what
+    """The removed max-duration/VAD settings no longer reach the
+    config; the audio/vad lines carry the fixed constants (recording valve /
+    disabled — the silero VAD model is not bundled) regardless of what
     was persisted."""
     import tomllib
 
@@ -206,13 +206,13 @@ def test_generated_daemon_config_maps_language_and_model(tmp_path: Path) -> None
 
 
 def test_daemon_config_effective_language_matrix() -> None:
-    """ADR-012 effective-language derivation, all branches: a model that
+    """Effective-language derivation, all branches: a model that
     declares exactly ONE language gets it REGARDLESS of settings.language —
     a stale persisted override (german model + "en") must never reach the
     daemon, which would transcribe with the wrong language. Multilingual
     general models keep the legacy mapping ("system" → "auto", explicit
     codes pass through). English-only models are covered by the same rule
-    (distil-en declares ["en"]); the ADR-011 multilingual=false fallback
+    (distil-en declares ["en"]); the multilingual=false fallback
     stays for admissible entries without declared languages."""
     import tomllib
 
@@ -233,7 +233,7 @@ def test_daemon_config_effective_language_matrix() -> None:
     german = model(multilingual=True, languages=("de",))  # catalog Primeline shape
     base = model(multilingual=True, languages=None)  # catalog tiny/base/small shape
     distil_en = model(multilingual=False, languages=("en",))  # catalog distil shape
-    en_undeclared = model(multilingual=False, languages=None)  # ADR-011 fallback
+    en_undeclared = model(multilingual=False, languages=None)  # en-only fallback
     multi = model(multilingual=True, languages=("en", "de"))  # serves several
 
     cases = [
@@ -245,7 +245,7 @@ def test_daemon_config_effective_language_matrix() -> None:
         (base, "system", "auto"),
         (distil_en, "de", "en"),  # en-only: explicit code cannot be honored
         (distil_en, "system", "en"),
-        (en_undeclared, "system", "en"),  # ADR-011 fallback, unchanged
+        (en_undeclared, "system", "en"),  # legacy fallback, unchanged
         (multi, "system", "auto"),  # several languages: settings.language honored
         (multi, "de", "de"),
         (None, "system", "auto"),  # unwired/unknown model: legacy mapping
@@ -314,7 +314,7 @@ def test_start_run_stop_clean_with_log_drain(tmp_path: Path) -> None:
         await supervisor.start(DEFAULT_SETTINGS)
         assert supervisor.is_running()
         assert supervisor.pid is not None
-        # §47/§53: the probe decision is visible for §67 metrics reporting.
+        # The probe decision is visible for metrics reporting.
         assert supervisor.selected_backend == "vulkan"
 
         # The daemon writes its state file; stdout is drained into the log.
@@ -327,11 +327,11 @@ def test_start_run_stop_clean_with_log_drain(tmp_path: Path) -> None:
 
         await supervisor.stop()
         assert not supervisor.is_running()
-        assert supervisor.last_exit_code == 0  # §38: clean SIGTERM exit
+        assert supervisor.last_exit_code == 0  # clean SIGTERM exit
         states = [p["state"] for p in publisher.payloads("runtime_status")]
         assert states[0] == "starting"
         assert states[-1] == "stopped"
-        assert paths.daemon_log.is_file()  # §39: log file under the data dir
+        assert paths.daemon_log.is_file()  # log file under the data dir
 
     asyncio.run(scenario())
 
@@ -354,7 +354,7 @@ def test_sigkill_escalation_when_sigterm_ignored(tmp_path: Path) -> None:
         await supervisor.stop()
         elapsed = time.monotonic() - started
 
-        # §38: SIGTERM (ignored by the fixture) → bounded wait → SIGKILL.
+        # SIGTERM (ignored by the fixture) → bounded wait → SIGKILL.
         assert elapsed < 3.0
         assert not supervisor.is_running()
         assert supervisor.last_exit_code == -int(signal.SIGKILL)
@@ -386,7 +386,7 @@ def test_restart_policy_is_bounded(tmp_path: Path) -> None:
             await asyncio.sleep(0.05)
         assert exhausted, "restart policy never reported exhaustion"
 
-        # §70: initial spawn + exactly 2 restart attempts, then give up.
+        # Initial spawn + exactly 2 restart attempts, then give up.
         assert supervisor.restart_attempts == 2
         assert spawn_count(paths) == 3
         assert not supervisor.is_running()
@@ -401,7 +401,7 @@ def test_restart_skipped_while_session_pending(tmp_path: Path) -> None:
     async def scenario() -> None:
         paths = await prepare_pinned(tmp_path, extra_daemon_args=["--crash-after", "0.15"])
         publisher = FakeEventPublisher()
-        idle = {"value": False}  # §70: transcript insertion pending
+        idle = {"value": False}  # transcript insertion pending
         supervisor = make_supervisor(
             paths,
             publisher,
@@ -456,7 +456,7 @@ def test_orphan_prevention_via_process_group_kill(tmp_path: Path) -> None:
             extra_daemon_args=["--grandchild-sentinel", str(sentinel)],
         )
         # The fixture spawns a grandchild inside its own process group; the
-        # supervisor's §38 stop must reap both.
+        # supervisor's group stop must reap both.
         supervisor = make_supervisor(paths, FakeEventPublisher())
         await supervisor.start(DEFAULT_SETTINGS)
         assert await wait_until(supervisor.is_running, timeout=3.0)
@@ -491,7 +491,7 @@ def test_pdeathsig_ends_daemon_when_backend_process_is_sigkilled(tmp_path: Path)
     5 s dispose window), so graceful `_unload` teardown never runs. A backend
     stand-in starts the REAL supervisor (production `_spawn` wiring) and is
     SIGKILLed; the kernel-level PDEATHSIG from `daemon_preexec` must end the
-    daemon — the fixture's SIGTERM handler (§38 semantics) deleted its state
+    daemon — the fixture's SIGTERM handler (stop semantics) deleted its state
     file."""
 
     async def scenario() -> None:
@@ -569,7 +569,7 @@ def test_pdeathsig_ends_daemon_when_backend_process_is_sigkilled(tmp_path: Path)
                 "daemon survived the backend SIGKILL (PDEATHSIG hardening missing)"
             )
             # The fixture's SIGTERM handler removed the state file: the child
-            # died through the PDEATHSIG SIGTERM path, §38 semantics intact.
+            # died through the PDEATHSIG SIGTERM path, stop semantics intact.
             assert await wait_until(lambda: _pid_gone(daemon_pid), timeout=3.0), (
                 "daemon process still present after the PDEATHSIG SIGTERM"
             )
@@ -674,7 +674,7 @@ def test_spawn_argv_uses_digest_verified_private_copy_not_bin(tmp_path: Path) ->
         assert recorded[0][0] != str(source)
         assert recorded[0][1:3] == ["--config", str(paths.daemon_config)]
         assert recorded[0][3] == "daemon"
-        # §53 second half: the executed copy matches the pinned source digest.
+        # The executed copy matches the pinned source digest.
         assert hash_binary(copy) == hash_binary(source)
         await supervisor.stop()
 

@@ -1,7 +1,7 @@
-"""Decky loader lifecycle-order tests for the main.py facade (spec §31).
+"""Decky loader lifecycle-order tests for the main.py facade.
 
-On device the Decky loader invokes `_migration` BEFORE `_main` (journal
-2026-09-17 19:31); with composition only in `_main` that order raised
+On device the Decky loader invokes `_migration` BEFORE `_main` (observed in
+the journal); with composition only in `_main` that order raised
 InternalError("plugin backend is not composed yet") and the panel stayed on
 "Loading settings…". These tests pin the loader-order contract with a
 monkeypatched `compose` returning a fake Application (start / dispose /
@@ -28,7 +28,7 @@ from backend.domain.errors import (
 
 
 class _FakeApplication:
-    """Application double recording lifecycle calls (§91 spy, no backend)."""
+    """Application double recording lifecycle calls (spy, no backend)."""
 
     def __init__(self) -> None:
         self.calls: list[str] = []
@@ -144,10 +144,10 @@ def test_callable_failure_logs_code_and_returns_coded_envelope(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
 ) -> None:
     """On-device diagnosability defect: a failed dictation press returned the
-    §68 coded envelope but the journal showed NOTHING (2026-09-18). `_call`
+    coded envelope but the journal showed NOTHING. `_call`
     is the single choke point: the failure logs WARNING with the callable
-    name, the stable §68 code, the session id and the error's diagnosable
-    detail — no transcript, no payload text (§73) — and no inner layer logs
+    name, the stable error code, the session id and the error's diagnosable
+    detail — no transcript, no payload text — and no inner layer logs
     the same failure again."""
 
     async def scenario() -> None:
@@ -167,7 +167,7 @@ def test_callable_failure_logs_code_and_returns_coded_envelope(
         with caplog.at_level(logging.WARNING, logger="plugin.lifecycle"):
             result = await plugin.start_recording("session-1")
 
-        # The §68 coded envelope is unchanged…
+        # The coded envelope is unchanged…
         assert result == {
             "ok": False,
             "protocolVersion": 1,
@@ -253,7 +253,7 @@ def test_callable_after_unload_fails_closed(
         # The composition seam raises the stable facade error…
         with pytest.raises(InternalError):
             await plugin._ensure_app()
-        # …and the §68 callable surface maps it to the coded payload.
+        # …and the callable surface maps it to the coded payload.
         status = await plugin.get_status()
         assert status == {"ok": False, "protocolVersion": 1, "code": "INTERNAL_ERROR"}
 
@@ -282,7 +282,7 @@ def test_composition_under_decky_wires_emit_transport(
         publisher = apps[0].publisher
         assert isinstance(publisher, main.DeckyEventPublisher)
 
-        # Frozen §30 event names flow through the wired transport and reach
+        # Frozen event names flow through the wired transport and reach
         # the loader emit spy with (name, payload) intact.
         await publisher.publish(EVENT_SETUP_PROGRESS, {"step": 0, "percent": 0})
         await publisher.publish(EVENT_MODEL_DOWNLOAD_PROGRESS, {"percent": 10})
@@ -333,11 +333,11 @@ def test_data_dir_resolution_uses_loader_persistent_data_global(
 def test_hanging_callable_returns_coded_failure_within_budget(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
 ) -> None:
-    """§71/loader-audit decision point: the loader waits for a callable reply
-    WITHOUT a timeout (loader v3.2.9 messages.py:39-44), so one hung §30
+    """Loader-behavior decision point: the loader waits for a callable reply
+    WITHOUT a timeout (messages.py:39-44), so one hung
     operation froze the panel forever ("Loading settings…" with a healthy
-    backend). Every callable now runs under its per-route §71 budget; on
-    expiry the frontend receives the normal §68 coded envelope and `_call`'s
+    backend). Every callable now runs under its per-route budget; on
+    expiry the frontend receives the normal coded envelope and `_call`'s
     single choke point logs exactly one WARNING with the callable name and
     INTERNAL_ERROR. The budget is injected (patched table), so the test is
     deterministic with no real-time race."""
@@ -356,7 +356,7 @@ def test_hanging_callable_returns_coded_failure_within_budget(
         with caplog.at_level(logging.WARNING, logger="plugin.lifecycle"):
             result = await plugin.get_status()
 
-        # The coded §68 envelope, not silence: the frontend maps the code.
+        # The coded envelope, not silence: the frontend maps the code.
         assert result == {
             "ok": False,
             "protocolVersion": 1,
@@ -364,7 +364,7 @@ def test_hanging_callable_returns_coded_failure_within_budget(
             "detail": "budget=0.05s",
         }
         # Exactly one journal line names the callable, the stable code and
-        # the exceeded budget (§73-safe: no transcript, no payload text).
+        # the exceeded budget (no transcript, no payload text).
         warnings = [
             record.getMessage() for record in caplog.records if record.levelno == logging.WARNING
         ]
@@ -376,9 +376,9 @@ def test_hanging_callable_returns_coded_failure_within_budget(
 def test_dispose_hang_is_bounded_and_logged(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
 ) -> None:
-    """§71/loader-audit decision point: a hung `Application.dispose()` used to
+    """Loader-behavior decision point: a hung `Application.dispose()` used to
     pend forever while the loader counted down its SIGTERM → SIGKILL-at-5 s
-    unload budget (loader v3.2.9 plugin.py:161-183). The facade now bounds
+    unload budget (plugin.py:161-183). The facade now bounds
     dispose at 4 s (inside that budget), keeps the detach-before-dispose
     fail-closed ordering, logs loudly about what was skipped, and never
     propagates the hang. The budget is injected (patched constant), so the
@@ -411,7 +411,7 @@ def test_dispose_hang_is_bounded_and_logged(
         assert "dispose" in errors[0]
         assert "incomplete" in errors[0]
 
-        # A callable after the timed-out dispose still fails closed (§68).
+        # A callable after the timed-out dispose still fails closed.
         status = await plugin.get_status()
         assert status == {"ok": False, "protocolVersion": 1, "code": "INTERNAL_ERROR"}
 

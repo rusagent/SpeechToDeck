@@ -1,9 +1,9 @@
-"""UrllibModelFetcher transport tests (§51/§52) over a local http.server.
+"""UrllibModelFetcher transport tests over a local http.server.
 
-The SteamOS Decky runtime ships no aiohttp, so the §30 download path runs on
+The SteamOS Decky runtime ships no aiohttp, so the download path runs on
 the stdlib transport. These tests prove it end to end against a real local
-HTTP server (§90: no external network): Content-Length surfacing, chunked
-integrity through the §51 store algorithm, the stable §68 failure code, and
+HTTP server (no external network): Content-Length surfacing, chunked
+integrity through the store algorithm, the stable failure code, and
 cancellation across the worker-thread boundary.
 """
 
@@ -152,7 +152,7 @@ def test_urllib_transport_streams_and_installs(tmp_path: Path) -> None:
     async def scenario() -> None:
         server = _FixtureServer()
         try:
-            # Content-Length surfaces as totalBytes (§52); the body is intact.
+            # Content-Length surfaces as totalBytes; the body is intact.
             stream = await UrllibModelFetcher().open(f"{server.base_url}/ok")
             try:
                 # Citizen-grade request identity (v0.2.5): the download
@@ -167,7 +167,7 @@ def test_urllib_transport_streams_and_installs(tmp_path: Path) -> None:
             finally:
                 await stream.close()
 
-            # The full §51 algorithm through the real store: atomic, private.
+            # The full download algorithm through the real store: atomic, private.
             models_dir = tmp_path / "models"
             models_dir.mkdir(parents=True)
             store = ModelStore(
@@ -194,7 +194,7 @@ def test_http_error_maps_to_stable_download_failure(tmp_path: Path) -> None:
             with pytest.raises(ModelDownloadFailedError) as excinfo:
                 await fetcher.open(f"{server.base_url}/missing")
             assert excinfo.value.code == "MODEL_DOWNLOAD_FAILED"
-            # Diagnosability: HTTP status + host in the detail (§73-safe).
+            # Diagnosability: HTTP status + host in the detail.
             assert "404" in str(excinfo.value.detail)
             assert "host=127.0.0.1" in str(excinfo.value.detail)
             # HTTP status failures are not the transient retry class.
@@ -209,7 +209,7 @@ def test_http_error_maps_to_stable_download_failure(tmp_path: Path) -> None:
             )
             with pytest.raises(ModelDownloadFailedError):
                 await store.download("base")
-            assert not (models_dir / "ggml-base.bin").exists()  # §51: never valid
+            assert not (models_dir / "ggml-base.bin").exists()  # never valid
             assert not (models_dir / "ggml-base.bin.part").exists()
         finally:
             server.stop()
@@ -232,7 +232,7 @@ def test_transport_failure_is_transient_with_reason_and_host() -> None:
 
         with pytest.raises(TransientModelDownloadError) as excinfo:
             await UrllibModelFetcher().open(f"http://127.0.0.1:{dead_port}/ok")
-        assert excinfo.value.code == "MODEL_DOWNLOAD_FAILED"  # stable §68 code
+        assert excinfo.value.code == "MODEL_DOWNLOAD_FAILED"  # stable code
         detail = str(excinfo.value.detail)
         assert "host=127.0.0.1" in detail  # model hosts are not sensitive
         assert "errno=" in detail or "refused" in detail.lower()
@@ -325,7 +325,7 @@ def test_no_loader_falls_back_to_system_ca_chain_in_order(
 def test_download_passes_selected_context_to_urlopen(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """Integration through the real transport and §51 store algorithm: the
+    """Integration through the real transport and store algorithm: the
     selected TLS context is the one handed to urlopen (the on-device
     CERTIFICATE_VERIFY_FAILED wall; steamgriddb main.py:50,65 shape)."""
 
@@ -379,7 +379,7 @@ def test_cancel_survives_thread_boundary(tmp_path: Path) -> None:
             assert store.cancel_download() is True
             with pytest.raises(ModelDownloadCancelled):
                 await asyncio.wait_for(task, 2.0)  # bounded: no thread leak
-            assert not (models_dir / "ggml-base.bin").exists()  # §51
+            assert not (models_dir / "ggml-base.bin").exists()  # partial file removed
             assert not (models_dir / "ggml-base.bin.part").exists()
         finally:
             server.stop()
@@ -387,7 +387,7 @@ def test_cancel_survives_thread_boundary(tmp_path: Path) -> None:
     asyncio.run(scenario())
 
 
-# ── setup_progress steady feed through the F1/F2 chain (§82 step 1) ─────────
+# ── setup_progress steady feed through the F1/F2 chain (startup step 1) ─────
 
 
 class _TimedPublisher(FakeEventPublisher):
@@ -446,7 +446,7 @@ def test_setup_progress_emits_steadily_through_slow_download(tmp_path: Path) -> 
             publisher, reporter, service = make_download_chain(
                 models_dir, f"{server.base_url}/burst"
             )
-            # The §82 startup path activates the reporter at step 1 before
+            # The startup path activates the reporter at step 1 before
             # the download starts (composition.py `_start_daemon`).
             await reporter.begin_run()
             await reporter.step(1, percent=0, detail_key=DETAIL_DOWNLOADING)
@@ -469,7 +469,7 @@ def test_setup_progress_emits_steadily_through_slow_download(tmp_path: Path) -> 
             # max gap equals a pause; with it, emissions stay well under 500 ms.
             assert max(gaps) < 0.75
             assert any(name == EVENT_MODEL_DOWNLOAD_COMPLETE for name, _ in publisher.events)
-            assert (models_dir / "ggml-base.bin").is_file()  # §51 atomic install
+            assert (models_dir / "ggml-base.bin").is_file()  # atomic install
             assert not (models_dir / "ggml-base.bin.part").exists()
         finally:
             server.stop()
@@ -480,7 +480,7 @@ def test_setup_progress_emits_steadily_through_slow_download(tmp_path: Path) -> 
 def test_cancel_mid_download_stops_frames_and_cleans_part(tmp_path: Path) -> None:
     """Cancelling mid-download stops the model.ensure feed for good (a
     leaked heartbeat would keep emitting after the pump died) and cleans the
-    .part artifact (§51: never valid)."""
+    .part artifact (a partially downloaded model is never valid)."""
 
     async def scenario() -> None:
         server = _FixtureServer()
@@ -499,7 +499,7 @@ def test_cancel_mid_download_stops_frames_and_cleans_part(tmp_path: Path) -> Non
             )
             assert await wait_until(lambda: len(ensure_frames(publisher)) >= 2, timeout=3.0)
 
-            # v0.2.5: a cancel maps to its own stable §68 code — completion,
+            # A cancel maps to its own stable code — completion,
             # never MODEL_DOWNLOAD_FAILED (on-device finding).
             with pytest.raises(ModelDownloadCancelledError) as excinfo:
                 await asyncio.wait_for(task, 3.0)

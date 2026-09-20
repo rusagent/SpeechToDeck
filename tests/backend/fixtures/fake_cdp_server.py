@@ -1,4 +1,4 @@
-"""Offline fake CDP endpoint for v0.1.6 keyboard-host tests (spec §90).
+"""Offline fake CDP endpoint for the keyboard-host tests.
 
 Implements just enough of the real endpoint shape — ``/json/version``,
 ``/json/list`` over HTTP and one browser WebSocket with flattened sessions —
@@ -22,7 +22,7 @@ from typing import Any
 
 _WS_GUID = "258EAFA5-E914-47DA-95CA-C5AB0DC85B11"
 
-# The five targets from the on-device scan (.tmp/cdp/kb-deep.out).
+# The five targets from the on-device scan.
 SCAN_TARGETS: list[dict[str, Any]] = [
     {
         "targetId": "TOASTS",
@@ -58,7 +58,7 @@ SCAN_TARGETS: list[dict[str, Any]] = [
 
 
 def fixture_encode_frame(opcode: int, payload: bytes, *, fin: bool = True) -> bytes:
-    """Server frame writer (unmasked, RFC6455 §5.1) — fixture oracle."""
+    """Server frame writer (unmasked, RFC 6455) — fixture oracle."""
     header = bytearray([(0x80 if fin else 0x00) | opcode])
     length = len(payload)
     if length < 126:
@@ -73,7 +73,7 @@ def fixture_encode_frame(opcode: int, payload: bytes, *, fin: bool = True) -> by
 
 
 async def fixture_read_frame(reader: asyncio.StreamReader) -> tuple[int, bytes, bool]:
-    """Blocking read of exactly one client frame (unmasks per RFC6455 §5.1)."""
+    """Blocking read of exactly one client frame (unmasks per RFC 6455)."""
     first, second = await reader.readexactly(2)
     fin = bool(first & 0x80)
     opcode = first & 0x0F

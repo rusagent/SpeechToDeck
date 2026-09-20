@@ -1,4 +1,4 @@
-"""Level-frame parser tests against recorded byte fixtures (§61 source data).
+"""Level-frame parser tests against recorded byte fixtures.
 
 Oracle: the committed fixtures under ``tests/fixtures/levels/`` are recorded
 byte streams of the cited wire struct (voxtype v1.0.1 ``src/audio/levels.rs``,

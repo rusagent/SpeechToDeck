@@ -1,4 +1,4 @@
-"""Shared backend test infrastructure (spec §90-§91).
+"""Shared backend test infrastructure.
 
 Sync tests drive async scenarios with `asyncio.run` so the suite runs under
 plain pytest (CI installs only pytest); no plugin-specific asyncio mode is
@@ -88,7 +88,7 @@ class FakeEventPublisher:
 
 
 class FakeSpeechRuntime:
-    """Deterministic fake per spec §91 — no microphone, no subprocess."""
+    """Deterministic fake runtime — no microphone, no subprocess."""
 
     def __init__(self) -> None:
         self.calls: list[str] = []
@@ -132,7 +132,7 @@ class FakeSpeechRuntime:
 
 
 class SinkCollector:
-    """TranscriptSink double that records delivery outcomes (§42)."""
+    """TranscriptSink double that records delivery outcomes."""
 
     def __init__(self) -> None:
         self.results: list[TranscriptResult] = []
@@ -249,7 +249,7 @@ def make_resolver(
     probe_decision: str = "vulkan",
     probe_calls: list[int] | None = None,
 ) -> RuntimeVariantResolver:
-    """Resolver with an injected §47 probe decision (no subprocess)."""
+    """Resolver with an injected probe decision (no subprocess)."""
 
     async def fake_probe(resolver: RuntimeVariantResolver, config_path: Path) -> bool:
         if probe_calls is not None:

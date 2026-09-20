@@ -1,6 +1,7 @@
-"""XclipClipboardWriter tests (v0.2 clipboard leg): status mapping, env
-resolution, §73/§109 hygiene. The real xclip is substituted by a scripted
-stand-in binary so spawn/exit/timeout paths run for real (no X server).
+"""XclipClipboardWriter tests (clipboard leg): status mapping, env
+resolution, privacy and staging hygiene. The real xclip is substituted by a
+scripted stand-in binary so spawn/exit/timeout paths run for real (no X
+server).
 """
 
 from __future__ import annotations
@@ -74,7 +75,7 @@ def test_successful_copy_reports_ok_and_keeps_text_out_of_pipes(tmp_path: Path) 
         received.append(captured)
         # The transcript reached the binary byte-exact via the staging file.
         assert received == ["hello world"]
-        # §109: staging files are transient — none remain afterwards.
+        # Staging files are transient — none remain afterwards.
         assert list(paths.runtime_dir.glob(".clipboard-*")) == []
 
     asyncio.run(scenario())

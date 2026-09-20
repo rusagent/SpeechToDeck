@@ -1,9 +1,9 @@
-"""LevelSocketClient tests: coalescing, lifecycle, containment (v0.2 §61/§106).
+"""LevelSocketClient tests: coalescing, lifecycle, containment.
 
 The client runs against a REAL unix socket in tmp_path whose server writes
 recorded-frame bytes in the verified wire layout (``=Ifff``, the same struct
 the fixtures pin); events land on the FakeEventPublisher. Oracle: the wire
-contract from voxtype v1.0.1 levels.rs plus the §61 coalescing budget (15 Hz
+contract from voxtype v1.0.1 levels.rs plus the coalescing budget (15 Hz
 event vectors while a recording session is active).
 """
 
@@ -230,7 +230,7 @@ def test_publisher_failure_is_contained(tmp_path: Path) -> None:
             hub.batches = [b"".join(encode_frame(seq, 0.0, 0.1, -20.0) for seq in range(12))]
             await client.start()
             assert await wait_until(lambda: publisher.calls >= 2)
-            # §106: the stream stays alive; failures are contained.
+            # The stream stays alive; failures are contained.
             assert client.is_running
         finally:
             await client.stop()

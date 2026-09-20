@@ -1,4 +1,4 @@
-"""CdpDiagnostics tests (v0.1.6) and composition degrade wiring.
+"""CdpDiagnostics tests and composition degrade wiring.
 
 Decision points:
 
@@ -6,8 +6,7 @@ Decision points:
   CDP endpoint is up (SP target found by exact title, keyboard presence +
   visibility class via a read-only evaluate);
 - every unavailable/degraded condition resolves to a stable lowercase reason
-  with ``cdpAvailable: false`` — never an exception escaping the probe
-  (§105/§106);
+  with ``cdpAvailable: false`` — never an exception escaping the probe;
 - composition: a CDP-unavailable device keeps the plugin fully functional
   and ``get_status`` carries the additive ``cdpDiagnostics`` report.
 
@@ -115,7 +114,7 @@ def test_composition_degrades_cleanly_without_cdp_and_reports_status(
             REAL_MODELS_MANIFEST.read_text(encoding="utf-8"), encoding="utf-8"
         )
         # Unpinned runtime manifest → startup fails fast at verify; the CDP
-        # probe must still complete and the surface must stay usable (§105).
+        # probe must still complete and the surface must stay usable.
         (root / "defaults" / "runtime-manifest.json").write_text(
             UNPINNED_RUNTIME_MANIFEST, encoding="utf-8"
         )
@@ -132,7 +131,7 @@ def test_composition_degrades_cleanly_without_cdp_and_reports_status(
             report = (await app.get_status())["cdpDiagnostics"]
             assert report["cdpAvailable"] is False
             assert report["reason"] == "remote-cdp-disabled"
-            # The functional surface is unaffected (§105).
+            # The functional surface is unaffected.
             settings = await app.get_settings()
             assert settings["enabled"] is True
         finally:

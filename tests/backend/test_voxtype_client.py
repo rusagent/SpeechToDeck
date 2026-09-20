@@ -1,4 +1,4 @@
-"""VoxtypeClient tests (spec §40, §42, §71) against the real fixture daemon.
+"""VoxtypeClient tests against the real fixture daemon.
 
 The client drives the fixture's record CLI (pid file + signals + `.done`
 sidecar + upstream exit contract), exactly like the real runtime surface.
@@ -53,7 +53,7 @@ def test_record_roundtrip_reads_output_exactly_once(tmp_path: object) -> None:
         )
         client.transcript_sink = sink
         try:
-            # Stale output from a previous session is removed at start (§42).
+            # Stale output from a previous session is removed at start.
             paths.output_file.write_text("STALE PREVIOUS TRANSCRIPT", encoding="utf-8")
             paths.output_sidecar_file.write_text("stale\n", encoding="utf-8")
 
@@ -155,7 +155,7 @@ def test_control_fails_closed_before_variant_resolution(tmp_path: object) -> Non
 
 
 def test_stop_timeout_scales_with_recorded_duration(tmp_path: object) -> None:
-    """ADR-012: the `record stop --timeout` budget grows with what was
+    """The `record stop --timeout` budget grows with what was
     actually recorded — a 600 s (injected clock) recording hands the CLI
     `--timeout 1200` instead of the 120 s floor, which would kill the
     transcription of long audio while it is still running. The pure budget
@@ -216,7 +216,7 @@ def test_stop_times_out_via_upstream_exit_code(tmp_path: object) -> None:
             await client.start_recording()
             await client.stop_recording()
             assert await sink.wait_delivery(5.0)
-            # The CLI's own --timeout fires (exit 4): bounded final wait §71.
+            # The CLI's own --timeout fires (exit 4): bounded final wait.
             assert len(sink.errors) == 1
             assert str(sink.errors[0].code) == "TRANSCRIPTION_TIMEOUT"
             assert sink.results == []
@@ -229,7 +229,7 @@ def test_stop_times_out_via_upstream_exit_code(tmp_path: object) -> None:
 
 def test_empty_speech_outcome_is_delivered_as_empty_result(tmp_path: object) -> None:
     """Exit 3: the daemon reports empty speech; the client delivers an empty
-    result for the application's §77 path — no transcript file is written."""
+    result for the application's empty-speech path — no transcript file is written."""
 
     async def scenario() -> None:
         paths = make_paths(tmp_path)  # type: ignore[arg-type]
@@ -291,7 +291,7 @@ def test_cancel_discards_pending_result(tmp_path: object) -> None:
         client.transcript_sink = sink
         try:
             await client.start_recording()
-            await client.cancel_recording()  # §72: aborts pending delivery
+            await client.cancel_recording()  # aborts pending delivery
             await asyncio.sleep(0.3)
             assert sink.results == [] and sink.errors == []
         finally:

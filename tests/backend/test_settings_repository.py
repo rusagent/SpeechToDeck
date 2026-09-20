@@ -1,4 +1,4 @@
-"""Settings persistence tests (spec §54-§56): defaults, atomicity, migrations."""
+"""Settings persistence tests: defaults, atomicity, migrations."""
 
 from __future__ import annotations
 
@@ -25,7 +25,7 @@ DEFAULTS_PAYLOAD = {
     "outputMode": "direct-insert",
 }
 
-# v0.2.4 device document (the keys the owner's deck actually carries).
+# Device document from an older release (the keys the owner's deck carries).
 LEGACY_V024_PAYLOAD = DEFAULTS_PAYLOAD | {"maxRecordingSeconds": 110, "vadEnabled": True}
 
 
@@ -38,7 +38,7 @@ def test_missing_file_yields_spec_defaults(tmp_path: Path) -> None:
     async def scenario() -> None:
         repo, path = make_repo(tmp_path)
         settings = await repo.load()
-        # §54 defaults, verbatim.
+        # Shipped defaults, verbatim.
         assert settings.to_payload() == DEFAULTS_PAYLOAD
         assert not path.exists()  # defaults are not implicitly persisted
 
@@ -65,9 +65,9 @@ def test_save_is_atomic_and_private(tmp_path: Path) -> None:
         repo, path = make_repo(tmp_path)
         loaded = await repo.load()
         await repo.save(loaded)
-        # §55: serialize → tmp → flush → rename leaves no temp behind.
+        # serialize → tmp → flush → rename leaves no temp behind.
         assert not (tmp_path / "settings.json.tmp").exists()
-        # §110: user-only permissions.
+        # user-only permissions.
         assert stat.S_IMODE(path.stat().st_mode) == 0o600
 
     asyncio.run(scenario())

@@ -1,4 +1,4 @@
-"""SpeechSessionCoordinator tests: single-session invariant (spec §10, §34)."""
+"""SpeechSessionCoordinator tests: single-session invariant."""
 
 from __future__ import annotations
 

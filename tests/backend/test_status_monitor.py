@@ -1,4 +1,4 @@
-"""Event-driven status monitor tests (spec §41, §90 malformed status).
+"""Event-driven status monitor tests, including malformed status words.
 
 The real daemon writes bare state words and DELETES the file on shutdown;
 missing file = stopped is a synthesized consumer state.
@@ -56,7 +56,7 @@ def test_monitor_emits_typed_events_and_survives_malformed_status(tmp_path: obje
                 timeout=2.0,
             )
 
-            # §90 malformed native status: surfaced, never fatal.
+            # Malformed native status: surfaced, never fatal.
             paths.status_file.write_text("garbage-not-a-word{{{", encoding="utf-8")
             assert await wait_until(
                 lambda: any(
@@ -84,7 +84,7 @@ def test_monitor_emits_typed_events_and_survives_malformed_status(tmp_path: obje
 
 def test_streaming_state_maps_to_recording(tmp_path: object) -> None:
     """Adapter mapping: upstream `streaming` (capture active) maps onto our
-    `recording` vocabulary instead of being dropped by the §99 boundary."""
+    `recording` vocabulary instead of being dropped at the boundary."""
 
     async def scenario() -> None:
         paths = make_paths(tmp_path)

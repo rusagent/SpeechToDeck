@@ -1,4 +1,4 @@
-"""cdp_client tests (v0.1.6 keyboard integration, spec §90).
+"""cdp_client tests for the keyboard integration.
 
 Decision points, each with an independent oracle:
 
@@ -7,8 +7,8 @@ Decision points, each with an independent oracle:
   accept-key validation, ping→pong, fragmented + large messages.
 - CDP routing: responses correlate by message id, session calls carry the
   flattened ``sessionId``, CDP error objects surface as exceptions.
-- §71 bounds: unreachable endpoints fail with a typed degrade error instead
-  of hanging.
+- bounded waits: unreachable endpoints fail with a typed degrade error
+  instead of hanging.
 
 No real network: the fixture binds 127.0.0.1 on an ephemeral port.
 """
@@ -241,7 +241,7 @@ def test_cdp_error_object_surfaces_as_exception() -> None:
 
 
 def test_unreachable_endpoint_fails_closed_and_fast() -> None:
-    """§71: no listener → typed degrade error, not a hang."""
+    """No listener → typed degrade error, not a hang."""
 
     async def scenario() -> None:
         dead_port = await _claim_free_port()
