@@ -13,17 +13,17 @@ artifact per compute `variant`) and in the `package.json` `remote_binary`
 array (what the loader downloads). The two files must agree entry for entry
 (covered by `tests/backend/test_defaults_layout.py`):
 
-| Field       | Meaning                                                              |
-| ----------- | -------------------------------------------------------------------- |
-| `id`/`name` | Artifact id; the loader writes it verbatim to `bin/<name>`.          |
-| `variant`   | Compute backend the binary implements: `cpu` (avx2) or `vulkan`.     |
-| `version`   | Exact artifact version (`1.0.1`). Never use/download `latest` (§53). |
-| `source`    | Exact release download URL (https).                                  |
-| `sha256`    | SHA-256 of the exact artifact bytes (release `SHA256SUMS.txt`).      |
-| `license`   | License of the artifact (also listed in THIRD_PARTY_NOTICES.md).     |
-| `arch`      | Build architecture (`x86_64` for Steam Deck).                        |
+| Field       | Meaning                                                          |
+| ----------- | ---------------------------------------------------------------- |
+| `id`/`name` | Artifact id; the loader writes it verbatim to `bin/<name>`.      |
+| `variant`   | Compute backend the binary implements: `cpu` (avx2) or `vulkan`. |
+| `version`   | Exact artifact version (`1.0.1`); never `latest`.                |
+| `source`    | Exact release download URL (https).                              |
+| `sha256`    | SHA-256 of the exact artifact bytes (release `SHA256SUMS.txt`).  |
+| `license`   | License of the artifact (also listed in THIRD_PARTY_NOTICES.md). |
+| `arch`      | Build architecture (`x86_64` for Steam Deck).                    |
 
-Rules (spec §53, §109):
+Rules:
 
 - The supervisor checksums the selected binary against
   `defaults/runtime-manifest.json` before every start; a mismatch or a
@@ -34,26 +34,26 @@ Rules (spec §53, §109):
   artifacts are pinned, so the gate passes in both modes. Never weaken the
   gate or invent a digest; pin the artifact instead.
 - Application code must not depend on Voxtype-specific concepts; the runtime
-  is replaceable infrastructure behind ports (spec §35, ADR-003).
+  is replaceable infrastructure behind ports.
 
 ## Voxtype CLI contract (v1.0.1, invoked by the backend)
 
 The backend (`backend/infrastructure/process/daemon_supervisor.py`,
 `voxtype_client.py`, `runtime_variant.py`) invokes the pinned binary with
-exact argument arrays — never a shell (spec §40). A runtime build that does
-not implement this surface needs an adapter change, not application changes
-(ADR-003). Everything below is verified against the upstream v1.0.1 sources
+exact argument arrays — never a shell. A runtime build that does
+not implement this surface needs an adapter change, not application changes.
+Everything below is verified against the upstream v1.0.1 sources
 (`src/cli/root.rs`, `src/cli/record.rs`, `src/app/record.rs`, `src/daemon.rs`,
 `src/config/*.rs`, `config/default.toml`).
 
-### Variant selection (§47, §53)
+### Variant selection
 
 There is no `--compute-backend` flag: the compute path is decided by WHICH
 binary runs. The settings `computeBackend` maps onto the pinned variants:
 
 - `cpu` → `bin/voxtype-avx2` (deterministic);
 - `vulkan` → `bin/voxtype-vulkan` (deterministic);
-- `auto` → explicit §47 probe policy: the vulkan binary is executed once
+- `auto` → explicit probe policy: the vulkan binary is executed once
   with `--config <generated> info variants --json` (read-only inventory; no
   daemon, no model, no capture) inside a bounded subprocess. Success selects
   vulkan; failure falls back to avx2. The decision is logged (variant only)
@@ -78,16 +78,16 @@ state_file = "<runtime>/voxtype/state"
 enabled = false                     # recording is driven by our client only
 
 [audio]
-max_duration_secs = 86400           # FIXED since v0.2.10 (ADR-012): 24 h runaway-recording
+max_duration_secs = 86400           # FIXED since v0.2.10: 24 h runaway-recording
                                     # VALVE — recording is practically unlimited; upstream
                                     # has no true unlimited mode (0 auto-stops in ~100 ms)
 
 [whisper]
 model = "<abs path to our ggml file>"   # absolute path to OUR downloaded model
-language = "<code | auto>"          # ADR-012: single-language models force their declared
+language = "<code | auto>"          # single-language models force their declared
                                     # language (stale settings ignored); otherwise settings
                                     # "system" maps to "auto", explicit codes pass through
-on_demand_loading = false           # model stays loaded (§82)
+on_demand_loading = false           # model stays loaded
 eager_processing = false            # one-shot dictation only
 
 [vad]
@@ -110,7 +110,7 @@ enabled = false                     # upstream OSD default is enabled
 # (Option<StreamingConfig>), so streaming stays disabled.
 ```
 
-Required daemon behaviour (spec §35-§39, upstream `src/daemon.rs`):
+Required daemon behaviour (upstream `src/daemon.rs`):
 
 - writes the state file as a **bare word** (`idle | recording | streaming |
 transcribing`) via a plain write on every state change; the backend
@@ -124,7 +124,7 @@ transcribing`) via a plain write on every state change; the backend
   transcript file.
 - handles SIGTERM gracefully (exit 0 after deleting the state file); the
   supervisor escalates to SIGKILL for the whole process group only after a
-  bounded wait (§38/§71).
+  bounded wait.
 
 ### Record commands (short-lived CLI, one per user action)
 
@@ -135,14 +135,14 @@ bin/<variant> --config <generated.toml> record cancel
 ```
 
 - `record start --file=<path>` exits 0 once the daemon was signalled
-  (SIGUSR1 under the hood); the backend bounds it with the 2 s ack (§71).
+  (SIGUSR1 under the hood); the backend bounds it with a 2 s ack.
   The CLI refuses (non-zero exit) when no daemon is running.
 - `record stop --wait --json --timeout <bounded>` signals the daemon
   (SIGUSR2), blocks on the `.done` sidecar and prints one JSON outcome
   object on stdout. Exit codes: **0** transcribed, **3** empty, **4**
-  timed out, **1** failed. The backend maps these to the §42/§71 outcomes;
-  stdout is never logged (the JSON embeds transcript text, §73).
-  `<bounded>` scales with the recorded duration (ADR-012):
+  timed out, **1** failed. The backend maps these exit codes onto its own
+  outcomes; stdout is never logged (the JSON embeds transcript text).
+  `<bounded>` scales with the recorded duration:
   `max(120 s, 2 × recorded)` — short recordings keep the historical 120 s
   floor, long ones get transcription headroom instead of a bogus timeout.
   The application-level watchdog scales too (`max(90 s, 2 × recorded +
@@ -151,13 +151,12 @@ bin/<variant> --config <generated.toml> record cancel
   90 s floor fires before the CLI's 120 s floor — the historical v0.2.x
   relationship.
 - `record cancel` writes a cancel trigger file in the runtime dir; the
-  daemon observes it and returns to idle without producing output (§72).
+  daemon observes it and returns to idle without producing output.
 - Control signals are SIGUSR1 (start) / SIGUSR2 (stop); the CLI locates the
   daemon through the pid file in `$XDG_RUNTIME_DIR/voxtype`. The backend
   points `XDG_RUNTIME_DIR` at the plugin runtime directory so every native
-  sentinel (state, pid, cancel, overrides) stays inside the plugin data dir
-  (§109).
+  sentinel (state, pid, cancel, overrides) stays inside the plugin data dir.
 - After a transcribed stop (exit 0), the backend reads the transcript file
   exactly once, strips exactly one trailing newline, and removes the file
-  and any sidecar (§42, §110). Empty (exit 3) follows the §77 empty-speech
-  path — no transcript, no insertion, no error.
+  and any sidecar. Empty (exit 3) follows the empty-speech path — no
+  transcript, no insertion, no error.

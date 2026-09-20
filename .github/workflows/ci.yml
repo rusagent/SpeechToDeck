@@ -17,7 +17,7 @@ on:
 
 # Pin the pnpm version here: package.json deliberately carries no
 # `packageManager` field because the Decky builder container ships a global
-# pnpm 9 that must not be overridden (docs/development/release.md).
+# pnpm 9 that must not be overridden.
 env:
     PNPM_VERSION: "10.33.2"
 

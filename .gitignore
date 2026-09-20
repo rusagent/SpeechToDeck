@@ -44,3 +44,6 @@ GEMINI.md
 .zcode/
 .mcp.json
 .specstory/
+
+# internal status file, kept out of the public repo
+/IMPLEMENTATION_STATUS.md

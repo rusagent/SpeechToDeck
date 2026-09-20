@@ -32,7 +32,7 @@ const unpinned = [];
 
 const SHA256_RE = /^[0-9a-f]{64}$/;
 const MODEL_ID_RE = /^[a-z0-9][a-z0-9._-]*$/;
-// Additive curated-catalog rules (ADR-011), mirrored exactly by
+// Curated-catalog validation rules, mirrored exactly by
 // backend/infrastructure/model/model_manifest.py.
 const LANGUAGE_CODE_RE = /^[a-z]{2,8}(-[a-z0-9]{1,8})*$/;
 const MAX_DESCRIPTION_CHARS = 200;
@@ -162,7 +162,7 @@ function validateModels() {
                 `${label}.filename: must be a plain file name, got ${JSON.stringify(model.filename)}`,
             );
         } else if (seenFilenames.has(model.filename)) {
-            // ADR-011: the filename is the local store name; two models sharing
+            // The filename is the local store name; two models sharing
             // it would overwrite each other's artifact.
             fail(`${label}.filename: duplicate filename ${JSON.stringify(model.filename)}`);
         } else {
@@ -180,7 +180,7 @@ function validateModels() {
         } else if (model.sha256.length === 0) {
             fail(
                 `${label}.sha256 is empty: FAILING GATE — model artifacts must ship with a real ` +
-                    "SHA-256 digest (spec §50). Never invent or guess a digest; compute it from the " +
+                    "SHA-256 digest. Never invent or guess a digest; compute it from the " +
                     "downloaded artifact.",
             );
         } else if (!SHA256_RE.test(model.sha256)) {
@@ -188,7 +188,7 @@ function validateModels() {
         }
 
         if (model.sizeBytes === undefined) {
-            // ADR-011: required so the picker can show a human-readable size
+            // Required so the picker can show a human-readable size
             // before download without network probes.
             fail(`${label}.sizeBytes: is required`);
         } else if (!Number.isInteger(model.sizeBytes) || model.sizeBytes <= 0) {
@@ -222,9 +222,7 @@ function validateModels() {
 
     for (const requiredId of REQUIRED_MODEL_IDS) {
         if (!seenIds.has(requiredId)) {
-            fail(
-                `${relativePath}: curated v1 model set (spec §48) is missing ${JSON.stringify(requiredId)}`,
-            );
+            fail(`${relativePath}: curated v1 model set is missing ${JSON.stringify(requiredId)}`);
         }
     }
 }
@@ -274,7 +272,7 @@ function validateRuntimeManifest() {
 
         for (const field of ["id", "engine", "arch"]) {
             if (typeof artifact[field] !== "string" || artifact[field].length === 0) {
-                fail(`${label}.${field}: must be a non-empty string (spec §53)`);
+                fail(`${label}.${field}: must be a non-empty string`);
             }
         }
 
@@ -303,9 +301,7 @@ function validateRuntimeManifest() {
             // Once pinned, every provenance field must be filled.
             for (const field of ["version", "source", "license"]) {
                 if (typeof artifact[field] !== "string" || artifact[field].length === 0) {
-                    fail(
-                        `${label}.${field}: must be a non-empty string for a pinned artifact (spec §53)`,
-                    );
+                    fail(`${label}.${field}: must be a non-empty string for a pinned artifact`);
                 }
             }
         }
@@ -337,7 +333,7 @@ if (unpinned.length > 0) {
         console.error(
             `RUNTIME_UNPINNED (--strict): ${list} — the native runtime artifact in ` +
                 "defaults/runtime-manifest.json is not pinned. Release packaging requires " +
-                "version, source, sha256 and license per bin/README.md (spec §53). " +
+                "version, source, sha256 and license per bin/README.md. " +
                 "Never invent or guess a digest; compute it from the acquired artifact.",
         );
         process.exit(1);
@@ -346,7 +342,7 @@ if (unpinned.length > 0) {
         "RUNTIME_UNPINNED: the native runtime artifact in defaults/runtime-manifest.json " +
             `is not pinned yet (artifacts: ${list}). ` +
             "This is the documented pre-pin state: product code fails closed against it " +
-            "(backend startup: RUNTIME_START_FAILED, spec §53) and CI stays green (spec §129). " +
+            "(backend startup: RUNTIME_START_FAILED) and CI stays green. " +
             "Before release packaging, pin version, source, sha256 and license per " +
             "bin/README.md — never invent or guess a digest.",
     );

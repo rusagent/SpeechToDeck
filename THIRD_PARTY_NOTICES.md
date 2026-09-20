@@ -1,6 +1,6 @@
 # Third-Party Notices
 
-Third-party software shipped with or downloaded by this plugin, per spec §53.
+Third-party software shipped with or downloaded by this plugin.
 This project itself is MIT-licensed (see LICENSE).
 
 ## Shipped / runtime components

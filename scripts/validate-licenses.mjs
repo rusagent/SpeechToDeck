@@ -37,7 +37,7 @@ if (existsSync(noticesPath)) {
 
 const licensePath = path.join(repoRoot, "LICENSE");
 if (!existsSync(licensePath)) {
-    errors.push("LICENSE is missing (required in the plugin package, spec §112)");
+    errors.push("LICENSE is missing (required in the plugin package)");
 }
 
 if (errors.length > 0) {

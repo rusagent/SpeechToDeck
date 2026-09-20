@@ -16,7 +16,8 @@
 // - `package.json` `.version` is semver (the loader's update detection);
 // - `plugin.json` carries `api_version` >= 1 and a `publish` block
 //   (`tags`, `description`, `image`); an empty `publish.image` is a loud
-//   WARNING only (the image URL is owner-provided submission input).
+//   WARNING only (the image URL is supplied by the plugin author at
+//   submission time).
 //
 // Usage:
 //   node scripts/validate-package.mjs <plugin.zip>   # built archive
@@ -246,7 +247,7 @@ function validatePackage(view, sourceLabel) {
         );
     }
     if (Array.isArray(pluginJson.flags) && pluginJson.flags.length > 0) {
-        fail('plugin.json: "flags" must stay empty (rootless plugin, spec §113)');
+        fail('plugin.json: "flags" must stay empty (the plugin runs rootless)');
     }
     const publish = pluginJson.publish;
     if (!isPlainObject(publish)) {
@@ -263,7 +264,7 @@ function validatePackage(view, sourceLabel) {
         } else if (publish.image.length === 0) {
             warn(
                 "plugin.json: publish.image is empty — the store submission needs a hosted " +
-                    "icon/screenshot URL (owner input; see docs/development/release.md).",
+                    "icon/screenshot URL; set it before submitting.",
             );
         }
     }

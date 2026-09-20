@@ -1,6 +1,6 @@
 # Automated release pipeline: GitHub release + Decky store distribution.
 #
-# Flow (owner handbook: docs/development/release.md):
+# Flow:
 #   tag push `v*` or workflow_dispatch(channel)
 #     → gates       same checks as the ci.yml core jobs; the artifact manifest
 #                   gate runs with --strict, so a release cannot be cut while
@@ -17,8 +17,8 @@
 #                   DB_FORK_REPO fork and opens an HONEST PR to
 #                   SteamDeckHomebrew/decky-plugin-database. The automation fills
 #                   nothing it cannot know: it never declares AI usage and never
-#                   claims testing; it inserts a visible OWNER REVIEW REQUIRED
-#                   checklist for the repository owner to complete.
+#                   claims testing; it inserts a visible AUTHOR REVIEW REQUIRED
+#                   checklist for the plugin author to complete.
 #
 # No release artifact is produced while any gate fails.
 
@@ -123,7 +123,7 @@ jobs:
                       ghcr.io/steamdeckhomebrew/builder:latest
             - name: Build release zips + SHA256 checksums
               # --dev adds the URL-install dev zip for preview releases
-              # (the `-d` equivalent; docs/development/release.md).
+              # (the `-d` equivalent of the decky CLI).
               run: |
                   DEV_FLAG=""
                   if [ "${{ steps.meta.outputs.prerelease }}" = "true" ]; then
@@ -199,20 +199,20 @@ jobs:
                   Packages: the plugin zip (plus a `-dev` zip for preview builds)
                   and `SHA256SUMS.txt` with SHA-256 checksums of every archive.
 
-                  Store distribution is a separate review flow:
-                  docs/development/release.md (decky-plugin-database PR + owner
-                  review checklist). GitHub releases are URL-install artifacts,
-                  not store uploads.
+                  Store distribution is a separate review flow: a pull request
+                  to the decky-plugin-database repository with a review
+                  checklist completed by the plugin author. GitHub releases are
+                  URL-install artifacts, not store uploads.
                   NOTES
                   gh release create "$TAG" release-packages/* $FLAGS $TARGET_ARGS \
                       --title "SpeechToDeck v$VERSION" \
                       --notes-file release-notes.md
 
-    # ── Store PR (OPTIONAL, owner-gated, honest content only) ────────────────
+    # ── Store PR (OPTIONAL, opt-in, honest content only) ─────────────────────
 
     store-pr:
         needs: [package, validate, github-release]
-        # Double gate: repository variable (owner enables the flow) and a tag
+        # Double gate: repository variable (opt-in) and a tag
         # push (a store PR always points at a tagged commit). The DB_PR_PAT
         # secret is checked inside the step so a missing secret skips cleanly.
         if: vars.STORE_PR_ENABLED == 'true' && startsWith(github.ref, 'refs/tags/v')
@@ -225,7 +225,7 @@ jobs:
                   DB_PR_PAT: ${{ secrets.DB_PR_PAT }}
               run: |
                   if [ -z "$DB_PR_PAT" ]; then
-                      echo "::notice::DB_PR_PAT is not configured; skipping the store PR (docs/development/release.md)."
+                      echo "::notice::DB_PR_PAT is not configured; skipping the store PR."
                       echo "present=false" >> "$GITHUB_OUTPUT"
                   else
                       echo "present=true" >> "$GITHUB_OUTPUT"
@@ -283,23 +283,23 @@ jobs:
 
                   $DESCRIPTION
 
-                  ### OWNER REVIEW REQUIRED — automation completed nothing below
+                  ### AUTHOR REVIEW REQUIRED — automation completed nothing below
 
                   > This pull request was opened by the plugin's release
                   > automation. The items below are deliberately NOT filled in:
-                  > the repository owner must verify and complete each one before
+                  > the plugin author must verify and complete each one before
                   > maintainers are asked to review. Automation makes no
-                  > declarations on the owner's behalf.
+                  > declarations on the author's behalf.
 
                   - [ ] **Generative AI declaration:** the
                         decky-plugin-database submission asks whether generative
                         AI was used in developing the plugin. **This automation
-                        does not answer that question** — the owner must state
+                        does not answer that question** — the author must state
                         it here truthfully before requesting review.
                   - [ ] **Icon / screenshot URL:** \`plugin.json\`
                         \`publish.image\` must point at a hosted, accessible
                         image before submission.
-                  - [ ] **SteamOS Stable and Beta testing:** the owner must
+                  - [ ] **SteamOS Stable and Beta testing:** the author must
                         install this build on both SteamOS channels and declare
                         the results honestly. No testing is claimed here.
                   - [ ] **defaults.txt:** confirm the repository-root

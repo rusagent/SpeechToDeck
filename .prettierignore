@@ -1,10 +1,10 @@
-# The product spec is committed canon (docs/spec/spec-v1.0.md) and must never
-# be reformatted or otherwise modified by tooling.
+# Untracked local docs are never formatting inputs; the license text must
+# not be reformatted by tooling.
 docs/spec/
 LICENSE
 
-# Generated artifacts, dependency state, and wave-owned temp tooling are not
-# formatting inputs.
+# Generated artifacts, dependency state, and local tooling scratch space are
+# not formatting inputs.
 pnpm-lock.yaml
 dist/
 .venv/

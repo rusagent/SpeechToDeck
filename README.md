@@ -47,23 +47,21 @@ clipboard so the Steam keyboard's Paste key can insert it:
   user's Xauthority). It activates when `bin/xclip` exists; v0.2.0 does NOT
   pin a third-party-compiled binary (no trustworthy upstream release
   artifact exists), so the backend leg reports `skipped` until one is
-  provided. See `IMPLEMENTATION_STATUS.md` for the decision record.
+  provided.
 - The `transcript_ready` event carries the additive `clipboard` field
   (`ok` / `failed` / `skipped`); a clipboard failure never loses the
   transcript — it stays in the panel for manual copy.
 
 ## Status
 
-v0.2.0 (owner-designed QAM dictation flow). Implementation status, design
-decisions and on-device open points: see
-[IMPLEMENTATION_STATUS.md](IMPLEMENTATION_STATUS.md).
+v0.2.0 (QAM dictation flow).
 
 ## Development quickstart
 
 Requires Node 24, pnpm 10, Python >= 3.11.
 
 ```bash
-pnpm install --frozen-lockfile                          # pinned deps (§111)
+pnpm install --frozen-lockfile                          # pinned deps
 
 # Manifest integrity gates (fail-closed; runtime artifact pin pending)
 node scripts/validate-manifests.mjs
@@ -101,7 +99,7 @@ pnpm typecheck && pnpm test && pnpm lint && pnpm build
 src/           frontend (domain, application, ports, infrastructure, presentation)
 backend/       Decky Python backend (hexagonal, same discipline)
 bin/           native runtime artifact (not committed; see bin/README.md)
-defaults/      models.json + runtime-manifest.json (pinned artifacts, §50/§53)
+defaults/      models.json + runtime-manifest.json (pinned artifacts)
 scripts/       dependency-free Node validators
 tests/         frontend / backend / contract / fixtures
 ```
