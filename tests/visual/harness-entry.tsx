@@ -32,6 +32,7 @@ import type {
 } from "../../src/application/ports/SetupProgressPort";
 import type { CatalogModel } from "../../src/application/ports/ModelCatalogPort";
 import { ModelCatalogStore } from "../../src/application/ports/ModelCatalogPort";
+import type { SettingsPort } from "../../src/application/ports/SettingsPort";
 import { openModelDownloadModal } from "../../src/presentation/settings/ModelSelect";
 import { DeckyBackendClient } from "../../src/infrastructure/decky/DeckyBackendClient";
 import { DeckySpeechAdapter } from "../../src/infrastructure/decky/DeckySpeechAdapter";
@@ -77,6 +78,14 @@ export interface HarnessParams {
     readonly dictation: HarnessDictationVariant;
     /** Model-catalog wiring for the panel case (default `none`). */
     readonly catalog?: HarnessCatalogVariant;
+    /**
+     * Panel boot-load variant (v0.2.9 install-wedge lane): `failed` mounts
+     * the REAL panel's honest failed state (alert + hint + Retry) through an
+     * outright load rejection — the same early-return view a wedged
+     * (never-settling) boot load shows after its 10 s deadline, without
+     * waiting the deadline out in the capture browser.
+     */
+    readonly settingsLoad?: "failed";
     /** Settings language for the panel case (default `"system"`). */
     readonly language?: string;
     /** Optional `data-panel-title` of the section to scroll into view. */
@@ -107,6 +116,17 @@ export const CAPTURED_CASES: readonly HarnessParams[] = [
         stateKind: "recording",
         setup: "none",
         dictation: "idle",
+        scroll: null,
+    },
+    // Honest boot-load failed state (v0.2.9 install-wedge lane): the panel
+    // early-returns with alert + hint + Retry; no §80 sections render.
+    {
+        caseId: "panel",
+        locale: "en",
+        stateKind: "ready",
+        setup: "none",
+        dictation: "idle",
+        settingsLoad: "failed",
         scroll: null,
     },
     {
@@ -478,18 +498,33 @@ function ModalOpener({ store, locale }: { store: ModelCatalogStore; locale: Loca
     return null;
 }
 
+/**
+ * Boot load that rejects outright: mounts the panel's honest failed state
+ * (alert + hint + Retry). A wedged boot load that never settles renders the
+ * SAME early-return view after its 10 s deadline; the rejection just skips
+ * the wait in the capture browser.
+ */
+function failedBootLoadPort(): SettingsPort {
+    return {
+        load: () => Promise.reject(new Error("harness: boot load failed")),
+        save: async () => undefined,
+    };
+}
+
 function PanelCase({
     locale,
     stateKind,
     setup,
     catalog = "none",
     language = "system",
+    settingsLoad = "ok",
 }: {
     locale: Locale;
     stateKind: HarnessParams["stateKind"];
     setup: HarnessSetupVariant;
     catalog: HarnessCatalogVariant;
     language: string;
+    settingsLoad: "ok" | "failed";
 }) {
     const hydration = setup === "hydrated-failed" ? hydratedFailureCase() : null;
     const setupSnapshot: SetupProgressSnapshot | null =
@@ -497,10 +532,12 @@ function PanelCase({
     // ADR-011 catalog wiring: the REAL model select consumes the store
     // side-channel exactly like the composed panel (load is inert here — the
     // store is pre-populated through the production publish paths).
-    const settingsPort = new FakeSettingsPort();
+    const baseSettingsPort = new FakeSettingsPort();
     if (language !== "system") {
-        settingsPort.value = { ...settingsPort.value, language };
+        baseSettingsPort.value = { ...baseSettingsPort.value, language };
     }
+    const settingsPort: SettingsPort =
+        settingsLoad === "failed" ? failedBootLoadPort() : baseSettingsPort;
     const catalogStore = catalog === "none" ? null : fakeCatalogStore(catalog);
     const modelCatalog =
         catalogStore === null
@@ -661,6 +698,7 @@ function Harness({ params }: { params: HarnessParams }): React.ReactElement {
             setup={params.setup}
             catalog={params.catalog ?? "none"}
             language={params.language ?? "system"}
+            settingsLoad={params.settingsLoad === "failed" ? "failed" : "ok"}
         />
     );
 }
@@ -703,6 +741,7 @@ function paramsFromLocation(): HarnessParams {
     const rawCatalog = search.get("catalog");
     const catalog: HarnessCatalogVariant =
         rawCatalog === "ready" || rawCatalog === "modal" ? rawCatalog : "none";
+    const load = search.get("load");
     return {
         caseId,
         locale,
@@ -710,6 +749,7 @@ function paramsFromLocation(): HarnessParams {
         setup,
         dictation,
         catalog,
+        ...(load === "failed" ? { settingsLoad: "failed" as const } : {}),
         language: search.get("language") ?? "system",
         scroll: search.get("scroll"),
     };

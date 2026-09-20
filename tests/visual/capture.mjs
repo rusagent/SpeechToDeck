@@ -276,6 +276,9 @@ function storeShot() {
 // Panel clips (QAM column: top of the decluttered panel, EN + DE).
 shot("panel-en-top", "case=panel&locale=en");
 shot("panel-de-top", "case=panel&locale=de");
+// Honest boot-load failed state (v0.2.9 install-wedge lane): the panel's
+// early-return view with alert, hint and Retry — no §80 sections render.
+shot("panel-load-failed-en", "case=panel&load=failed&locale=en", { height: 400 });
 // Setup progress, REAL panel with the dedicated store preset per state:
 // active-indeterminate daemon step, determinate download at 37%, failed with
 // retry (EN + DE), and terminal ready hiding the panel again.

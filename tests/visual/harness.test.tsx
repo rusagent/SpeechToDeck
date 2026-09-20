@@ -123,9 +123,11 @@ describe("visual harness smoke", () => {
                 ? params.setup
                 : params.caseId === "dictation"
                   ? params.dictation
-                  : params.catalog !== undefined && params.catalog !== "none"
-                    ? `catalog-${params.catalog}`
-                    : params.stateKind
+                  : params.settingsLoad === "failed"
+                    ? "load-failed"
+                    : params.catalog !== undefined && params.catalog !== "none"
+                      ? `catalog-${params.catalog}`
+                      : params.stateKind
         }`;
         it(`mounts the captured state without throwing: ${name}`, async () => {
             const host = document.createElement("div");
@@ -141,6 +143,22 @@ describe("visual harness smoke", () => {
                     // The plugin name is the brand string in every locale.
                     const panelTitle = "SpeechToDeck";
                     expect(host.querySelector(`[data-panel-title="${panelTitle}"]`)).not.toBeNull();
+                    // Honest boot-load failed state (v0.2.9): the panel
+                    // early-returns with alert + hint + Retry — the §80
+                    // sections and the eternal spinner never render.
+                    if (params.settingsLoad === "failed") {
+                        expect(host.querySelector('[role="alert"]')?.textContent).toContain(
+                            "Backend is not responding.",
+                        );
+                        expect(host.textContent).toContain("Close and reopen this panel");
+                        const retry = Array.from(host.querySelectorAll("button")).find(
+                            (button) => button.textContent === "Retry",
+                        );
+                        expect(retry).not.toBeUndefined();
+                        expect(host.querySelector('[data-panel-title="Speech"]')).toBeNull();
+                        expect(host.textContent).not.toContain("Loading settings…");
+                        return; // handled inside try/finally below
+                    }
                     const speechTitle = params.locale === "de" ? "Spracherkennung" : "Speech";
                     expect(
                         host.querySelector(`[data-panel-title="${speechTitle}"]`),
