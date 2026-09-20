@@ -15,6 +15,7 @@
 import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { SettingsPanel } from "../../src/presentation/settings/SettingsPanel";
+import type { SettingsPanelProps } from "../../src/presentation/settings/SettingsPanel";
 import type { DiagnosticsSource } from "../../src/presentation/settings/DiagnosticsSource";
 import { DeckyBackendClient } from "../../src/infrastructure/decky/DeckyBackendClient";
 import { DeckySpeechAdapter } from "../../src/infrastructure/decky/DeckySpeechAdapter";
@@ -576,5 +577,177 @@ describe("SettingsPanel settings-load timeout", () => {
         });
         expect(screen.getByText(/Enable plugin/)).not.toBeNull();
         expect(screen.queryByText("Backend is not responding.")).toBeNull();
+    });
+});
+
+// Self-heal decision points (v0.2.9 install wedge): the panel reports each
+// settled boot-load outcome to the optional port; two consecutive
+// full-deadline timeouts are the wedged signature that arms the one-time
+// loader reload (the hint then names it), a coded rejection never triggers
+// it, and the loader's re-import broadcast re-arms the load while the panel
+// sits in the failed state. The reload trigger/latch itself is covered by
+// DeckySelfHeal.test.ts over the transport seam.
+describe("SettingsPanel settings-load self-heal", () => {
+    type LoadOutcome = "timeout" | "rejected" | "success";
+
+    const GENERIC_HINT =
+        "Close and reopen this panel. If it persists, reload the plugin and open it again.";
+
+    afterEach(() => {
+        cleanup();
+        vi.useRealTimers();
+    });
+
+    function fakeSelfHeal(triggerOnSecondTimeout: boolean): {
+        selfHeal: NonNullable<SettingsPanelProps["selfHeal"]>;
+        reports: LoadOutcome[];
+        importListeners: (() => void)[];
+        emitImport: () => void;
+    } {
+        const reports: LoadOutcome[] = [];
+        const importListeners: (() => void)[] = [];
+        let timeoutStreak = 0;
+        return {
+            reports,
+            importListeners,
+            emitImport: () => {
+                for (const listener of [...importListeners]) {
+                    listener();
+                }
+            },
+            selfHeal: {
+                // Mirrors the adapter's streak semantics (the module latch
+                // itself is covered by DeckySelfHeal.test.ts): the trigger
+                // fires on the SECOND consecutive timeout report or never.
+                reportLoadOutcome: (outcome) => {
+                    reports.push(outcome);
+                    if (outcome !== "timeout") {
+                        timeoutStreak = 0;
+                        return false;
+                    }
+                    timeoutStreak += 1;
+                    return triggerOnSecondTimeout && timeoutStreak >= 2;
+                },
+                onImportPlugin: (listener) => {
+                    importListeners.push(listener);
+                    return () => {
+                        const index = importListeners.indexOf(listener);
+                        if (index >= 0) {
+                            importListeners.splice(index, 1);
+                        }
+                    };
+                },
+            },
+        };
+    }
+
+    function renderWithHeal(
+        gate: ReturnType<typeof gatedSettingsPort>,
+        clock: ClockPort,
+        selfHeal: NonNullable<SettingsPanelProps["selfHeal"]>,
+    ): void {
+        render(
+            <SettingsPanel
+                settings={gate.port}
+                store={new FakeStateStore({ kind: "booting" })}
+                setupProgress={fakeSetupStore()}
+                diagnostics={fakeDiagnostics()}
+                clock={clock}
+                selfHeal={selfHeal}
+            />,
+        );
+    }
+
+    it("fires the self-heal on the second consecutive timeout and names the reload", async () => {
+        vi.useFakeTimers();
+        const gate = gatedSettingsPort();
+        const { clock, elapse } = fakeClock();
+        const heal = fakeSelfHeal(true);
+        renderWithHeal(gate, clock, heal.selfHeal);
+
+        await act(async () => {
+            elapse(10_000);
+            vi.advanceTimersByTime(10_000);
+        });
+        // First full-deadline timeout: honest failed state, generic hint.
+        expect(heal.reports).toEqual(["timeout"]);
+        expect(screen.getByText("Backend is not responding.")).not.toBeNull();
+        expect(screen.queryByText("Reloading the plugin backend …")).toBeNull();
+
+        fireEvent.click(screen.getByRole("button", { name: "Retry" }));
+        await act(async () => {
+            elapse(10_000);
+            vi.advanceTimersByTime(10_000);
+        });
+
+        expect(heal.reports).toEqual(["timeout", "timeout"]);
+        expect(screen.getByText("Reloading the plugin backend …")).not.toBeNull();
+        expect(screen.queryByText(GENERIC_HINT)).toBeNull();
+        // Still the honest failed state with Retry — never a fake progress view.
+        expect(screen.getByText("Backend is not responding.")).not.toBeNull();
+        expect(screen.getByRole("button", { name: "Retry" })).not.toBeNull();
+    });
+
+    it("reports a coded rejection but never triggers the reload", async () => {
+        const port: SettingsPort = {
+            load: () => Promise.reject(new Error("backend says no")),
+            save: async () => undefined,
+        };
+        const heal = fakeSelfHeal(true); // would fire on a second timeout report
+        render(
+            <SettingsPanel
+                settings={port}
+                store={new FakeStateStore({ kind: "booting" })}
+                setupProgress={fakeSetupStore()}
+                diagnostics={fakeDiagnostics()}
+                clock={stubClock()}
+                selfHeal={heal.selfHeal}
+            />,
+        );
+
+        await act(async () => {
+            await Promise.resolve();
+            await Promise.resolve();
+        });
+
+        expect(screen.getByText("Backend is not responding.")).not.toBeNull();
+        expect(heal.reports).toEqual(["rejected"]);
+        expect(screen.queryByText("Reloading the plugin backend …")).toBeNull();
+    });
+
+    it("re-arms the boot load when the loader re-import fires during the failed state", async () => {
+        vi.useFakeTimers();
+        const gate = gatedSettingsPort();
+        const { clock, elapse } = fakeClock();
+        const heal = fakeSelfHeal(false);
+        renderWithHeal(gate, clock, heal.selfHeal);
+
+        await act(async () => {
+            elapse(10_000);
+            vi.advanceTimersByTime(10_000);
+        });
+        expect(screen.getByText("Backend is not responding.")).not.toBeNull();
+        expect(gate.loadCalls()).toBe(1);
+
+        act(() => {
+            heal.emitImport();
+        });
+
+        // Fresh backend is up: the failed state cleared and the load restarts.
+        expect(screen.queryByText("Backend is not responding.")).toBeNull();
+        expect(screen.getByText("Loading settings…")).not.toBeNull();
+        expect(gate.loadCalls()).toBe(2);
+
+        await act(async () => {
+            gate.resolveLoad({ ...TEST_SETTINGS });
+        });
+        expect(screen.getByText(/Enable plugin/)).not.toBeNull();
+        expect(heal.reports).toEqual(["timeout", "success"]);
+
+        // Outside a failure the re-import subscription is gone: no restart.
+        act(() => {
+            heal.emitImport();
+        });
+        expect(gate.loadCalls()).toBe(2);
     });
 });

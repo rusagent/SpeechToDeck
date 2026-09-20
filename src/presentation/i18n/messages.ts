@@ -32,6 +32,9 @@ export const EN_MESSAGES = {
     "setting.loadFailed": "Backend is not responding.",
     "setting.loadFailedHint":
         "Close and reopen this panel. If it persists, reload the plugin and open it again.",
+    // Install-wedge self-heal (v0.2.9): shown in the failed state after the
+    // one-time loader reload fired (two consecutive load-deadline timeouts).
+    "setting.loadFailedReloading": "Reloading the plugin backend …",
 
     "option.backend.auto": "Auto (Vulkan if available)",
     "option.backend.vulkan": "Vulkan",
@@ -136,6 +139,7 @@ export const DE_MESSAGES: Record<MessageKey, string> = {
     "setting.loadFailed": "Das Backend antwortet nicht.",
     "setting.loadFailedHint":
         "Schließe und öffne dieses Panel erneut. Falls es bestehen bleibt, lade das Plugin neu und öffne es wieder.",
+    "setting.loadFailedReloading": "Plugin-Backend wird neu geladen …",
 
     "option.backend.auto": "Automatisch (Vulkan, falls verfügbar)",
     "option.backend.vulkan": "Vulkan",

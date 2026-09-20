@@ -18,6 +18,8 @@ import {
     createDeckyApiTransport,
     createDeckyTabExecutor,
 } from "./infrastructure/decky/DeckyApiTransport";
+import { DeckySelfHeal } from "./infrastructure/decky/DeckySelfHeal";
+import type { SettingsLoadOutcome } from "./infrastructure/decky/DeckySelfHeal";
 import { DeckySpeechAdapter } from "./infrastructure/decky/DeckySpeechAdapter";
 import { DeckySettingsAdapter } from "./infrastructure/decky/DeckySettingsAdapter";
 import type { SetupProgressStore } from "./application/ports/SetupProgressPort";
@@ -40,9 +42,21 @@ import { Logger } from "./shared/Logger";
 import type { ClockPort } from "./application/ports/ClockPort";
 import type { SettingsPort } from "./application/ports/SettingsPort";
 import type { DictationState } from "./domain/DictationState";
+import { extractSession } from "./domain/DictationState";
 
 // Entry-module contract: the ONLY export is the callable default (the loader
 // evaluates `m.default()`); the composition root is internal wiring.
+
+/**
+ * Install-wedge self-heal gate (v0.2.9): a download counts as in flight
+ * until its settle path clears it — EXCEPT the held final 100% completion
+ * frame (ADR-011), which is settled state the modal still renders, never a
+ * live download.
+ */
+function isDownloadInFlight(snapshot: ModelCatalogSnapshot): boolean {
+    return snapshot.download !== null && snapshot.download.percent !== 100;
+}
+
 class PluginCompositionRoot implements Disposable {
     private readonly resources: Disposable[] = [];
     private readonly lifecycle: PluginLifecycle;
@@ -71,12 +85,18 @@ class PluginCompositionRoot implements Disposable {
         readonly download: (modelId: string) => void;
         readonly cancel: () => void;
     };
+    /** Install-wedge self-heal wiring for the plugin panel (v0.2.9). */
+    readonly selfHeal: {
+        readonly reportLoadOutcome: (outcome: SettingsLoadOutcome) => boolean;
+        readonly onImportPlugin: (listener: () => void) => () => void;
+    };
 
     constructor(logger: Logger = new Logger("plugin.lifecycle")) {
         this.logger = logger;
 
         // §6 wiring — construction order only, no service locator.
-        const backendClient = new DeckyBackendClient(createDeckyApiTransport());
+        const transport = createDeckyApiTransport();
+        const backendClient = new DeckyBackendClient(transport);
         const speechPort = new DeckySpeechAdapter(backendClient);
         const settingsAdapter = new DeckySettingsAdapter(backendClient);
         this.settingsPort = settingsAdapter;
@@ -174,6 +194,24 @@ class PluginCompositionRoot implements Disposable {
             },
         };
 
+        // Install-wedge self-heal (v0.2.9): the panel reports boot-load
+        // outcomes through the two-method port below. The gates are read
+        // HERE, fresh at report time, over the composed stores — the reload
+        // never fires during an active dictation session (any §8 sessionful
+        // state) or an in-flight model download. The reload itself lives in
+        // the infrastructure adapter and fires at most once per frontend
+        // module session (the loader's re-import resets it — never loops).
+        const selfHeal = new DeckySelfHeal(transport);
+        this.selfHeal = {
+            reportLoadOutcome: (outcome) =>
+                selfHeal.reportLoadOutcome(outcome, {
+                    canReload:
+                        extractSession(this.controllerStore.getSnapshot()) === null &&
+                        !isDownloadInFlight(speechPort.modelCatalog.getSnapshot()),
+                }),
+            onImportPlugin: (listener) => selfHeal.onImportPlugin(listener),
+        };
+
         this.presenter = new MicrophoneControlPresenter(controller, keyboardHost, () =>
             controller?.handleMicrophonePressed(),
         );
@@ -233,6 +271,7 @@ export default definePlugin(() => {
                 clock={compositionRoot.clock}
                 dictation={compositionRoot.dictation}
                 modelCatalog={compositionRoot.modelCatalog}
+                selfHeal={compositionRoot.selfHeal}
             />
         ),
         onDismount: () => {

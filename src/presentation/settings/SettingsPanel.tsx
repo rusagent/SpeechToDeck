@@ -16,6 +16,12 @@
  * resolves nor rejects within 10 s (a wedged backend callable) leaves the
  * loading state with a failed message and a Retry control instead of an
  * eternal spinner; the deadline is measured on the injected monotonic clock.
+ * v0.2.9 install-wedge self-heal: the panel reports each settled boot-load
+ * outcome to the optional `selfHeal` port — two consecutive full-deadline
+ * timeouts (the wedged-callable signature) make the composition-root side
+ * reload the plugin backend once, the hint names it, and the loader's
+ * re-import broadcast re-arms the load while the panel sits in the failed
+ * state. The port owns the gates (session/download) and the loader access.
  */
 
 import * as React from "react";
@@ -68,6 +74,18 @@ export interface SettingsPanelProps {
         readonly download: (modelId: string) => void;
         readonly cancel: () => void;
     };
+    /**
+     * Additive install-wedge self-heal wiring (v0.2.9): the panel reports
+     * settled boot-load outcomes; the bound port (composed in the
+     * composition root) owns the gates — dictation session, model download —
+     * and the loader route access. `reportLoadOutcome` returns whether the
+     * reload fired (the hint then names it); `onImportPlugin` subscribes to
+     * the loader's re-import broadcast for the failed-state re-arm.
+     */
+    readonly selfHeal?: {
+        readonly reportLoadOutcome: (outcome: "timeout" | "rejected" | "success") => boolean;
+        readonly onImportPlugin: (listener: () => void) => () => void;
+    };
 }
 
 const OUTPUT_MODES: readonly PluginSettings["outputMode"][] = ["direct-insert", "clipboard-only"];
@@ -88,6 +106,7 @@ export function SettingsPanel({
     locale = "en",
     dictation,
     modelCatalog,
+    selfHeal,
 }: SettingsPanelProps): React.ReactElement {
     const [value, setValue] = React.useState<PluginSettings | null>(null);
     const [saveError, setSaveError] = React.useState(false);
@@ -96,6 +115,10 @@ export function SettingsPanel({
     // effect for Retry.
     const [loadFailed, setLoadFailed] = React.useState(false);
     const [loadAttempt, setLoadAttempt] = React.useState(0);
+    // Self-heal leg (v0.2.9): set when the port reports that the loader
+    // reload fired; the failed-state hint then names the reload instead of
+    // the generic advice. Cleared by a success or a re-import re-arm.
+    const [reloadPending, setReloadPending] = React.useState(false);
     // Bound, render-stable store accessors (§102): useSyncExternalStore calls
     // these as plain functions, so unbound class methods would lose `this`.
     // Same closure pattern as the microphone-button bridge (§66).
@@ -168,6 +191,13 @@ export function SettingsPanel({
         const wakeup = window.setTimeout(() => {
             if (!cancelled && clock.nowMonotonicMs() >= deadline) {
                 setLoadFailed(true);
+                // Self-heal accounting: a full-deadline timeout is the
+                // wedged callable's signature. The port (gates + once-per-
+                // module-session latch) decides; true means the reload fired
+                // and the hint must say so.
+                if (selfHeal?.reportLoadOutcome("timeout") === true) {
+                    setReloadPending(true);
+                }
             }
         }, SETTINGS_LOAD_TIMEOUT_MS);
         settings
@@ -179,13 +209,19 @@ export function SettingsPanel({
                     // failed state once it arrives.
                     window.clearTimeout(wakeup);
                     setLoadFailed(false);
+                    setReloadPending(false);
                     setValue(loaded);
+                    // The backend answered: the timeout streak resets.
+                    selfHeal?.reportLoadOutcome("success");
                 }
             })
             .catch(() => {
                 if (!cancelled) {
                     window.clearTimeout(wakeup);
                     setLoadFailed(true);
+                    // A coded reply proves the callable path answers — the
+                    // reload must never fire on it; the streak just resets.
+                    selfHeal?.reportLoadOutcome("rejected");
                 }
             });
         // Failure hydration: a startup failure that fired before this panel
@@ -197,7 +233,23 @@ export function SettingsPanel({
             cancelled = true;
             window.clearTimeout(wakeup);
         };
-    }, [settings, diagnostics, clock, loadAttempt]);
+    }, [settings, diagnostics, clock, loadAttempt, selfHeal]);
+
+    // Self-heal re-arm (v0.2.9): when the loader re-imports this plugin
+    // (fresh backend is up) while the panel sits in the failed state, retry
+    // the load instead of waiting for the user to find Retry. Subscribed
+    // only while failed, so re-imports outside a failure never restart the
+    // boot load.
+    React.useEffect(() => {
+        if (selfHeal === undefined || !loadFailed) {
+            return;
+        }
+        return selfHeal.onImportPlugin(() => {
+            setLoadFailed(false);
+            setReloadPending(false);
+            setLoadAttempt((attempt) => attempt + 1);
+        });
+    }, [selfHeal, loadFailed]);
 
     // ADR-011: load the curated catalog once per panel mount; load failures
     // leave the store empty and the select reports the catalog as
@@ -238,7 +290,14 @@ export function SettingsPanel({
                             <span role="alert">{translate(locale, "setting.loadFailed")}</span>
                         </PanelSectionRow>
                         <PanelSectionRow>
-                            <span>{translate(locale, "setting.loadFailedHint")}</span>
+                            <span>
+                                {translate(
+                                    locale,
+                                    reloadPending
+                                        ? "setting.loadFailedReloading"
+                                        : "setting.loadFailedHint",
+                                )}
+                            </span>
                         </PanelSectionRow>
                         <PanelSectionRow>
                             {/* Same generic retry label as the setup failed
