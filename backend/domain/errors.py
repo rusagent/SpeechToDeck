@@ -1,8 +1,8 @@
-"""Stable backend error codes and typed exceptions (spec §68, §78).
+"""Stable backend error codes and typed exceptions.
 
 Error codes cross the Decky boundary as stable strings. Frontend UI text is
 mapped from codes only; exception messages never travel to the frontend
-(§68: "Do not parse arbitrary exception strings in frontend logic").
+(frontend logic must never parse arbitrary exception strings).
 """
 
 from __future__ import annotations
@@ -13,7 +13,7 @@ PROTOCOL_VERSION = 1
 
 
 class ErrorCode(StrEnum):
-    """Stable error codes (spec §68 plus the §78-named transcript errors).
+    """Stable error codes, including the dedicated transcript errors.
 
     Only codes the backend can produce are declared here. Frontend-only codes
     (STEAM_KEYBOARD_*, PASTE_*, CLIPBOARD_*, KEYBOARD_CONTEXT_CHANGED) belong
@@ -44,7 +44,7 @@ class ErrorCode(StrEnum):
 
 
 class SpeechError(Exception):
-    """Base class for every backend failure carrying a stable code (§68)."""
+    """Base class for every backend failure carrying a stable code."""
 
     def __init__(
         self,
@@ -61,9 +61,9 @@ class SpeechError(Exception):
         self.session_id = session_id
 
     def payload(self) -> dict[str, object]:
-        """Versioned event/callable payload for this error (§67, §68).
+        """Versioned event/callable payload for this error.
 
-        Never includes transcript text or audio bytes (§73).
+        Never includes transcript text or audio bytes (privacy).
         """
         payload: dict[str, object] = {
             "protocolVersion": PROTOCOL_VERSION,
@@ -98,7 +98,7 @@ class MicrophoneUnavailableError(CodedSpeechError):
 
 
 class RuntimeStartError(CodedSpeechError):
-    """The pinned native runtime could not be started (§35, §53, §109)."""
+    """The pinned native runtime could not be started."""
 
     def _code(self) -> ErrorCode:
         return ErrorCode.RUNTIME_START_FAILED
@@ -145,12 +145,12 @@ class ModelDownloadFailedError(CodedSpeechError):
 
 
 class ModelDownloadCancelledError(CodedSpeechError):
-    """User-initiated cancel of the in-flight download (§52).
+    """User-initiated cancel of the in-flight download.
 
     Deliberately NOT a failure: the stable code keeps the journal (and the
     frontend error mapping) from reading a routine cancel as a network
-    failure (on-device v0.2.4 finding: every second tap on the conflated
-    Download/Cancel button logged `MODEL_DOWNLOAD_FAILED`).
+    failure — on device, every second tap on the conflated Download/Cancel
+    button logged `MODEL_DOWNLOAD_FAILED`.
     """
 
     def _code(self) -> ErrorCode:
@@ -160,8 +160,8 @@ class ModelDownloadCancelledError(CodedSpeechError):
 class TransientModelDownloadError(ModelDownloadFailedError):
     """Transport-class download failure (URLError/timeout/connection reset).
 
-    Same stable §68 code (``MODEL_DOWNLOAD_FAILED``); the subclass marks the
-    failure class the §82 startup path may retry with its bounded automatic
+    Same stable code (``MODEL_DOWNLOAD_FAILED``); the subclass marks the
+    failure class the startup path may retry with its bounded automatic
     ladder. Checksum mismatches, cancellations and HTTP status failures stay
     plain ``ModelDownloadFailedError`` and are never retried.
     """
@@ -183,7 +183,7 @@ class StaleSessionError(CodedSpeechError):
 
 
 class EmptyTranscriptError(CodedSpeechError):
-    """Spec §78 named error. Note §77: empty speech is not a runtime error."""
+    """Dedicated transcript error. Empty speech is not a runtime error."""
 
     def _code(self) -> ErrorCode:
         return ErrorCode.EMPTY_TRANSCRIPT

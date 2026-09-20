@@ -1,8 +1,8 @@
-"""Setup-progress event stream for the §82 startup path (`setup_progress`).
+"""Setup-progress event stream for the startup path (`setup_progress`).
 
 Frozen frontend contract (v1): JSON payloads over the existing EventPublisher
 port, emitted only while the startup path runs — never from get_status and
-never with transcript or audio content (§73). Steps in startup order:
+never with transcript or audio content. Steps in startup order:
 
     0 runtime.verify  "setup.step.runtimeVerify"   real percent (0 → 100)
     1 model.ensure    "setup.step.modelEnsure"     real percent (digest
@@ -12,7 +12,7 @@ never with transcript or audio content (§73). Steps in startup order:
 
 Terminal: step "ready" (`setup.state.ready`, stepIndex 4, percent 100) or
 step "failed" (`setup.state.failed`) at the step where startup failed, with
-a stable §68 error code. Progress ticks are throttled exactly like the
+a stable error code. Progress ticks are throttled exactly like the
 download feed: emit on a percent delta ≥ 1 or ≥250 ms elapsed.
 """
 
@@ -89,7 +89,7 @@ class SetupProgressReporter:
         """Index of the step the run failed (or would fail) at.
 
         Valid after `fail()`: the reporter stays at the failing step, so the
-        composition root can store the failure position for the §30
+        composition root can store the failure position for the
         `get_status` report (frontend setup-panel hydration).
         """
         return self._step_index
@@ -108,7 +108,7 @@ class SetupProgressReporter:
         await self._emit(percent, indeterminate=indeterminate, detail_key=detail_key)
 
     async def download_progress(self, model_id: str, received: int, total: int | None) -> None:
-        """Consume the model download feed (throttled, step 1 only, §73: no
+        """Consume the model download feed (throttled, step 1 only; no
         content — ids and byte counts only)."""
         del model_id
         if not self._active or self._step_index != 1:
@@ -135,7 +135,7 @@ class SetupProgressReporter:
         )
 
     async def fail(self, code: str) -> None:
-        """Terminal failed state at the step where startup failed (§68)."""
+        """Terminal failed state at the step where startup failed."""
         was_active = self._active
         self._active = False
         if not was_active:

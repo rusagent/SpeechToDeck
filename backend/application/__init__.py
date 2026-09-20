@@ -1,1 +1,1 @@
-"""Backend application services (spec §5)."""
+"""Backend application services."""

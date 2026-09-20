@@ -1,9 +1,9 @@
-"""Model selection and download orchestration (spec §51-§53).
+"""Model selection and download orchestration.
 
-Owns the §30 `model_download_progress` / `model_download_complete` events and
+Owns the `model_download_progress` / `model_download_complete` events and
 the user-facing download lifecycle (single in-flight download, explicit
 cancellation). Model ids are validated against the committed manifest before
-any path or URL is touched (§109).
+any path or URL is touched.
 """
 
 from __future__ import annotations
@@ -36,7 +36,7 @@ LOGGER = logging.getLogger("speech.model")
 
 
 class ModelService:
-    """Application service for the curated model set (§48)."""
+    """Application service for the curated model set."""
 
     def __init__(
         self,
@@ -48,7 +48,7 @@ class ModelService:
     ) -> None:
         self._manifest = manifest
         self._publisher = publisher
-        # §82 startup progress consumes the same throttled download feed as
+        # Startup progress consumes the same throttled download feed as
         # the `model_download_progress` events (setup_progress.py); it is
         # inert outside the startup path.
         self._setup_progress = setup_progress
@@ -62,7 +62,7 @@ class ModelService:
 
     @property
     def store(self) -> ModelStore:
-        """§51 store surface (also satisfies the §32 ModelRepository port)."""
+        """Store surface (also satisfies the ModelRepository port)."""
         return self._store
 
     async def list_models(self) -> list[dict[str, object]]:
@@ -74,20 +74,20 @@ class ModelService:
         return result
 
     async def ensure_model(self, model_id: str) -> None:
-        """Installed + digest-verified (§51); used at startup (§82)."""
+        """Installed + digest-verified; used at startup."""
         await self._store.ensure_model(model_id)
 
     async def download_model(self, model_id: str) -> None:
-        """Download one model; only one download runs at a time (§52)."""
-        self._resolve(model_id)  # fail fast on unknown/traversal ids (§109)
+        """Download one model; only one download runs at a time."""
+        self._resolve(model_id)  # fail fast on unknown/traversal ids
         task = asyncio.get_running_loop().create_task(self._store.download(model_id))
         self._download_task = task
         try:
             await task
         except ModelDownloadCancelled:
             # A cancel is user-initiated completion, not a failure: it maps to
-            # its own stable §68 code so the journal and the frontend never
-            # read it as MODEL_DOWNLOAD_FAILED (on-device v0.2.4 finding).
+            # its own stable code so the journal and the frontend never
+            # read it as MODEL_DOWNLOAD_FAILED (an on-device finding).
             raise ModelDownloadCancelledError(
                 "model download cancelled", detail=f"id={model_id}"
             ) from None
@@ -110,14 +110,14 @@ class ModelService:
 
         The path never crosses the boundary as input: the id resolves against
         the strict manifest and the store derives `<data_dir>/models/<filename>`
-        (§109 — unknown or traversal ids fail with the stable
+        (unknown or traversal ids fail with the stable
         MODEL_NOT_INSTALLED code). A download writing this model's artifact is
         a coded rejection (the same MODEL_DOWNLOAD_FAILED family the download
         lifecycle reports; the detail names the conflict for the journal). The
         selected model is rejected upstream by the Application, which owns the
         settings seam — a successful delete therefore never touches settings.
         Removing an already-absent file is an idempotent no-op reporting no
-        freedBytes (§67 optional-additive payload pattern).
+        freedBytes (optional payload fields are omitted when absent).
         """
         info = self._resolve(model_id)
         if self._store.downloading_model_id() == info.id:
@@ -133,7 +133,7 @@ class ModelService:
         return payload
 
     def cancel_download(self) -> bool:
-        """§30 `cancel_model_download`: True when a download was cancelled."""
+        """`cancel_model_download` callable: True when a download was cancelled."""
         task = self._download_task
         if task is not None and not task.done():
             task.cancel()
@@ -166,7 +166,7 @@ class ModelService:
 
 
 def _model_payload(info: ModelInfo, installed: bool) -> dict[str, object]:
-    """Wire shape for the `list_models` callable (§67: optional additive
+    """Wire shape for the `list_models` callable (optional additive
     fields are omitted when absent, matching the sizeBytes pattern)."""
     payload: dict[str, object] = {
         "id": info.id,

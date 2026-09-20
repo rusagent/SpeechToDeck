@@ -1,1 +1,1 @@
-"""Backend domain: contracts, session coordination, stable errors (spec §5)."""
+"""Backend domain: contracts, session coordination, stable errors."""

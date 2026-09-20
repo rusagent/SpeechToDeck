@@ -1,1 +1,1 @@
-"""SpeechToDeck Python backend (spec §5)."""
+"""SpeechToDeck Python backend."""

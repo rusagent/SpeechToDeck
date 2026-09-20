@@ -1,4 +1,4 @@
-"""Speech session coordination (spec §10, §34).
+"""Speech session coordination.
 
 The backend owns the single-session invariant: exactly one active speech
 session may exist, guarded by an asyncio.Lock. Frontend correctness is never
@@ -15,14 +15,14 @@ from backend.domain.errors import SessionConflictError, StaleSessionError
 
 @dataclass(frozen=True)
 class ActiveSpeechSession:
-    """Immutable record of the one active session (spec §34)."""
+    """Immutable record of the one active session."""
 
     session_id: str
     started_monotonic: float
 
 
 class SpeechSessionCoordinator:
-    """Guards the exactly-one-active-session invariant (spec §34)."""
+    """Guards the exactly-one-active-session invariant."""
 
     def __init__(self) -> None:
         self._lock = asyncio.Lock()
@@ -49,7 +49,7 @@ class SpeechSessionCoordinator:
             return self._active_session
 
     async def require(self, session_id: str) -> ActiveSpeechSession:
-        """Return the active session, which must match session_id (§11)."""
+        """Return the active session, which must match session_id."""
         async with self._lock:
             if self._active_session is None:
                 raise StaleSessionError(
