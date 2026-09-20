@@ -328,3 +328,91 @@ def test_data_dir_resolution_uses_loader_persistent_data_global(
     # path, never Path("").
     decky.DECKY_PLUGIN_RUNTIME_DIR = ""
     assert main._resolve_data_dir() == Path.home() / ".local" / "share" / "SpeechToDeck"
+
+
+def test_hanging_callable_returns_coded_failure_within_budget(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    """§71/loader-audit decision point: the loader waits for a callable reply
+    WITHOUT a timeout (loader v3.2.9 messages.py:39-44), so one hung §30
+    operation froze the panel forever ("Loading settings…" with a healthy
+    backend). Every callable now runs under its per-route §71 budget; on
+    expiry the frontend receives the normal §68 coded envelope and `_call`'s
+    single choke point logs exactly one WARNING with the callable name and
+    INTERNAL_ERROR. The budget is injected (patched table), so the test is
+    deterministic with no real-time race."""
+
+    async def scenario() -> None:
+        monkeypatch.setattr(main, "CALLABLE_BUDGET_S", {"get_status": 0.05})
+        apps = _patch_compose(monkeypatch, tmp_path)
+        plugin = main.Plugin()
+        await plugin._ensure_app()
+
+        async def hanging_get_status() -> dict[str, object]:
+            await asyncio.Event().wait()  # hangs forever
+
+        monkeypatch.setattr(apps[0], "get_status", hanging_get_status, raising=False)
+
+        with caplog.at_level(logging.WARNING, logger="plugin.lifecycle"):
+            result = await plugin.get_status()
+
+        # The coded §68 envelope, not silence: the frontend maps the code.
+        assert result == {
+            "ok": False,
+            "protocolVersion": 1,
+            "code": "INTERNAL_ERROR",
+            "detail": "budget=0.05s",
+        }
+        # Exactly one journal line names the callable, the stable code and
+        # the exceeded budget (§73-safe: no transcript, no payload text).
+        warnings = [
+            record.getMessage() for record in caplog.records if record.levelno == logging.WARNING
+        ]
+        assert warnings == ["get_status failed: INTERNAL_ERROR (budget=0.05s)"]
+
+    asyncio.run(scenario())
+
+
+def test_dispose_hang_is_bounded_and_logged(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    """§71/loader-audit decision point: a hung `Application.dispose()` used to
+    pend forever while the loader counted down its SIGTERM → SIGKILL-at-5 s
+    unload budget (loader v3.2.9 plugin.py:161-183). The facade now bounds
+    dispose at 4 s (inside that budget), keeps the detach-before-dispose
+    fail-closed ordering, logs loudly about what was skipped, and never
+    propagates the hang. The budget is injected (patched constant), so the
+    test is deterministic with no real-time race."""
+
+    async def scenario() -> None:
+        monkeypatch.setattr(main, "DISPOSE_TIMEOUT_S", 0.05)
+        apps = _patch_compose(monkeypatch, tmp_path)
+        plugin = main.Plugin()
+        await plugin._migration()
+
+        async def hanging_dispose() -> None:
+            apps[0].calls.append("dispose")
+            await asyncio.Event().wait()  # hangs forever
+
+        monkeypatch.setattr(apps[0], "dispose", hanging_dispose)
+
+        with caplog.at_level(logging.ERROR, logger="plugin.lifecycle"):
+            await plugin._unload()  # returns within the budget, no exception
+
+        # Fail-closed semantics preserved: the facade detached BEFORE the
+        # dispose attempt, and stays detached after its timeout.
+        assert plugin._app is None
+        assert plugin._disposed is True
+        assert apps[0].calls == ["migrate_settings", "dispose"]
+        errors = [
+            record.getMessage() for record in caplog.records if record.levelno == logging.ERROR
+        ]
+        assert len(errors) == 1
+        assert "dispose" in errors[0]
+        assert "incomplete" in errors[0]
+
+        # A callable after the timed-out dispose still fails closed (§68).
+        status = await plugin.get_status()
+        assert status == {"ok": False, "protocolVersion": 1, "code": "INTERNAL_ERROR"}
+
+    asyncio.run(scenario())

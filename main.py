@@ -42,6 +42,56 @@ LOGGER = logging.getLogger("plugin.lifecycle")
 
 _DATA_DIR_ENV = "SPEECHTODECK_DATA_DIR"
 
+# ── §71 budgets (loader v3.2.9 install/reload-race audit) ────────────────────
+# The loader waits for a plugin callable reply WITHOUT a timeout (loader
+# v3.2.9 messages.py:39-44) and bounds the backend only at unload: SIGTERM,
+# then SIGKILL after 5 s (plugin.py:161-183). One hung await therefore froze
+# the panel forever ("Loading settings…" with a healthy backend), and a hung
+# teardown dies mid-flight under the SIGKILL. Every §30 callable and the
+# disposal therefore run under an explicit, documented budget: no wait on any
+# callable path is unbounded (§71).
+#
+# Disposal must always fit the loader's ~5 s SIGKILL budget with margin: 4 s
+# leaves ~1 s for the loader's own shutdown bookkeeping around our teardown.
+# The facade detaches BEFORE `dispose()` (see `_dispose_app`), so after a
+# timeout we only log loudly what was left incomplete — never propagate a
+# hang.
+DISPOSE_TIMEOUT_S = 4.0
+
+# Default callable budget: covers settings/model-store/filesystem reads and
+# the daemon acknowledgement paths (each internally bounded at
+# ACK_TIMEOUT_S = 2 s, voxtype_client.py:56). Routes whose legitimate
+# worst-case latency exceeds this get explicit entries below; everything
+# unlisted uses the default.
+CALLABLE_DEFAULT_BUDGET_S = 30.0
+
+# Per-route budgets for §30 callables with legitimately longer latency
+# (§71: generous but always bounded). Keys are the callable names as passed
+# to `Plugin._call`.
+CALLABLE_BUDGET_S: dict[str, float] = {
+    # `record stop --wait` transcription scales with the recording
+    # (max(120 s, 2x recorded) + 5 s CLI grace — voxtype_client.py:74-87). The
+    # 24 h recording valve (ADR-012) is a runaway guard, not a use case, so
+    # 1 h covers ≈30 min of recorded dictation — far beyond the §74
+    # mic-button flow.
+    "stop_recording": 3600.0,
+    # `download_model` awaits the FULL download (model_service.py:79-105);
+    # 1 h covers the largest curated model (1.6 GB, defaults/models.json) at
+    # a poor-but-plausible ≈0.5 MB/s deck Wi-Fi.
+    "download_model": 3600.0,
+    # `update_settings` may drive the full §82 lifecycle transition under the
+    # lifecycle lock (composition.py:531-556): a first-run enable can download
+    # the model (with the §70 retry ladder), and every runtime-relevant change
+    # restarts the daemon with up to MODEL_WARMUP_TIMEOUT_S = 60 s warmup
+    # (composition.py:72) plus the ≤5 s §38 shutdown ladder — the same
+    # worst case as download_model.
+    "update_settings": 3600.0,
+    # `restart_runtime` re-runs the whole §82 path (composition.py:429-449):
+    # §38 shutdown + runtime verify + model ensure/download + start + 60 s
+    # warmup — the same worst case as update_settings.
+    "restart_runtime": 3600.0,
+}
+
 
 def _resolve_data_dir() -> Path:
     """Plugin data dir: explicit override → Decky persistent data → local fallback.
@@ -176,13 +226,31 @@ class Plugin:
 
         The facade detaches before awaiting `dispose()` so a callable racing
         the unload fails closed instead of touching a half-disposed backend.
+
+        §71: the dispose await is bounded at `DISPOSE_TIMEOUT_S` (4 s), inside
+        the loader's unload budget (loader v3.2.9 plugin.py:161-183: SIGTERM,
+        then SIGKILL after 5 s — 4 s leaves ~1 s of margin for the loader's
+        own shutdown bookkeeping). On expiry the operation is cancelled, the
+        detach-before-dispose ordering above has already failed the surface
+        closed, and the skipped backend teardown is logged loudly instead of
+        hanging into the SIGKILL.
         """
         app = self._app
         if app is None:
             return  # never composed (or already disposed): nothing to tear down
         self._app = None
         self._disposed = True
-        await app.dispose()
+        try:
+            await asyncio.wait_for(app.dispose(), DISPOSE_TIMEOUT_S)
+        except TimeoutError:
+            LOGGER.error(
+                "dispose did not finish within %gs (loader SIGKILLs the backend "
+                "5 s after SIGTERM): facade detached and failed closed, but the "
+                "backend teardown is incomplete — session/monitor stop, the "
+                "daemon SIGTERM/SIGKILL ladder and transcript cleanup may have "
+                "been skipped",
+                DISPOSE_TIMEOUT_S,
+            )
 
     async def _call(
         self,
@@ -203,9 +271,17 @@ class Plugin:
         not failure: it logs at INFO without "failed" wording so a routine
         cancel never reads like a network failure in the journal (on-device
         v0.2.4 finding).
+
+        §71: the operation runs under its per-route budget
+        (`CALLABLE_BUDGET_S`, default `CALLABLE_DEFAULT_BUDGET_S`); a hung
+        operation is cancelled and surfaces through this same choke point as
+        the stable §68 INTERNAL_ERROR envelope, because the loader itself
+        waits for a callable reply without a timeout (loader v3.2.9
+        messages.py:39-44).
         """
+        budget = CALLABLE_BUDGET_S.get(name, CALLABLE_DEFAULT_BUDGET_S)
         try:
-            result = await operation(await self._ensure_app())
+            result = await _budgeted(name, operation, await self._ensure_app(), budget)
         except SpeechError as error:
             detail = f" ({error.detail})" if error.detail else ""
             if error.code == ErrorCode.MODEL_DOWNLOAD_CANCELLED:
@@ -227,3 +303,27 @@ class Plugin:
 async def _restart(app: Application) -> dict[str, object]:
     await app.restart_runtime()
     return {"restarted": True}
+
+
+async def _budgeted(
+    name: str,
+    operation: Callable[[Application], Awaitable[dict[str, object]]],
+    app: Application,
+    budget: float,
+) -> dict[str, object]:
+    """Run one §30 operation under its §71 budget (loader v3.2.9 audit).
+
+    The loader waits for a callable reply without a timeout (messages.py:39-44),
+    so this budget is the only bound: on expiry the operation is cancelled and
+    re-raised as the stable §68 INTERNAL_ERROR, so `_call`'s single choke point
+    logs it once and the frontend receives a normal coded failure instead of an
+    eternal wait. The detail carries only the callable name and budget — no
+    transcript or audio content (§73).
+    """
+    try:
+        return await asyncio.wait_for(operation(app), budget)
+    except TimeoutError as error:
+        raise InternalError(
+            f"{name} exceeded its {budget:g}s callable budget",
+            detail=f"budget={budget:g}s",
+        ) from error
