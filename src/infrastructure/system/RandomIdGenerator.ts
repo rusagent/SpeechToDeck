@@ -1,5 +1,5 @@
 /**
- * Random id generator adapter (spec §7.1 session ids, §11 stale-result
+ * Random id generator adapter (session ids; backs stale-result
  * protection). Uses the platform CSPRNG when available.
  */
 

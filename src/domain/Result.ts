@@ -1,7 +1,7 @@
 /**
  * Explicit success/failure value for port methods whose failure is an expected
- * outcome rather than an exceptional condition (e.g. `BulkTextInserter.insert`,
- * spec §22). Errors inside the domain are `DictationError`; `Result` is the
+ * outcome rather than an exceptional condition (e.g. `BulkTextInserter.insert`).
+ * Errors inside the domain are `DictationError`; `Result` is the
  * transport for the ones a caller is expected to act on.
  */
 

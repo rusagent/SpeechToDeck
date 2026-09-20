@@ -1,19 +1,19 @@
 /**
- * MicrophoneButtonMount (spec §18/§66/§75/§102) — the single owner of the
- * injected React root for the keyboard microphone control (§3.5).
+ * MicrophoneButtonMount — the single owner of the
+ * injected React root for the keyboard microphone control.
  *
  * `createMicrophoneControlRenderer` implements the host adapter's renderer
  * seam: it renders a live `MicrophoneButton` into the plugin-owned node and
  * its Disposable unmounts exactly that render. Visual truth is the
- * controller's state store consumed through `useSyncExternalStore` (§102);
+ * controller's state store consumed through `useSyncExternalStore`;
  * the pushed `MicrophoneControlProps.onPress`/`visible` are honored, and the
  * pushed `active`/`busy` flags mirror the same pure model for non-store
  * consumers.
  *
  * `MicrophoneControlPresenter` is the reactive binding: it subscribes to the
  * controller store and mounts/updates/unmounts the control through the host
- * port whenever the model output meaningfully changes (§66 — the button
- * rerenders only on meaningful state changes; the §20 recording timer is the
+ * port whenever the model output meaningfully changes (the button
+ * rerenders only on meaningful state changes; the recording timer is the
  * single sanctioned exception and runs only during an active session).
  */
 
@@ -50,10 +50,10 @@ function formatElapsedMs(elapsedMs: number): string {
 }
 
 /**
- * §20/§66 recording timer: a single active-session interval that ticks only
+ * Recording timer: a single active-session interval that ticks only
  * while the acknowledged recording state is on screen and disposes on stop,
  * unmount, or session change. The label is recomputed from the session's
- * monotonic start (§7.1), never accumulated from tick counts.
+ * monotonic start, never accumulated from tick counts.
  */
 function useRecordingElapsedLabel(state: DictationState): string | undefined {
     const [, setTick] = React.useState(0);
@@ -78,7 +78,7 @@ function MicrophoneButtonBridge({
     locale,
 }: MicrophoneButtonBridgeProps): React.ReactElement | null {
     // Bound, render-stable store accessors: useSyncExternalStore requires a
-    // stable subscribe identity per store (§102).
+    // stable subscribe identity per store.
     const subscribe = React.useMemo(
         () =>
             store === null ? subscribeNever : (onChange: () => void) => store.subscribe(onChange),
@@ -115,7 +115,7 @@ const subscribeNever = (): (() => void) => () => undefined;
 const snapshotNever = (): DictationState => BOOTING_SNAPSHOT;
 
 /**
- * Creates the React-root lifecycle owner (§18). `getStore` is resolved at
+ * Creates the React-root lifecycle owner. `getStore` is resolved at
  * render time; the composition root assigns the controller before any mount
  * can happen (mounts only occur after startup reached the store).
  */
@@ -143,7 +143,7 @@ export function createMicrophoneControlRenderer(
                 dispose: () => {
                     const existing = roots.get(host);
                     if (existing === undefined) {
-                        return; // idempotent (§83)
+                        return; // idempotent
                     }
                     existing.unmount();
                     roots.delete(host);
@@ -159,7 +159,7 @@ type LastPosition =
 /**
  * Binds the controller state store to the host adapter's microphone control.
  * Shows the control only in usable states (booting/unavailable stay hidden —
- * §105: the mic button simply does not appear), and pushes §75-true
+ * the mic button simply does not appear), and pushes the model-true
  * `active`/`busy` flags derived from the same pure model.
  */
 export class MicrophoneControlPresenter implements Disposable {
@@ -202,14 +202,14 @@ export class MicrophoneControlPresenter implements Disposable {
         }
         const model = microphoneButtonModel(state);
         if (this.last.tag === "shown" && this.last.visual === model.visualState) {
-            return; // no meaningful visual change → no rerender (§66)
+            return; // no meaningful visual change → no rerender
         }
         this.mount = this.keyboardHost.mountMicrophoneControl({
             visible: true,
             active: model.visualState === "recording",
             busy: model.visualState === "processing",
-            // v0.1.7 (§99 additive): exact visual for out-of-document hosts
-            // (tab bridge) so __stdMicState receives the §75-true state.
+            // Additive: exact visual for out-of-document hosts
+            // (tab bridge) so __stdMicState receives the model-true state.
             visual: model.visualState,
             onPress: () => {
                 void this.onPress();

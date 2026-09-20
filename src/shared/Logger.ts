@@ -1,9 +1,9 @@
 /**
- * Structured, categorized logging (spec §86).
+ * Structured, categorized logging.
  *
  * Log entries carry primitives only: state kinds, stable error codes, session
  * and context ids, durations. Transcript text and other spoken content are
- * never passed into this module by application code (spec §73: never
+ * never passed into this module by application code (privacy: never
  * `Transcript: "..."`).
  */
 
@@ -36,8 +36,9 @@ export type LogSink = (entry: LogEntry) => void;
 export const nullSink: LogSink = () => undefined;
 
 /**
- * Development sink rendering the spec §86 example format; the Logger default.
- * Deliberately not exported: nothing outside this module references it.
+ * Development sink rendering `[category] message key=value` lines; the Logger
+ * default. Deliberately not exported: nothing outside this module references
+ * it.
  */
 const consoleSink: LogSink = (entry) => {
     const fields = Object.entries(entry.fields)

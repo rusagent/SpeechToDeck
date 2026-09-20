@@ -1,9 +1,9 @@
 /**
- * SteamHookRegistry — sole owner of every installed Steam hook (spec §16).
+ * SteamHookRegistry — sole owner of every installed Steam hook.
  *
- * Install preconditions (§104): the property must exist, be a callable data
+ * Install preconditions: the property must exist, be a callable data
  * property and be writable/configurable; a target+property pair may only be
- * wrapped once by this plugin at a time. Restore semantics (§16): a function
+ * wrapped once by this plugin at a time. Restore semantics: a function
  * is restored only when the currently installed function is still the wrapper
  * owned by this plugin — later modifications by other plugins are never
  * overwritten. Cleanup is idempotent.
@@ -16,7 +16,7 @@ export interface InstalledHook extends Disposable {
     readonly property: string;
 }
 
-/** Receives the original function and returns the §15-conformant wrapper. */
+/** Receives the original function and returns the lifecycle-conformant wrapper. */
 export type HookWrapperFactory = (
     original: (...args: unknown[]) => unknown,
 ) => (...args: unknown[]) => unknown;
@@ -67,7 +67,7 @@ export class SteamHookRegistry {
 
     /**
      * Wraps `target[property]` with `wrapperFactory(original)`. Returns `null`
-     * (installs nothing) when any §104 precondition fails or this plugin
+     * (installs nothing) when any install precondition fails or this plugin
      * already owns a wrapper for the same property.
      */
     install(
@@ -84,10 +84,10 @@ export class SteamHookRegistry {
             return null;
         }
         if (descriptor.writable === false || descriptor.configurable === false) {
-            return null; // do not mutate structures we cannot cleanly restore (§104)
+            return null; // do not mutate structures we cannot cleanly restore
         }
         if (this.active.get(holder)?.has(property) === true) {
-            return null; // plugin not already patched? — refuses a second wrap (§104)
+            return null; // refuses a second wrap of the same target+property
         }
 
         const original = descriptor.value as (...args: unknown[]) => unknown;

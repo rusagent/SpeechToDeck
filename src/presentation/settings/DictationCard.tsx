@@ -1,11 +1,11 @@
 /**
- * DictationCard (v0.2 owner pivot) — the QAM panel's dictation surface.
+ * DictationCard (owner pivot) — the QAM panel's dictation surface.
  *
  * Layout, top of the plugin panel: a BIG microphone button driven by the
  * SAME application state union and `MicrophoneButtonModel` semantics as the
- * keyboard mount (§75: the active indicator appears only after the start
+ * keyboard mount (the active indicator appears only after the start
  * acknowledgement and ends with the stop), presses going through the
- * controller's panel press path (§10 mutex, §8 machine, §11 stale
+ * controller's panel press path (mutex, state machine, stale-result
  * protection — all unchanged). While `recording`, the LevelVisualizer's
  * strip renders ONLY the real received `recording_level` frames (live
  * amplitude envelope from the daemon's audio.sock — a level meter, not an
@@ -21,9 +21,9 @@
  * The card's inset panels (strip frame, picker, transcript preview, copy
  * controls) share one dark-panel surface palette (`DARK_PANEL_SURFACE`).
  *
- * §61: the strip's height transitions run only while events arrive (bars
+ * The strip's height transitions run only while events arrive (bars
  * re-render on publishes, never on a timer) and are disabled under
- * `prefers-reduced-motion`. All strings via i18n (§108).
+ * `prefers-reduced-motion`. All strings via i18n.
  */
 
 import * as React from "react";
@@ -39,7 +39,7 @@ import { CodeChip } from "./CodeChip";
 import { DARK_PANEL_SURFACE, LevelVisualizer } from "./LevelVisualizer";
 
 export interface DictationCardProps {
-    /** Controller store snapshot (the §8 state union drives everything). */
+    /** Controller store snapshot (the state union drives everything). */
     readonly state: DictationState;
     /** Level store fed by the adapter's guarded `recording_level` events;
      * concrete because the card resets the window per recording session. */
@@ -83,7 +83,7 @@ export function DictationCard({
     const button = microphoneButtonModel(state);
     const recording = state.kind === "recording";
 
-    // Bound, render-store accessors (§102), same closure pattern as the panel.
+    // Bound, render-store accessors, same closure pattern as the panel.
     const subscribeLevels = React.useMemo(
         () => (onChange: () => void) => levelMeter.subscribe(onChange),
         [levelMeter],
@@ -91,7 +91,7 @@ export function DictationCard({
     const getLevels = React.useMemo(() => () => levelMeter.getSnapshot(), [levelMeter]);
     const levels = React.useSyncExternalStore(subscribeLevels, getLevels);
 
-    // Fresh level window per recording session (§75: never stale bars).
+    // Fresh level window per recording session (never stale bars).
     React.useEffect(() => {
         if (recording) {
             levelMeter.reset();
@@ -150,7 +150,7 @@ export function DictationCard({
                 {/* Strip only while recording; the style picker is always visible. */}
                 <LevelVisualizer bars={levels.bars} showStrip={recording} locale={locale} />
                 {state.kind === "error" ? (
-                    // Inline error details (§68 diagnosability): the stable
+                    // Inline error details (diagnosability): the stable
                     // code chip plus the mapped text right where the press
                     // failed — same layout as the setup-failed chip — not
                     // only in the Diagnostics section's last-error row.

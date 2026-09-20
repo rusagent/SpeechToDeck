@@ -1,5 +1,5 @@
 /**
- * SteamPasteActionAdapter (spec §26/§28 Candidate A).
+ * SteamPasteActionAdapter.
  *
  * Invokes the keyboard's own native paste semantic action — the same control
  * the Steam keyboard exposes to the user — discovered through the active
@@ -47,7 +47,7 @@ export class SteamPasteActionAdapter implements PasteActionPort {
             );
         }
         // Fresh handle at invocation time: the DOM may have changed since the
-        // clipboard write (§24 revalidation before the single paste).
+        // clipboard write (revalidation before the single paste).
         const handle = discovery.profile.locatePasteAction(discovery.keyboardDom);
         if (handle === null) {
             throw new DictationError(

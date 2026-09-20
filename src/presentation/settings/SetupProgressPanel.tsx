@@ -5,15 +5,15 @@
  * Renders the backend's `setup_progress` stream (frozen contract, guarded in
  * the adapter): four step rows with per-step state and percent, an animated
  * overall bar, a description line and — on the terminal `failed` step — the
- * mapped §68 error plus a retry control wired to the existing
+ * mapped error plus a retry control wired to the existing
  * `restart_runtime` callable path. Terminal `ready` never reaches this
  * component: the settings panel hides it as soon as the snapshot is ready.
  *
- * Motion (§20/§66): the bar width moves via CSS `transform: scaleX(...)`
+ * Motion: the bar width moves via CSS `transform: scaleX(...)`
  * with a transition; shimmer and the indeterminate slide are CSS keyframes.
  * There are no JS animation loops and no idle timers; every animation is
  * switched off under `prefers-reduced-motion`. Steps never rely on color
- * alone — each state has a distinct glyph (§107).
+ * alone — each state has a distinct glyph.
  */
 
 import * as React from "react";
@@ -309,7 +309,7 @@ export function SetupProgressPanel({
                             key={row.labelKey}
                             // Explicit accessible name: the marker glyphs are
                             // decorative and the list style is removed, so the
-                            // name must not rely on content computation (§107).
+                            // name must not rely on content computation.
                             aria-label={showPercent !== null ? `${label} ${showPercent}` : label}
                             aria-current={state === "active" ? "step" : undefined}
                             data-step-state={state}

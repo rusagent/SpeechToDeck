@@ -1,5 +1,5 @@
 /**
- * Async operation mutex (spec §10).
+ * Async operation mutex.
  *
  * Exactly one critical section runs at a time. Queued sections run after the
  * previous one settles; a failed section neither breaks the chain nor leaks

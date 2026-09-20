@@ -1,28 +1,28 @@
 /**
- * SteamKeyboardHostAdapter (spec §14) — the exclusive owner of Steam-private
+ * SteamKeyboardHostAdapter — the exclusive owner of Steam-private
  * keyboard behavior.
  *
- * Duties (§14): enumerate the per-window virtual keyboard managers from the
- * SharedJSContext window-store registry (v0.1.6), hook the §15 lifecycle
+ * Duties: enumerate the per-window virtual keyboard managers from the
+ * SharedJSContext window-store registry, hook the lifecycle
  * methods on EVERY instance, detect keyboard appearance/disappearance,
- * create a context id per appearance (§7.2), locate the safe microphone mount
+ * create a context id per appearance, locate the safe microphone mount
  * position in the owning window's document and mount the React control
  * through an injected renderer, and restore all hooks on unload.
  *
- * v0.1.6 redirect (owner decision): the mount is frontend-only through the
+ * Redirect (owner decision): the mount is frontend-only through the
  * window-store registry — no CDP dependency. The registry window instances
  * are TRANSIENT (live-probed: they exist while the keyboard is in use), so
  * enumeration re-runs on every lifecycle hook and on a slow owner-approved
- * panel-lifetime poll (§61 deviation documented in the spec update); a
+ * panel-lifetime poll; a
  * catch-up scan mounts into keyboards that appeared before their manager was
  * hookable. The still-open question is the exact document accessor from an
  * instance — the bounded candidate chain is logged so one on-device journal
  * read settles it.
  *
- * Hard boundaries: it contains no dictation logic (§14); every Steam callback
- * boundary is exception-contained (§106); hooking follows the §104
+ * Hard boundaries: it contains no dictation logic; every Steam callback
+ * boundary is exception-contained; hooking follows the install
  * preconditions; mounting appends a plugin-owned node and never replaces
- * Steam children (§18).
+ * Steam children.
  */
 
 import { DictationError } from "../../domain/DictationError";
@@ -57,10 +57,10 @@ import type {
 } from "./SteamInternalTypes";
 import { RandomIdGenerator } from "../system/RandomIdGenerator";
 
-/** Owner-approved slow re-enumeration cadence (§61 deviation, see header). */
+/** Owner-approved slow re-enumeration cadence (see header). */
 export const DEFAULT_REGISTRY_POLL_MS = 5000;
 
-/** Discovery snapshot the paste mechanism discovery consumes (§26). */
+/** Discovery snapshot the paste mechanism discovery consumes. */
 export interface SteamKeyboardDiscovery {
     readonly contextId: string;
     readonly window: SteamWindowHandle;
@@ -104,7 +104,7 @@ export interface SteamKeyboardHostAdapterOptions {
 
 type LifecycleEventType = "opened" | "closed";
 
-/** Stable degrade reasons surfaced through `getDiagnostics` (§105). */
+/** Stable degrade reasons surfaced through `getDiagnostics`. */
 export type KeyboardHostDegradeReason =
     "registry-not-found" | "manager-not-found" | "signature-not-found";
 
@@ -133,7 +133,7 @@ export class SteamKeyboardHostAdapter implements KeyboardHostPort, SteamKeyboard
     private stopped = false;
     private pollTimer: ReturnType<typeof setInterval> | null = null;
 
-    // Sticky §58 evidence: transient registry absence must not un-see facts.
+    // Sticky capability evidence: transient registry absence must not un-see facts.
     private registryEverFound = false;
     private signatureEverSeen = false;
     private documentEverResolved = false;
@@ -157,16 +157,16 @@ export class SteamKeyboardHostAdapter implements KeyboardHostPort, SteamKeyboard
             options.contexts ?? new SteamKeyboardContextFactory(new RandomIdGenerator());
     }
 
-    // ── Lifecycle (spec §13/§82) ──
+    // ── Lifecycle ──
 
     async start(): Promise<void> {
         if (this.started || this.stopped) {
             return;
         }
 
-        // §104 precondition: the Steam UI window registry signature is
+        // Install precondition: the Steam UI window registry signature is
         // reachable. Any failure fails closed with a stable error the
-        // controller maps onto the unavailable state (§105). Manager absence
+        // controller maps onto the unavailable state. Manager absence
         // alone is NOT a start failure: the live probe showed instances are
         // transient (present while the keyboard is in use), so the adapter
         // degrades through `getDiagnostics` and keeps re-enumerating.
@@ -198,7 +198,7 @@ export class SteamKeyboardHostAdapter implements KeyboardHostPort, SteamKeyboard
             this.pollTimer = null;
         }
 
-        // §83: unmount mic UI, then restore hooks. Both idempotent.
+        // Unmount mic UI, then restore hooks. Both idempotent.
         this.unmountMicrophone();
         this.micDisposable = null;
         this.micProps = null;
@@ -219,7 +219,7 @@ export class SteamKeyboardHostAdapter implements KeyboardHostPort, SteamKeyboard
         this.logger.info("keyboard host stopped");
     }
 
-    // ── KeyboardHostPort (spec §13) ──
+    // ── KeyboardHostPort ──
 
     currentContext(): KeyboardContext | null {
         return this.current;
@@ -237,8 +237,8 @@ export class SteamKeyboardHostAdapter implements KeyboardHostPort, SteamKeyboard
     /**
      * Registers the microphone control props. The control mounts as soon as a
      * supported keyboard is discovered; before that it stays pending. The
-     * returned Disposable removes the plugin-owned node and only that node
-     * (§18); calling `mountMicrophoneControl` again with fresh props updates
+     * returned Disposable removes the plugin-owned node and only that node;
+     * calling `mountMicrophoneControl` again with fresh props updates
      * the existing mount in place.
      */
     mountMicrophoneControl(props: MicrophoneControlProps): Disposable {
@@ -259,9 +259,9 @@ export class SteamKeyboardHostAdapter implements KeyboardHostPort, SteamKeyboard
     }
 
     /**
-     * §58-shaped keyboard hook facts for the capability report and the
+     * Keyboard hook facts for the capability report and the
      * diagnostics panel. `reason` is a stable lowercase code, null when the
-     * hook is fully available (§57: no optimistic assumption).
+     * hook is fully available (no optimistic assumption).
      */
     getDiagnostics(): KeyboardHostDiagnostics {
         const managersHooked = this.hookedManagers.size;
@@ -288,13 +288,13 @@ export class SteamKeyboardHostAdapter implements KeyboardHostPort, SteamKeyboard
         return this.discovery;
     }
 
-    // ── Registry lifecycle (v0.1.6) ──
+    // ── Registry lifecycle ──
 
     /**
      * One cheap, repeatable enumeration pass: hook managers that appeared,
      * prune hooks of instances that vanished, and catch up on keyboards that
      * became visible without an observed show call (the transient-instance
-     * race). Safe to call at any rate — property reads only (§61).
+     * race). Safe to call at any rate — property reads only.
      */
     refreshRegistry(): void {
         if (this.stopped) {
@@ -322,23 +322,23 @@ export class SteamKeyboardHostAdapter implements KeyboardHostPort, SteamKeyboard
             // No pruning of vanished instances: their wrappers may live on a
             // shared prototype holder, and a premature restore could unhook a
             // method other live instances still route through. Wrappers on
-            // dead objects are unreachable and bounded per session (§65);
+            // dead objects are unreachable and bounded per session;
             // stop() disposes everything.
 
             this.catchUpVisibleKeyboard();
         } catch (error) {
-            // §106: re-enumeration must never propagate into Steam UI code.
+            // Re-enumeration must never propagate into Steam UI code.
             this.logger.error("registry refresh failed", {
                 detail: error instanceof Error ? error.message : String(error),
             });
         }
     }
 
-    // ── Hook plumbing (spec §15/§16/§104) ──
+    // ── Hook plumbing ──
 
     /**
-     * §15 wrappers on one manager instance. Returns false (installing
-     * nothing) when any §104 precondition fails; the instance is simply not
+     * Lifecycle wrappers on one manager instance. Returns false (installing
+     * nothing) when any install precondition fails; the instance is simply not
      * hookable and the failure degrades through diagnostics.
      */
     private installLifecycleHooks(manager: SteamVirtualKeyboardManager): boolean {
@@ -363,10 +363,10 @@ export class SteamKeyboardHostAdapter implements KeyboardHostPort, SteamKeyboard
     }
 
     /**
-     * §15 wrapper factory: preserves original arguments, `this`, return value
-     * and exception behavior; the lifecycle notification happens in a
+     * Lifecycle wrapper factory: preserves original arguments, `this`, return
+     * value and exception behavior; the lifecycle notification happens in a
      * `queueMicrotask` after the original succeeded, and the notification
-     * itself is exception-contained (§106).
+     * itself is exception-contained.
      */
     private lifecycleWrapper(eventType: LifecycleEventType): HookWrapperFactory {
         // eslint-disable-next-line @typescript-eslint/no-this-alias
@@ -399,7 +399,7 @@ export class SteamKeyboardHostAdapter implements KeyboardHostPort, SteamKeyboard
         }
     }
 
-    // ── Keyboard appearance (spec §14/§17/§18) ──
+    // ── Keyboard appearance ──
 
     private async handleKeyboardOpened(): Promise<void> {
         if (this.discovering) {
@@ -429,7 +429,7 @@ export class SteamKeyboardHostAdapter implements KeyboardHostPort, SteamKeyboard
      * Mounts into a visible supported keyboard, scanning every registry
      * window document (the keyboard may live in a foreign gamepadui window)
      * plus the plugin's own document as fallback. `source` distinguishes the
-     * §15 show-hook path (the manager call is itself the visibility evidence)
+     * show-hook path (the manager call is itself the visibility evidence)
      * from the catch-up path, which requires the verified visibility class.
      */
     private mountVisibleKeyboard(source: "hook" | "catch-up"): void {
@@ -442,10 +442,10 @@ export class SteamKeyboardHostAdapter implements KeyboardHostPort, SteamKeyboard
         }
         const { entry, windowHandle, keyboardDom, profile, visible } = scan;
         if (source === "catch-up" && !visible) {
-            return; // catch-up mounts only a provably visible keyboard (§58)
+            return; // catch-up mounts only a provably visible keyboard
         }
 
-        // Fresh appearance → fresh context id (§7.2).
+        // Fresh appearance → fresh context id.
         this.teardownPreviousAppearance();
         const context = this.contexts.create(entry?.token ?? "own-window", true);
         this.discovery = {
@@ -489,8 +489,8 @@ export class SteamKeyboardHostAdapter implements KeyboardHostPort, SteamKeyboard
     /**
      * One keyboard scan across all registry window documents plus the
      * plugin's own document. `requireVisibleClass` is the catch-up rule; the
-     * §15 hook path relaxes it because the manager call is the primary
-     * evidence (§15) and the class toggle is corroborating (§60).
+     * show-hook path relaxes it because the manager call is the primary
+     * evidence and the class toggle is corroborating.
      */
     private scanForKeyboard(requireVisibleClass: boolean): {
         entry: SteamUiWindowEntry | null;
@@ -558,7 +558,7 @@ export class SteamKeyboardHostAdapter implements KeyboardHostPort, SteamKeyboard
      * Removes the previous appearance's owned node and discovery state. When
      * a repeat appearance arrives without an intervening hidden notification,
      * the stale context is closed explicitly so consumers see the complete
-     * closed→opened context sequence (§7.2).
+     * closed→opened context sequence.
      */
     private teardownPreviousAppearance(): void {
         this.unmountMicrophone();
@@ -572,7 +572,7 @@ export class SteamKeyboardHostAdapter implements KeyboardHostPort, SteamKeyboard
         }
     }
 
-    // ── Microphone mount (spec §18) ──
+    // ── Microphone mount ──
 
     private remountMicrophone(): void {
         if (this.micProps === null || this.discovery === null) {
@@ -592,12 +592,12 @@ export class SteamKeyboardHostAdapter implements KeyboardHostPort, SteamKeyboard
         }
         const hostNode = ownerDocument.createElement("div");
         hostNode.setAttribute(MIC_ROOT_ATTRIBUTE, "");
-        mountPoint.appendChild(hostNode); // append-only: Steam children untouched (§18)
+        mountPoint.appendChild(hostNode); // append-only: Steam children untouched
 
         try {
             this.micRenderDisposable = this.renderer.render(hostNode, this.micProps);
         } catch (error) {
-            // §106: a broken renderer must not propagate into Steam UI code.
+            // A broken renderer must not propagate into Steam UI code.
             hostNode.remove();
             this.micHostNode = null;
             this.logger.error("microphone renderer failed", { detail: describeError(error) });
@@ -610,14 +610,14 @@ export class SteamKeyboardHostAdapter implements KeyboardHostPort, SteamKeyboard
     private unmountMicrophone(): void {
         this.micRenderDisposable?.dispose();
         this.micRenderDisposable = null;
-        // Removes exactly the plugin-owned node; Steam children stay (§18).
+        // Removes exactly the plugin-owned node; Steam children stay.
         if (this.micHostNode !== null) {
             this.micHostNode.remove();
             this.micHostNode = null;
         }
     }
 
-    // ── Listener dispatch (§106 exception containment) ──
+    // ── Listener dispatch (exception containment) ──
 
     private emit(event: KeyboardHostEvent): void {
         for (const listener of [...this.listeners]) {

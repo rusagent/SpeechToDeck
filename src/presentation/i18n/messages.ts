@@ -1,12 +1,12 @@
 /**
- * Translation dictionaries (spec §108).
+ * Translation dictionaries.
  *
  * Every user-visible frontend string lives here — no strings buried in
  * components, adapters or services. English and German are complete; the
  * `Record<MessageKey, string>` shape makes the compiler reject a locale that
  * misses a key, so additional languages can be added without code changes
- * elsewhere. UI text for errors is mapped from stable §68 codes only —
- * frontend logic never parses exception strings (§68).
+ * elsewhere. UI text for errors is mapped from stable error codes only —
+ * frontend logic never parses exception strings.
  */
 
 import type { DictationErrorCode } from "../../domain/DictationError";
@@ -31,7 +31,7 @@ export const EN_MESSAGES = {
     "setting.loadFailed": "Backend is not responding.",
     "setting.loadFailedHint":
         "Close and reopen this panel. If it persists, reload the plugin and open it again.",
-    // Install-wedge self-heal (v0.2.9): shown in the failed state after the
+    // Install-wedge self-heal: shown in the failed state after the
     // one-time loader reload fired (two consecutive load-deadline timeouts).
     "setting.loadFailedReloading": "Reloading the plugin backend …",
 
@@ -110,9 +110,9 @@ export const EN_MESSAGES = {
     "mic.label.ready": "Start voice input",
     "mic.label.recording": "Recording - press to stop",
     "mic.label.processing": "Processing…",
-    // The concrete §68 code chip plus the mapped text render right on the
-    // card's error line; the label stays generic (the old wording pointed to
-    // the removed Diagnostics section, 40768ed).
+    // The concrete error-code chip plus the mapped text render right on the
+    // card's error line; the label stays generic (naming a failure mode here
+    // read like an error the user must act on).
     "mic.label.error": "Voice input error",
 
     "dictation.level.label": "Live microphone level",
@@ -246,7 +246,7 @@ export const MESSAGES: Record<Locale, Record<MessageKey, string>> = {
     de: DE_MESSAGES,
 };
 
-/** Error-code → UI text mapping (§68). Complete over all stable codes. */
+/** Error-code → UI text mapping. Complete over all stable codes. */
 export const ERROR_MESSAGES: Record<Locale, Record<DictationErrorCode, string>> = {
     en: {
         STEAM_KEYBOARD_NOT_FOUND: "Steam keyboard not found.",
@@ -324,7 +324,7 @@ export function translate(locale: Locale, key: MessageKey): string {
 }
 
 /**
- * Message keys of the curated catalog display names (ADR-011). Model names
+ * Message keys of the curated catalog display names. Model names
  * are product identifiers; the German locale only localizes the language
  * adjectives. An id without a curated key (an older backend catalog) renders
  * as the raw id instead of an empty string.
@@ -358,7 +358,7 @@ export function translateError(locale: Locale, code: DictationErrorCode): string
     return ERROR_MESSAGES[locale][code];
 }
 
-/** Accessible names for the microphone visual states (§107). */
+/** Accessible names for the microphone visual states. */
 export type MicrophoneLabelState = "ready" | "recording" | "processing" | "error";
 
 export function translateMicLabel(locale: Locale, state: MicrophoneLabelState): string {

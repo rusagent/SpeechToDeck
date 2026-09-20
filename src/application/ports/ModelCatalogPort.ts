@@ -1,12 +1,12 @@
 /**
- * Curated model catalog port (ADR-011): the backend's `list_models` callable
+ * Curated model catalog port: the backend's `list_models` callable
  * plus the `model_download_progress` / `model_download_complete` events with
- * their manual boundary type guards (§99) and the small dedicated store the
+ * their manual boundary type guards and the small dedicated store the
  * plugin panel's ModelSelect (dropdown + download modal) consumes.
  *
  * Like setup progress and the level meter this is transport-level UI state:
- * it never enters the dictation state machine (§8) and is observed only by
- * the settings panel through `useSyncExternalStore` (§102). Invalid payloads
+ * it never enters the dictation state machine and is observed only by
+ * the settings panel through `useSyncExternalStore`. Invalid payloads
  * are dropped by the adapter (count-logged), never rendered.
  */
 
@@ -20,11 +20,11 @@ export interface CatalogModel {
     readonly sizeBytes?: number;
     /** Language codes a specialized model was built for; absent = general. */
     readonly languages?: readonly string[];
-    /** One short English sentence from the manifest (ADR-011). */
+    /** One short English sentence from the manifest. */
     readonly description?: string;
 }
 
-/** Versioned `model_download_progress` payload (§67). */
+/** Versioned `model_download_progress` payload. */
 export interface ModelDownloadProgressPayload {
     readonly protocolVersion: 1;
     readonly modelId: string;
@@ -32,7 +32,7 @@ export interface ModelDownloadProgressPayload {
     readonly totalBytes: number | null;
 }
 
-/** Versioned `model_download_complete` payload (§67). */
+/** Versioned `model_download_complete` payload. */
 export interface ModelDownloadCompletePayload {
     readonly protocolVersion: 1;
     readonly modelId: string;
@@ -43,7 +43,7 @@ function isRecord(value: unknown): value is Record<string, unknown> {
     return typeof value === "object" && value !== null;
 }
 
-/** Manual type guard for one `list_models` entry (§99). */
+/** Manual type guard for one `list_models` entry. */
 export function isCatalogModel(value: unknown): value is CatalogModel {
     if (!isRecord(value)) {
         return false;
@@ -73,7 +73,7 @@ export function isCatalogModel(value: unknown): value is CatalogModel {
     );
 }
 
-/** Manual type guard for the versioned `list_models` response (§99). */
+/** Manual type guard for the versioned `list_models` response. */
 export function isModelCatalogPayload(
     value: unknown,
 ): value is { readonly protocolVersion: 1; readonly models: CatalogModel[] } {
@@ -83,7 +83,7 @@ export function isModelCatalogPayload(
     return (value["models"] as unknown[]).every(isCatalogModel);
 }
 
-/** Manual type guard for `model_download_progress` payloads (§99). */
+/** Manual type guard for `model_download_progress` payloads. */
 export function isModelDownloadProgressPayload(
     value: unknown,
 ): value is ModelDownloadProgressPayload {
@@ -101,7 +101,7 @@ export function isModelDownloadProgressPayload(
     );
 }
 
-/** Manual type guard for `model_download_complete` payloads (§99). */
+/** Manual type guard for `model_download_complete` payloads. */
 export function isModelDownloadCompletePayload(
     value: unknown,
 ): value is ModelDownloadCompletePayload {
@@ -122,7 +122,7 @@ export function isModelDownloadCompletePayload(
 }
 
 /**
- * The single in-flight download (§52: one download at a time). After a
+ * The single in-flight download (one download at a time). After a
  * successful completion the state deliberately HOLDS the final 100% frame
  * of the settled download (honest completion: the modal shows the full bar
  * during its short completion hold) until the next download's first
@@ -135,18 +135,18 @@ export interface ModelDownloadState {
 }
 
 /**
- * The last FAILED download attempt (v0.2.5): the backend detail string plus
+ * The last FAILED download attempt: the backend detail string plus
  * the model it belonged to, surfaced by the download modal's error state.
  * Cancellations never land here — they are user-initiated completion, not
  * failure. Cleared when the next download starts or completes.
  */
 export interface ModelDownloadFailure {
     readonly modelId: string;
-    /** Backend-provided diagnosable detail (§73-safe), null when absent. */
+    /** Backend-provided diagnosable detail (privacy-safe: no transcript content), null when absent. */
     readonly detail: string | null;
 }
 
-/** Immutable render snapshot of the catalog panel (§102: stable identity). */
+/** Immutable render snapshot of the catalog panel (stable identity for React). */
 export interface ModelCatalogSnapshot {
     readonly models: readonly CatalogModel[];
     readonly download: ModelDownloadState | null;
@@ -160,8 +160,8 @@ export const EMPTY_MODEL_CATALOG: ModelCatalogSnapshot = {
 };
 
 /**
- * Minimal external store for the catalog + download state (§102 shape:
- * `getSnapshot`/`subscribe` pair consumed by `useSyncExternalStore`).
+ * Minimal external store for the catalog + download state (external-store
+ * shape: `getSnapshot`/`subscribe` pair consumed by `useSyncExternalStore`).
  * Structurally compatible with `StateStore<T>`; the adapter owns payload
  * validation and calls the publish methods with guarded payloads only.
  */
@@ -276,7 +276,7 @@ export interface ModelCatalogPort {
     /** Loads the curated catalog into the store and returns it. */
     list(): Promise<readonly CatalogModel[]>;
 
-    /** Starts the single-flight download for one model (§52). */
+    /** Starts the single-flight download for one model. */
     download(modelId: string): Promise<void>;
 
     /** Cancels the active download, if any. */

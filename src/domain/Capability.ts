@@ -1,14 +1,14 @@
 /**
- * Capability model (spec §57) and the per-mechanism probe results returned by
- * the output ports (spec §22/§25/§26).
+ * Capability model and the per-mechanism probe results returned by
+ * the output ports.
  *
- * Capability detection never modifies user text (spec §58) and makes no
- * optimistic assumption (§57): availability is reported, never assumed.
+ * Capability detection never modifies user text and makes no optimistic
+ * assumption: availability is reported, never assumed.
  */
 
 export interface ClipboardCapability {
     readonly available: boolean;
-    /** Maximum transcript size the clipboard path accepts, UTF-8 bytes (§25: 16 KiB). */
+    /** Maximum transcript size the clipboard path accepts, UTF-8 bytes (16 KiB). */
     readonly maxTextBytes: number;
 }
 
@@ -17,7 +17,7 @@ export interface PasteCapability {
 }
 
 export interface BulkInsertionCapability {
-    /** A usable insertion path exists: direct insert, or degraded clipboard-only (§28 Candidate C). */
+    /** A usable insertion path exists: direct insert, or degraded clipboard-only. */
     readonly available: boolean;
     /** The one-shot direct-insert path (clipboard write + native paste on a verified context) is usable. */
     readonly directInsert: boolean;
@@ -42,27 +42,22 @@ export interface RuntimeCapabilities {
 }
 
 /**
- * Keyboard-side capability report of the per-session probe (spec §58.1-§58.5).
+ * Keyboard-side capability report of the per-session probe.
  * The domain owns the shape; the infrastructure probe implements it, so
- * consumers never import Steam internals (§3.1).
+ * consumers never import Steam internals.
  */
 export interface KeyboardCapabilityReport {
-    /** §58.1 */
     readonly windowReachable: boolean;
-    /** §58.2 */
     readonly managerRecognizable: boolean;
-    /** §58.3 */
     readonly keyboardSignatureSupported: boolean;
-    /** §58.4 */
     readonly clipboardUsable: boolean;
-    /** §58.5 */
     readonly nativePasteRecognized: boolean;
-    /** Conjunction of the keyboard-side checks (§58.1-§58.3). */
+    /** Conjunction of the keyboard-side DOM checks. */
     readonly supported: boolean;
     readonly profileId: string | null;
 }
 
-/** The `directInsertAvailable` conjunction, verbatim spec §57. */
+/** The `directInsertAvailable` conjunction. */
 export function directInsertAvailable(
     input: Pick<
         RuntimeCapabilities,
@@ -84,7 +79,7 @@ const RUNTIME_CAPABILITY_KEYS = [
     "directInsertAvailable",
 ] as const;
 
-/** Manual type guard for the capability report crossing a boundary (spec §99). */
+/** Manual type guard for the capability report crossing a boundary. */
 export function isRuntimeCapabilities(value: unknown): value is RuntimeCapabilities {
     if (typeof value !== "object" || value === null) {
         return false;

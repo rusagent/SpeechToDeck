@@ -1,23 +1,23 @@
 /**
- * DictationController — the application orchestrator (spec §9).
+ * DictationController — the application orchestrator.
  *
- * Responsibilities (§9): owns the current application state (§8 union, exposed
- * as a `StateStore` for `useSyncExternalStore`, §102), creates sessions,
- * serializes microphone actions through an async operation mutex (§10),
- * dispatches state-machine effects, rejects stale backend results by session id
- * (§11) and verifies the keyboard context before insertion (§7.2/§12).
+ * Responsibilities: owns the current application state (exposed as a
+ * `StateStore` for `useSyncExternalStore`), creates sessions, serializes
+ * microphone actions through an async operation mutex, dispatches
+ * state-machine effects, rejects stale backend results by session id, and
+ * verifies the keyboard context before insertion.
  *
- * MUST NOT (§9): know DOM selectors, Steam internals, spawn processes, know
- * file paths, or call Decky directly — it only sees the ports.
+ * MUST NOT: know DOM selectors, Steam internals, spawn processes, know file
+ * paths, or call Decky directly — it only sees the ports.
  *
- * Public API beyond the §9 sketch, each required by a spec mandate that has no
- * other entry point:
- * - `requestCancel()` — §72 makes cancellation first-class and §87 requires
- *   cancel-during-recording/transcription flows.
- * - `dismissError()` — §69 recoverable errors return to ready after the user
+ * Public API beyond the basic press flow, each required by a product mandate
+ * that has no other entry point:
+ * - `requestCancel()` — cancellation is first-class and must be available
+ *   during recording/transcription flows.
+ * - `dismissError()` — recoverable errors return to ready after the user
  *   acknowledged them (the machine's ERROR_DISMISSED edge).
- * - `getLastSuppressedTranscript()` — §12 allows retaining a suppressed
- *   transcript so the plugin panel can offer manual copy.
+ * - `getLastSuppressedTranscript()` — a suppressed transcript is retained so
+ *   the plugin panel can offer manual copy.
  */
 
 import type { RuntimeCapabilities } from "../domain/Capability";
@@ -47,7 +47,7 @@ import type {
     TranscriptReadyPayload,
 } from "./ports/SpeechPort";
 
-/** Minimal external store consumable through `useSyncExternalStore` (spec §102). */
+/** Minimal external store consumable through `useSyncExternalStore`. */
 export interface StateStore<T> {
     getSnapshot(): T;
 
@@ -62,9 +62,10 @@ function describeError(error: unknown): string {
 export type TimeoutHandle = ReturnType<typeof setTimeout>;
 
 /**
- * Boot watchdog budget (§71: no wait is unbounded). When the loader's plugin
- * registration is torn, every §30 callable hangs and the card would sit in
- * `booting` forever with a dead button (deck 2026-09-18). Generous enough
+ * Boot watchdog budget: no startup wait is unbounded. When the loader's
+ * plugin registration is torn, every backend callable hangs and the card
+ * would sit in `booting` forever with a dead button (deck 2026-09-18).
+ * Generous enough
  * for a real cold start (settings load, hook install, backend init); tests
  * inject manual scheduling and never wait.
  */
@@ -108,13 +109,13 @@ export class DictationController implements Disposable, StateStore<DictationStat
         private readonly clock: ClockPort,
         private readonly ids: IdGeneratorPort,
         // No-op by default: application code stays silent unless composition
-        // wires a real sink (spec §86). Not an infrastructure dependency.
+        // wires a real sink. Not an infrastructure dependency.
         private readonly logger: Logger = new Logger("dictation.session", nullSink),
-        // §71 boot watchdog scheduling; injectable for deterministic tests.
+        // Boot watchdog scheduling; injectable for deterministic tests.
         private readonly startupTimer: StartupTimerSeam = defaultStartupTimer,
     ) {}
 
-    // ── StateStore (spec §102) ──
+    // ── StateStore ──
 
     getSnapshot(): DictationState {
         return this.state;
@@ -128,14 +129,15 @@ export class DictationController implements Disposable, StateStore<DictationStat
     }
 
     /**
-     * Transcript retained after §12 suppression so the plugin panel can offer
+     * Transcript retained after keyboard-context suppression so the plugin
+     * panel can offer
      * manual copy; never logged, never inserted.
      */
     getLastSuppressedTranscript(): string | null {
         return this.suppressedTranscript;
     }
 
-    // ── Lifecycle (spec §9, §82) ──
+    // ── Lifecycle ──
 
     async start(): Promise<void> {
         if (this.started || this.disposed) {
@@ -143,7 +145,7 @@ export class DictationController implements Disposable, StateStore<DictationStat
         }
         this.started = true;
 
-        // §71: the whole §82 startup sequence is bounded. When the loader's
+        // The whole startup sequence is bounded. When the loader's
         // plugin registration is torn, every callable below hangs and the card
         // would sit in `booting` forever with a dead button (deck 2026-09-18);
         // expiry reports the existing SPEECH_RUNTIME_UNAVAILABLE path instead.
@@ -165,17 +167,17 @@ export class DictationController implements Disposable, StateStore<DictationStat
                 }
             });
 
-            // §82 order: load settings → install keyboard hook → initialize
-            // speech runtime (backend init incl. model). The hook install MUST
-            // NOT wait for model loading, so the keyboard host starts first.
+            // Startup order: load settings → install keyboard hook →
+            // initialize speech runtime (backend init incl. model). The hook
+            // install MUST NOT wait for model loading, so the keyboard host
+            // starts first.
             //
-            // v0.2.2 (on-device regression fix): a failed hook does NOT abort
-            // startup. The QAM panel flow needs no keyboard injection; a
-            // broken hook only leaves the in-keyboard button dormant and
-            // degrades through the §58 diagnostics consumed by the capability
-            // report.
+            // On-device regression fix: a failed hook does NOT abort startup.
+            // The QAM panel flow needs no keyboard injection; a broken hook
+            // only leaves the in-keyboard button dormant and degrades through
+            // the diagnostics consumed by the capability report.
             // The load itself stays load-bearing: a failure must fail startup
-            // with SETTINGS_LOAD_FAILED (§82), and the loaded `enabled` flag
+            // with SETTINGS_LOAD_FAILED, and the loaded `enabled` flag
             // drives the startup outcome.
             let loadedSettings: PluginSettings;
             try {
@@ -226,7 +228,7 @@ export class DictationController implements Disposable, StateStore<DictationStat
         if (this.disposed) {
             return;
         }
-        this.disposed = true; // new microphone presses are rejected from here on (§83)
+        this.disposed = true; // new microphone presses are rejected from here on
 
         this.clearStartupWatchdog();
 
@@ -246,7 +248,7 @@ export class DictationController implements Disposable, StateStore<DictationStat
         this.listeners.clear();
     }
 
-    // ── Microphone and keyboard interaction (spec §9) ──
+    // ── Microphone and keyboard interaction ──
 
     async handleMicrophonePressed(): Promise<void> {
         if (this.disposed) {
@@ -254,7 +256,7 @@ export class DictationController implements Disposable, StateStore<DictationStat
         }
         const kind = this.state.kind;
         if (kind !== "ready" && kind !== "recording") {
-            // Transient/terminal states ignore presses without queueing (§10).
+            // Transient/terminal states ignore presses without queueing.
             return;
         }
         await this.mutex.runExclusive(async () => {
@@ -278,19 +280,18 @@ export class DictationController implements Disposable, StateStore<DictationStat
             if (current.kind === "recording") {
                 this.apply({ type: "MICROPHONE_PRESSED" });
             }
-            // Any state re-checked under the lock stays ignored (§10).
+            // Any state re-checked under the lock stays ignored.
         });
     }
 
     /**
-     * Panel press (additive v0.2, owner pivot): the QAM dictation card's
-     * big button. Same serialized press path — the §10 mutex, the §8
-     * machine, §11 stale protection are all identical — but a press with NO
-     * keyboard context starts a clipboard-flow session
-     * (`keyboardContextId: null`): its transcript is never inserted, the
-     * §12 suppression retains it for the panel, and the system-clipboard
-     * leg carries it to the Steam keyboard's Paste key. The keyboard-mount
-     * press semantics above are unchanged.
+     * Panel press: the QAM dictation card's big button. Same serialized
+     * press path — the operation mutex, the state machine, and stale-result
+     * protection are all identical — but a press with NO keyboard context
+     * starts a clipboard-flow session (`keyboardContextId: null`): its
+     * transcript is never inserted, suppression retains it for the panel,
+     * and the system-clipboard leg carries it to the Steam keyboard's Paste
+     * key. The keyboard-mount press semantics above are unchanged.
      */
     async handlePanelMicrophonePressed(): Promise<void> {
         if (this.disposed) {
@@ -330,7 +331,7 @@ export class DictationController implements Disposable, StateStore<DictationStat
         });
     }
 
-    /** First-class cancellation (spec §72). Safe in every state. */
+    /** First-class cancellation. Safe in every state. */
     async requestCancel(): Promise<void> {
         if (this.disposed) {
             return;
@@ -340,12 +341,12 @@ export class DictationController implements Disposable, StateStore<DictationStat
         });
     }
 
-    /** Acknowledge a recoverable error and return to ready (spec §69). */
+    /** Acknowledge a recoverable error and return to ready. */
     dismissError(): void {
         this.apply({ type: "ERROR_DISMISSED" });
     }
 
-    // ── Speech port events (spec §11/§12 stale protection) ──
+    // ── Speech port events (stale-result and suppression handling) ──
 
     private onSpeechEvent(event: SpeechEvent): void {
         switch (event.type) {
@@ -366,14 +367,14 @@ export class DictationController implements Disposable, StateStore<DictationStat
     private onTranscriptReady(payload: TranscriptReadyPayload): void {
         const session = extractSession(this.state);
         if (session === null || payload.sessionId !== session.sessionId) {
-            // Stale result: never injected (§11).
+            // Stale result: never injected.
             this.logger.info("stale transcript discarded", { sessionId: payload.sessionId });
             return;
         }
         const context = this.keyboard.currentContext();
         if (context === null || context.id !== session.keyboardContextId) {
             // Keyboard closed/gone while transcribing: suppress insertion and
-            // retain the transcript for manual copy (§12).
+            // retain the transcript for manual copy.
             this.suppressedTranscript = payload.text;
             this.logger.info("transcript suppressed: keyboard context changed", {
                 sessionId: session.sessionId,
@@ -428,7 +429,7 @@ export class DictationController implements Disposable, StateStore<DictationStat
      * recoverable error on the card even after the runtime reported ready
      * again. A `runtime_status` ready report clears that staleness through
      * the machine's ERROR_DISMISSED edge: fatal errors stay (the machine
-     * rejects the edge for them, §69) and a NEW failing press still produces
+     * rejects that edge for them) and a NEW failing press still produces
      * its own error state — only staleness clears, never honesty.
      */
     private clearStaleErrorOnRuntimeReady(): void {
@@ -467,7 +468,7 @@ export class DictationController implements Disposable, StateStore<DictationStat
                         this.speechFailed(effect.sessionId, error, "RECORDING_START_FAILED");
                         break;
                     }
-                    // Promise resolution is the start acknowledgement (§75).
+                    // Promise resolution is the start acknowledgement.
                     this.apply({ type: "RECORDING_STARTED", sessionId: effect.sessionId });
                     break;
                 }
@@ -483,7 +484,7 @@ export class DictationController implements Disposable, StateStore<DictationStat
                 }
                 case "CANCEL_RECORDING": {
                     // Best-effort; cancellation discards the result and emits no
-                    // transcript (§72). A late result is stale (§11).
+                    // transcript. A late result is stale.
                     try {
                         await this.speech.cancelRecording(effect.sessionId);
                     } catch (error) {
@@ -520,7 +521,7 @@ export class DictationController implements Disposable, StateStore<DictationStat
         if (session === null || session.sessionId !== sessionId) {
             return;
         }
-        // Context is verified again immediately before insertion (§9, §24 step 2).
+        // Context is verified again immediately before insertion.
         const context = this.keyboard.currentContext();
         if (context === null || context.id !== session.keyboardContextId) {
             this.suppressedTranscript = text;
@@ -532,7 +533,7 @@ export class DictationController implements Disposable, StateStore<DictationStat
         try {
             outcome = await this.inserter.insert(context, text);
         } catch (error) {
-            // The inserter contract reports failures as Result values (§22);
+            // The inserter contract reports failures as Result values;
             // an escaping exception is mapped to the closest stable code.
             outcome = err(
                 new DictationError("CLIPBOARD_WRITE_FAILED", describeError(error), {
@@ -551,16 +552,16 @@ export class DictationController implements Disposable, StateStore<DictationStat
         }
     }
 
-    // ── Capability report (spec §57) ──
+    // ── Capability report ──
 
     private async buildRuntimeCapabilities(
         speech: SpeechCapabilities,
     ): Promise<RuntimeCapabilities> {
-        // v0.1.6: derive keyboardHookAvailable from the host's §58-shaped
+        // Derive keyboardHookAvailable from the host's keyboard-hook
         // diagnostics when the implementation reports them — a registry or
-        // signature miss degrades the capability honestly (§57: no optimistic
-        // assumption, §105). Hosts without the optional surface (older or
-        // simpler doubles) keep the pre-0.1.6 behavior: start() resolved, so
+        // signature miss degrades the capability honestly (no optimistic
+        // assumption). Hosts without the optional surface (older or
+        // simpler doubles) keep the previous behavior: start() resolved, so
         // the hook is installed.
         const diagnostics =
             typeof this.keyboard.getDiagnostics === "function"
@@ -576,7 +577,7 @@ export class DictationController implements Disposable, StateStore<DictationStat
                 clipboardAvailable = insertion.directInsert || insertion.clipboardOnly;
                 nativePasteAvailable = insertion.directInsert;
             } catch (error) {
-                // No optimistic assumption (§57): a failed probe reports false.
+                // No optimistic assumption: a failed probe reports false.
                 this.logger.warn("insertion probe failed", { detail: describeError(error) });
             }
         }
@@ -598,7 +599,7 @@ export class DictationController implements Disposable, StateStore<DictationStat
     }
 
     /**
-     * Applies a startup outcome unless the §71 watchdog already expired: a
+     * Applies a startup outcome unless the boot watchdog already expired: a
      * late resolution (or late failure) after expiry must never flip the
      * reported state back — the machine may legally take STARTUP_COMPLETED
      * from `unavailable`, so the guard lives here, not in the machine.

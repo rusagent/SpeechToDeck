@@ -1,5 +1,5 @@
 /**
- * ModelSelect (spec §48/§54/§80, ADR-011; v0.2.6 rework) — the curated model
+ * ModelSelect — the curated model
  * catalog as one dropdown over ALL catalog models in fixed groups: the
  * "General" group (models WITHOUT `languages`) plus one group per language
  * with native labels (Deutsch, English, Français, 日本語 — locale-invariant
@@ -25,7 +25,7 @@
  * after the close, so the restart fires once. While downloading, the
  * Cancel — or any dismissal — cancels the download and persists nothing.
  * Failures flip the modal to an error state carrying the backend detail
- * string. The backend runs one download at a time (§52); the open modal
+ * string. The backend runs one download at a time; the open modal
  * blocks any second start by construction.
  */
 
@@ -48,14 +48,14 @@ import { modelDisplayName, translate } from "../i18n/messages";
 import type { Locale, MessageKey } from "../i18n/messages";
 import { FieldHint } from "./FieldHint";
 
-/** General-purpose models the catalog highlights as recommended (ADR-011). */
+/** General-purpose models the catalog highlights as recommended. */
 const RECOMMENDED_MODEL_IDS: readonly string[] = [
     "whisper-large-v3-turbo-q5_0",
     "whisper-large-v3-turbo",
 ];
 
 /**
- * Native endonyms for the curated language groups (ADR-011): the SAME
+ * Native endonyms for the curated language groups: the SAME
  * string in every UI locale — a language group is labeled in its own
  * language, not the UI's. A catalog language without a curated key renders
  * as the raw code instead of an empty label.
@@ -141,7 +141,7 @@ function ModelDownloadModal({
     onDismissRequest,
 }: ModalBodyProps): React.ReactElement {
     // The modal renders in Steam's modal root, OUTSIDE the panel tree: it
-    // observes the store directly (§102 pattern) so live progress and settle
+    // observes the store directly so live progress and settle
     // paths reach it without prop drilling through the imperative showModal
     // boundary.
     const subscribe = React.useMemo(() => (cb: () => void) => store.subscribe(cb), [store]);
@@ -192,7 +192,7 @@ function ModelDownloadModal({
         [],
     );
 
-    // v0.2.5 on-device fix: the modal body MUST be Steam's modal structure.
+    // On-device fix: the modal body MUST be Steam's modal structure.
     // showModal mounts its ReactNode RAW into the fullscreen
     // ModalOverlayContent (verified on device via CDP and in the Steam client
     // bundle, steamui chunk~2dcc5aaf7.js module 35376/46701): a bare div
@@ -409,7 +409,7 @@ export function ModelSelect({
         }
         const model = snapshot.models.find((candidate) => candidate.id === modelId);
         if (model === undefined) {
-            return; // unknown id: never persist, never download (§109 analog)
+            return; // unknown id: never persist, never download
         }
         if (model.installed) {
             onChange(model.id);

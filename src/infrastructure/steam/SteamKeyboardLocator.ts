@@ -1,13 +1,13 @@
 /**
- * SteamKeyboardLocator (spec §17).
+ * SteamKeyboardLocator.
  *
  * Locates the active Steam window, the per-window virtual keyboard manager
- * (v0.1.6: through the SharedJSContext window-store registry) and the
+ * (through the SharedJSContext window-store registry) and the
  * keyboard DOM. Discovery is strictly bounded: attempt immediately after a
  * keyboard-open notification, retry with a short capped backoff, and stop
  * after the configured deadline (recommended maximum 1000 ms). There is no
- * endless polling loop and no periodic scanning (§61); once found, the
- * lifecycle is observed event-driven through the §15 hooks.
+ * endless polling loop and no periodic scanning; once found, the
+ * lifecycle is observed event-driven through the keyboard manager hooks.
  */
 
 import type { SteamDiscoveryContext } from "./profiles/SteamKeyboardProfile";
@@ -19,13 +19,13 @@ import type {
 } from "./SteamInternalTypes";
 
 export interface SteamLocatorConfig {
-    /** Total discovery budget in milliseconds (spec §17: 1000 ms). */
+    /** Total discovery budget in milliseconds (1000 ms recommended maximum). */
     readonly deadlineMs: number;
     readonly initialBackoffMs: number;
     readonly maxBackoffMs: number;
 }
 
-/** Spec §17 recommended maximum discovery window. */
+/** Recommended maximum discovery window. */
 export const DEFAULT_LOCATOR_CONFIG: SteamLocatorConfig = {
     deadlineMs: 1000,
     initialBackoffMs: 50,
@@ -55,13 +55,13 @@ const timerSleeper: SteamSleeper = {
 };
 
 /**
- * Root selectors in §60 preference order: stable semantic attributes first,
- * then the v0.1.6 live-verified structural class token. The keyboard's
+ * Root selectors in preference order: stable semantic attributes first,
+ * then the live-verified structural class token. The keyboard's
  * CSS-module classes carry the stable literal token `virtualkeyboard_` (the
  * mappings database lists 106 stable ids with that prefix) and the container
  * gains the literal "VirtualKeyboardVisible" class while shown — the on-device
- * scan located the container with exactly this case-insensitive match
- * (`.tmp/cdp/kb-deep.out`). Opaque hashes are only ever corroborated by the
+ * scan located the container with exactly this case-insensitive match.
+ * Opaque hashes are only ever corroborated by the
  * registry manager hook, never the sole locator.
  */
 const KEYBOARD_ROOT_SELECTORS: readonly string[] = [
@@ -96,7 +96,7 @@ export class SteamKeyboardLocator {
      * The Steam UI window the plugin runs in. A window qualifies when it
      * exposes one of the verified registry signatures (the `SteamUIStore`
      * global, or a plain `SteamUIWindows` array); anything else is reported
-     * as unreachable instead of assumed (§57/§58.1).
+     * as unreachable instead of assumed.
      */
     locateWindow(): SteamWindowHandle | null {
         const document = (globalThis as { document?: Document }).document;
@@ -118,9 +118,9 @@ export class SteamKeyboardLocator {
 
     /**
      * The first capability-checked per-window keyboard manager from the
-     * registry (v0.1.6). The old `window.VirtualKeyboardManager` global does
+     * registry. The old `window.VirtualKeyboardManager` global does
      * not exist on real Steam clients (live-probed); managers are per-window
-     * objects inside the window store (§103/§104 checks apply in the
+     * objects inside the window store (capability checks apply in the
      * registry).
      */
     locateKeyboardManager(windowHandle: SteamWindowHandle): SteamVirtualKeyboardManager | null {
@@ -133,7 +133,7 @@ export class SteamKeyboardLocator {
     }
 
     /**
-     * Keyboard DOM location in ANY window document (v0.1.6): the keyboard
+     * Keyboard DOM location in ANY window document: the keyboard
      * container is permanent in its host document and toggles visibility via
      * the verified "VirtualKeyboardVisible" class, so a document reference
      * resolved from a registry window instance is scanned the same way as
@@ -156,7 +156,7 @@ export class SteamKeyboardLocator {
 
     /**
      * Typed representation of the React-managed keyboard component. The
-     * fiber key is diagnostics-only; v1 functionality never depends on it.
+     * fiber key is diagnostics-only; functionality never depends on it.
      */
     locateKeyboardComponent(dom: HTMLElement): SteamKeyboardComponent {
         let reactFiberKey: string | null = null;
@@ -170,7 +170,7 @@ export class SteamKeyboardLocator {
     }
 
     /**
-     * Bounded discovery (§17): immediate attempt, capped-backoff retries,
+     * Bounded discovery: immediate attempt, capped-backoff retries,
      * hard deadline. Resolves `null` when the deadline expires or the Steam
      * window is unreachable — never polls forever.
      */

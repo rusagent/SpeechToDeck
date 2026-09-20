@@ -1,19 +1,19 @@
 /**
- * Plugin startup and unload orchestration (spec §82/§83/§84).
+ * Plugin startup and unload orchestration.
  *
- * Startup (§82): load settings → install the keyboard hook → initialize the
+ * Startup: load settings → install the keyboard hook → initialize the
  * speech runtime (backend init incl. model load) → ready. The hook install
  * never waits for model loading; `DictationController.start()` owns that
  * ordering and maps failures onto the `unavailable` state instead of throwing.
  *
- * Unload (§83): mark the controller shutting down / reject new presses →
+ * Unload: mark the controller shutting down / reject new presses →
  * cancel the active recording → tear down the keyboard host (unmount mic UI,
  * restore hooks) → tear down the speech port (unsubscribe backend events,
  * stop the runtime). Every cleanup operation is idempotent.
  *
- * Disposal mechanism (§84): teardown steps are registered in the reverse of
+ * Disposal mechanism: teardown steps are registered in the reverse of
  * their execution order — speech, keyboard, controller — so disposing in
- * reverse registration order runs the §83 sequence exactly.
+ * reverse registration order runs the unload sequence exactly.
  */
 
 import type { Disposable } from "../shared/Disposable";
@@ -43,7 +43,7 @@ export class PluginLifecycle implements Disposable {
         private readonly speech: SpeechPort,
         private readonly logger: Logger = new Logger("plugin.lifecycle", nullSink),
     ) {
-        // Registration order = reverse §83 execution order (see module doc).
+        // Registration order = reverse unload execution order (see module doc).
         this.teardowns.push(
             { name: "speech.shutdown", run: () => this.speech.shutdown() },
             { name: "keyboard.stop", run: () => this.keyboard.stop() },
@@ -70,8 +70,8 @@ export class PluginLifecycle implements Disposable {
             try {
                 await step.run();
             } catch (error) {
-                // §83: every cleanup is idempotent; one failing step must not
-                // block the remaining teardown (§106 exception containment).
+                // Every cleanup is idempotent; one failing step must not
+                // block the remaining teardown (exception containment).
                 this.logger.error("teardown step failed", {
                     step: step.name,
                     detail: describeError(error),

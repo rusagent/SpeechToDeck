@@ -1,9 +1,9 @@
 /**
- * Stable error codes (spec §68) and the §78 transcript validation.
+ * Stable error codes and transcript validation.
  *
  * UI text maps from codes; frontend logic never parses arbitrary exception
- * strings. The §68 list is illustrative ("Examples"); the two transcript
- * validation codes extend it per §78.
+ * strings. The list below is the baseline catalog; the two transcript
+ * validation codes extend it.
  */
 
 export const DICTATION_ERROR_CODES = [
@@ -32,9 +32,9 @@ export const DICTATION_ERROR_CODES = [
     "TRANSCRIPT_INVALID",
     "TRANSCRIPT_TOO_LARGE",
 
-    // Backend-produced §68 codes (main.py `Plugin._call` envelopes and
+    // Backend-produced codes (main.py `Plugin._call` envelopes and
     // `speech_error` events). Mirrors backend/domain/errors.py::ErrorCode;
-    // both sides must stay in sync (§68: UI text is mapped from codes).
+    // both sides must stay in sync (UI text is mapped from codes).
     "RUNTIME_UNAVAILABLE",
     "INVALID_SESSION_ID",
     "INVALID_TRANSCRIPT",
@@ -51,7 +51,7 @@ export function isDictationErrorCode(value: unknown): value is DictationErrorCod
     );
 }
 
-/** Maximum supported transcript size in UTF-8 bytes (spec §25/§78: 16 KiB). */
+/** Maximum supported transcript size in UTF-8 bytes (16 KiB). */
 export const MAX_TRANSCRIPT_UTF8_BYTES = 16 * 1024;
 
 export class DictationError extends Error {
@@ -65,8 +65,8 @@ export class DictationError extends Error {
 }
 
 /**
- * Raised by `validateTranscript` for whitespace-only input. Per spec §77 an
- * empty transcript is not an error state: the caller returns to ready with no
+ * Raised by `validateTranscript` for whitespace-only input. An empty
+ * transcript is not an error state: the caller returns to ready with no
  * clipboard write, no paste and no error.
  */
 export class EmptyTranscriptError extends Error {
@@ -97,7 +97,7 @@ export class TranscriptTooLargeError extends DictationError {
 }
 
 /**
- * Transcript validation before insertion — verbatim semantics of spec §78.
+ * Transcript validation before insertion.
  * Returns the trimmed transcript; no character escaping alters valid Unicode.
  */
 export function validateTranscript(text: string): string {

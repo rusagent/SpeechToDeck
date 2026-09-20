@@ -1,10 +1,10 @@
 /**
- * SteamClipboardAdapter (spec §25).
+ * SteamClipboardAdapter.
  *
  * Accepts only the complete transcript string — never chunks. The 16 KiB
  * UTF-8 limit is enforced with the core validation constant; larger
  * transcripts are rejected with the controlled `TRANSCRIPT_TOO_LARGE` error.
- * v1 performs no clipboard restoration (§79).
+ * No clipboard restoration is performed.
  */
 
 import {
@@ -31,7 +31,7 @@ type ClipboardTextWriter = (text: string) => Promise<void>;
 
 export class SteamClipboardAdapter implements ClipboardPort {
     async probe(context: KeyboardContext): Promise<ClipboardCapability> {
-        void context; // mechanism is window-global; the context is caller-verified (§24 step 2)
+        void context; // mechanism is window-global; the context is caller-verified
         return {
             available: clipboardWriteMechanism() !== null,
             maxTextBytes: MAX_TRANSCRIPT_UTF8_BYTES,
@@ -39,7 +39,7 @@ export class SteamClipboardAdapter implements ClipboardPort {
     }
 
     async writeText(context: KeyboardContext, text: string): Promise<void> {
-        void context; // mechanism is window-global; the context is caller-verified (§24 step 2)
+        void context; // mechanism is window-global; the context is caller-verified
         const writeText = clipboardWriteMechanism();
         if (writeText === null) {
             throw new DictationError(
@@ -52,7 +52,7 @@ export class SteamClipboardAdapter implements ClipboardPort {
             throw new TranscriptTooLargeError(byteLength);
         }
         try {
-            await writeText(text); // the complete string, in one call (§25)
+            await writeText(text); // the complete string, in one call
         } catch (error) {
             throw new DictationError(
                 "CLIPBOARD_WRITE_FAILED",

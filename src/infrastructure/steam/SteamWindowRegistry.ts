@@ -1,18 +1,18 @@
 /**
- * SteamWindowRegistry (v0.1.6) — enumeration of per-window virtual keyboard
+ * SteamWindowRegistry — enumeration of per-window virtual keyboard
  * managers from the SharedJSContext window-store registry.
  *
- * Live evidence (deck hardware 2026-09-17/18, `.tmp/audit/cross-view-injection.md`
- * "LIVE SharedJSContext probe findings"): `window.SteamUIStore.m_WindowStore`
+ * Live evidence (deck hardware 2026-09-17/18, live SharedJSContext probe
+ * findings): `window.SteamUIStore.m_WindowStore`
  * holds maps (m_mapAppWindows, m_mapDesiredWindows, m_mapDesiredWindowInstances,
  * m_mapOverlayPopupByPID) whose window-instance objects expose
  * `m_VirtualKeyboardManager` + `m_BrowserWindow` — but the instances are
  * TRANSIENT: they appear while the keyboard is in use and vanish afterwards.
- * Enumeration is therefore cheap, repeatable and lazy (§61: no busy loops —
+ * Enumeration is therefore cheap, repeatable and lazy (no busy loops —
  * the adapter drives re-enumeration from lifecycle hooks and a slow panel-
  * lifetime poll, both owner-approved).
  *
- * Every accessor is shape-checked before use (§99/§103/§104): nothing is
+ * Every accessor is shape-checked before use: nothing is
  * assumed from typings. The walk records which store keys and document
  * accessors resolved so an on-device journal read settles the still-open
  * document-accessor question in one cycle (no object values are logged).
@@ -23,9 +23,9 @@ import type { SteamVirtualKeyboardManager } from "./SteamInternalTypes";
 
 /** One usable per-window keyboard manager discovered in the registry. */
 export interface SteamUiWindowEntry {
-    /** Stable token (WindowName/name, else positional) for §7.2 contexts. */
+    /** Stable token (WindowName/name, else positional) for keyboard contexts. */
     readonly token: string;
-    /** Capability-checked manager (both §15 lifecycle methods callable). */
+    /** Capability-checked manager (both lifecycle methods callable). */
     readonly manager: SteamVirtualKeyboardManager;
     /**
      * The window document resolved through the bounded accessor chain, or
@@ -36,7 +36,7 @@ export interface SteamUiWindowEntry {
     readonly documentAccessor: string | null;
 }
 
-/** Shape-only snapshot of one enumeration pass (§74-style diagnostics). */
+/** Shape-only snapshot of one enumeration pass (diagnostics: shapes, never values). */
 export interface SteamRegistrySnapshot {
     /** True when any access chain reached a window store / registry. */
     readonly registryFound: boolean;
@@ -59,7 +59,7 @@ function isDocument(value: unknown): value is Document {
     return typeof Document !== "undefined" && value instanceof Document;
 }
 
-/** §103/§104 capability check: both lifecycle methods present and callable. */
+/** Capability check: both lifecycle methods present and callable. */
 function isUsableManager(candidate: unknown): candidate is SteamVirtualKeyboardManager {
     if (!isObject(candidate)) {
         return false;
@@ -122,7 +122,7 @@ export class SteamWindowRegistry {
 
     /**
      * One cheap enumeration pass. Never throws: every access chain and every
-     * per-instance extraction is exception-contained (§106), so a Steam
+     * per-instance extraction is exception-contained, so a Steam
      * update that reshapes the store degrades to an empty snapshot.
      */
     enumerate(): SteamRegistrySnapshot {
@@ -215,7 +215,7 @@ export class SteamWindowRegistry {
                 rawManager =
                     candidate["m_VirtualKeyboardManager"] ?? candidate["VirtualKeyboardManager"];
             } catch (error) {
-                // §106: one hostile/reshaped instance must not kill the pass.
+                // One hostile/reshaped instance must not kill the pass.
                 this.logger.warn("window instance inspection failed", {
                     detail: error instanceof Error ? error.message : String(error),
                 });

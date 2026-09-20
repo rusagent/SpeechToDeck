@@ -1,5 +1,5 @@
 /**
- * Keyboard context creation (spec §7.2): every keyboard appearance generates
+ * Keyboard context creation: every keyboard appearance generates
  * a fresh context id; a transcript is never inserted into a different
  * context. Ids are unique across the plugin's lifetime.
  */

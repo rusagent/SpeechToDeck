@@ -1,5 +1,5 @@
 /**
- * LanguagePicker (spec §49/§54/§80).
+ * LanguagePicker.
  *
  * `system` maps to the speech engine's auto-detection on the backend (it
  * does NOT track the Steam UI language); `auto` lets the speech engine
@@ -27,7 +27,7 @@ export const LANGUAGE_SENTINELS = {
  */
 export const CONTROLLED_DROPDOWN: { controlled: boolean } = { controlled: true };
 
-/** Curated explicit language tags for v1; `system`/`auto` are sentinels. */
+/** Curated explicit language tags; `system`/`auto` are sentinels. */
 const EXPLICIT_LANGUAGE_TAGS: readonly string[] = [
     "en",
     "de",
@@ -46,7 +46,7 @@ const EXPLICIT_LANGUAGE_TAGS: readonly string[] = [
 ];
 
 export interface LanguagePickerProps {
-    /** `"system"`, `"auto"` or an explicit language tag (spec §54). */
+    /** `"system"`, `"auto"` or an explicit language tag. */
     readonly value: string;
     readonly locale: Locale;
     readonly onChange: (language: string) => void;

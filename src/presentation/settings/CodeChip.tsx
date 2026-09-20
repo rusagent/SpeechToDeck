@@ -1,10 +1,8 @@
 /**
- * CodeChip — monospace chip showing the raw stable §68 code next to its
- * mapped text (§109: the code is a fixed enum, sanitized by construction).
+ * CodeChip — monospace chip showing the raw stable error code next to its
+ * mapped text (the code is a fixed enum, sanitized by construction).
  * Shared by the setup-progress panel and the dictation card so both error
  * surfaces read identically.
- *
- * v0.2.5: moved out of the removed DiagnosticsPanel into its own module.
  */
 
 import * as React from "react";

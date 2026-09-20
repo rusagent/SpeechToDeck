@@ -1,6 +1,6 @@
 /**
- * Versioned backend `recording_level` payload (additive v0.2 event) with its
- * manual boundary type guard (§99) and the small dedicated level store the
+ * Versioned backend `recording_level` payload (additive event) with its
+ * manual boundary type guard and the small dedicated level store the
  * plugin panel's dictation card consumes.
  *
  * The payload carries the coalesced amplitude envelope of the RUNNING
@@ -11,9 +11,9 @@
  * content.
  *
  * Like setup progress this is transport-level UI state: it never enters the
- * dictation state machine (§8 — a 15 Hz event stream must not touch the
- * session flow) and is observed only by the dictation card through
- * `useSyncExternalStore` (§102). Invalid payloads are dropped by the adapter
+ * dictation state machine (a 15 Hz event stream must not touch the session
+ * flow) and is observed only by the dictation card through
+ * `useSyncExternalStore`. Invalid payloads are dropped by the adapter
  * (count-logged), never rendered.
  */
 
@@ -41,7 +41,7 @@ function isFrameTriple(value: unknown): value is readonly [number, number, numbe
     );
 }
 
-/** Manual type guard for payloads crossing the backend boundary (§99). */
+/** Manual type guard for payloads crossing the backend boundary. */
 export function isRecordingLevelPayload(value: unknown): value is RecordingLevelPayload {
     if (!isRecord(value)) {
         return false;
@@ -57,7 +57,7 @@ export function isRecordingLevelPayload(value: unknown): value is RecordingLevel
     );
 }
 
-/** Immutable render snapshot of the level strip (§102: stable identity). */
+/** Immutable render snapshot of the level strip (stable identity for React). */
 export interface LevelMeterSnapshot {
     /** Bar heights 0..1, oldest first, exactly `LEVEL_BAR_COUNT` long. */
     readonly bars: readonly number[];
@@ -96,7 +96,7 @@ function frameLevel(peakDbfs: number): number {
 }
 
 /**
- * Rolling 24-bar window over the received frames (§102 store shape:
+ * Rolling 24-bar window over the received frames (external-store shape:
  * `getSnapshot`/`subscribe`). Each frame contributes one bar whose height is
  * the frame's `peakDbfs` normalized over the -60..0 dBFS range (clamped to
  * 0..1) — NOT the min/max sample extrema, which rendered typical speech

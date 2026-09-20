@@ -1,12 +1,12 @@
 /**
- * Panel-side clipboard copy (additive v0.2, primary clipboard path).
+ * Panel-side clipboard copy (primary clipboard path).
  *
  * Writes the transcript into the QuickAccess CEF clipboard with the
  * shipped-plugin pattern proven by the snippets plugin
  * (src/index.tsx:65-109): a hidden input, focus + select, then
  * `document.execCommand("copy")` — reported as the most reliable copy in
  * Game Mode — with `navigator.clipboard.writeText` as the fallback. The
- * caller reports the outcome in the UI; nothing here logs the text (§73).
+ * caller reports the outcome in the UI; nothing here logs the text.
  *
  * Whether this CEF clipboard is the exact clipboard the Steam keyboard's
  * Paste key reads is a live-verify item on device (research lane, Q4);
@@ -60,7 +60,7 @@ async function copyViaAsyncClipboard(text: string, nav: Navigator): Promise<bool
 }
 
 /**
- * Copies the complete text, never a chunk (§25). Resolves `true` only when
+ * Copies the complete text, never a chunk. Resolves `true` only when
  * a mechanism reported success; never throws.
  */
 export async function copyTextToClipboard(

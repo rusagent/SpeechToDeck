@@ -1,5 +1,5 @@
 /**
- * SteamCapabilityProbe (spec §58).
+ * SteamCapabilityProbe.
  *
  * Per Steam session the probe checks, without ever modifying user text:
  *   1. active Steam window reachable;

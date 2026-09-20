@@ -44,7 +44,7 @@ export type SettingsLoadOutcome = "timeout" | "rejected" | "success";
 
 /**
  * Trigger gates, evaluated fresh at report time by the composition root:
- * the reload never fires while a dictation session is active (any §8
+ * the reload never fires while a dictation session is active (any
  * sessionful state) or a model download is in flight.
  */
 export interface SelfHealGates {

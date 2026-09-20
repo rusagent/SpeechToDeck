@@ -1,18 +1,18 @@
 /**
- * MicrophoneButtonModel (spec §19/§20/§75) — pure mapping from the
+ * MicrophoneButtonModel — pure mapping from the
  * application state union to the visual state and enabled flag of the
  * microphone button.
  *
- * Indicator integrity (§75): `recording` is shown only after recording start
+ * Indicator integrity: `recording` is shown only after recording start
  * has been acknowledged (`starting` stays processing/disabled), and the
  * recording state ends as soon as stop is requested. Boolean flags such as
  * `isRecording` never leak into the presentation; the state union is the
- * single source (§3.4).
+ * single source.
  */
 
 import type { DictationState } from "../../domain/DictationState";
 
-/** Visual states (spec §19). */
+/** Visual states. */
 export type MicrophoneVisualState = "ready" | "recording" | "processing" | "error";
 
 export interface MicrophoneButtonModel {
@@ -24,7 +24,7 @@ export function microphoneButtonModel(state: DictationState): MicrophoneButtonMo
     switch (state.kind) {
         case "booting":
             // Startup is transient; the control is visible but not yet
-            // usable, and never shows an active indicator (§75).
+            // usable, and never shows an active indicator.
             return { visualState: "ready", disabled: true };
         case "unavailable":
         case "error":
@@ -32,7 +32,7 @@ export function microphoneButtonModel(state: DictationState): MicrophoneButtonMo
         case "ready":
             return { visualState: "ready", disabled: false };
         case "starting":
-            // Recording start not acknowledged yet — must not show active (§75).
+            // Recording start not acknowledged yet — must not show active.
             return { visualState: "processing", disabled: true };
         case "recording":
             return { visualState: "recording", disabled: false };

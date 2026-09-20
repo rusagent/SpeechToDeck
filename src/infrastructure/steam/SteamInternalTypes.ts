@@ -1,13 +1,13 @@
 /**
- * Minimal Steam internal type surface (spec §103).
+ * Minimal Steam internal type surface.
  *
  * Contains only shapes that the adapter actually consumes; it does not
  * reproduce private Steam type trees. Raw Steam objects are converted into
- * these typed representations at the discovery boundary (§98) and every
- * optional/private member is capability-checked before use (§103/§104).
+ * these typed representations at the discovery boundary and every
+ * optional/private member is capability-checked before use.
  */
 
-/** The two lifecycle methods the adapter instruments (spec §15). */
+/** The two lifecycle methods the adapter instruments. */
 export interface SteamVirtualKeyboardManager {
     SetVirtualKeyboardVisible: (...args: unknown[]) => unknown;
 
@@ -16,7 +16,7 @@ export interface SteamVirtualKeyboardManager {
 
 /**
  * Typed handle for the Steam UI window the plugin runs in. The token is a
- * stable, non-DOM identifier used as `KeyboardContext.windowToken` (§7.2).
+ * stable, non-DOM identifier used as `KeyboardContext.windowToken`.
  */
 export interface SteamWindowHandle {
     readonly token: string;

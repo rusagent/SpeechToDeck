@@ -1,12 +1,12 @@
 /**
- * Frontend speech contract (spec §29) plus the versioned backend protocol
- * payloads it pushes (spec §67) with their manual boundary type guards (§99).
+ * Frontend speech contract plus the versioned backend protocol payloads it
+ * pushes, with their manual boundary type guards.
  */
 
 import type { DictationError } from "../../domain/DictationError";
 import type { Disposable } from "../../shared/Disposable";
 
-/** Startup report of the speech runtime (speech-side fields of spec §57). */
+/** Startup report of the speech runtime. */
 export interface SpeechCapabilities {
     readonly speechRuntimeAvailable: boolean;
     readonly microphoneAvailable: boolean;
@@ -14,15 +14,15 @@ export interface SpeechCapabilities {
     readonly vulkanAvailable: boolean;
     readonly modelInstalled: boolean;
     /**
-     * Additive diagnostics fact (§67/§99): the backend plugin version, read
-     * once from package.json at composition and rendered by the diagnostics
-     * panel when present. Older backends omit the field.
+     * Additive diagnostics fact: the backend plugin version, read once from
+     * package.json at composition and rendered by the diagnostics panel when
+     * present. Older backends omit the field.
      */
     readonly backendVersion?: string;
 }
 
 /**
- * Transcription metrics (spec §67). Contain no spoken content beyond the
+ * Transcription metrics. Contain no spoken content beyond the
  * transcript delivered locally with them.
  */
 export interface TranscriptionMetrics {
@@ -33,8 +33,8 @@ export interface TranscriptionMetrics {
 }
 
 /**
- * Versioned `transcript_ready` payload (spec §67). `clipboard` is additive
- * since v0.2: outcome of the backend's best-effort system-clipboard write —
+ * Versioned `transcript_ready` payload. `clipboard` is additive: outcome of
+ * the backend's best-effort system-clipboard write —
  * "ok" (written), "failed" (attempted, not written), "skipped" (not
  * attempted; the frontend copy is primary). Older backends omit it.
  */
@@ -48,19 +48,19 @@ export interface TranscriptReadyPayload {
     readonly clipboard?: TranscriptClipboardStatus;
 }
 
-/** Runtime status reported by the backend (`speech_status`/`runtime_status`, spec §30). */
+/** Runtime status reported by the backend (`speech_status`/`runtime_status`). */
 export type SpeechRuntimeStatus = "starting" | "ready" | "unavailable" | "crashed";
 
-/** Stored last §82 startup failure in the `get_status` report (§68 code). */
+/** Stored last startup failure in the `get_status` report (stable error code). */
 export interface RuntimeFailureRecord {
     readonly code: string;
     readonly stepIndex: number;
 }
 
 /**
- * Optional v0.1.6 cross-view diagnostics report (additive `get_status` field,
- * §67): read-only CDP facts behind the user's "Allow Remote CEF Debugging"
- * toggle. `reason` is a stable lowercase code (never UI text).
+ * Optional cross-view diagnostics report (additive `get_status` field):
+ * read-only CDP facts behind the user's "Allow Remote CEF Debugging" toggle.
+ * `reason` is a stable lowercase code (never UI text).
  */
 export interface CdpDiagnosticsReport {
     readonly cdpAvailable: boolean;
@@ -84,13 +84,12 @@ export function isCdpDiagnosticsReport(value: unknown): value is CdpDiagnosticsR
 }
 
 /**
- * Additive v0.2 dictation-flow facts (optional `get_status` field): which
+ * Additive dictation-flow facts (optional `get_status` field): which
  * clipboard backend is active — "xclip" (backend writer ready) or
  * "unavailable" (the frontend copy is primary). `clipboard` is always
- * present; `backendRunning` is additive and validated only when present
- * (§99): the shipped v0.2.0 backend reports the clipboard fact only, so the
- * panel derives the running/stopped fact from the same report's
- * `runtime.running`.
+ * present; `backendRunning` is additive and validated only when present:
+ * the shipped backend reports the clipboard fact only, so the panel derives
+ * the running/stopped fact from the same report's `runtime.running`.
  */
 export interface DictationFlowReport {
     readonly backendRunning?: boolean;
@@ -109,11 +108,10 @@ export function isDictationFlowReport(value: unknown): value is DictationFlowRep
 }
 
 /**
- * Versioned `get_status` response (spec §30/§67), fields the frontend
- * consumes. `runtime.lastFailure` is the backend's stored §82 startup
- * failure (or null) and drives the setup panel's failure hydration.
- * `cdpDiagnostics` is additive since v0.1.6 and validated only when present
- * (§99: older backends omit it).
+ * Versioned `get_status` response, fields the frontend consumes.
+ * `runtime.lastFailure` is the backend's stored startup failure (or null)
+ * and drives the setup panel's failure hydration. `cdpDiagnostics` is
+ * additive and validated only when present (older backends omit it).
  */
 export interface RuntimeStatusReport {
     readonly protocolVersion: 1;
@@ -126,7 +124,7 @@ export interface RuntimeStatusReport {
     };
     readonly modelDownloadInProgress: boolean;
     readonly cdpDiagnostics?: CdpDiagnosticsReport;
-    /** Additive since v0.2 (§99: validated only when present). */
+    /** Additive (validated only when present). */
     readonly dictationFlow?: DictationFlowReport;
 }
 
@@ -167,7 +165,7 @@ export function isRuntimeStatusReport(value: unknown): value is RuntimeStatusRep
     return typeof value["modelDownloadInProgress"] === "boolean";
 }
 
-/** Events pushed by the speech port (spec §29/§30). */
+/** Events pushed by the speech port. */
 export type SpeechEvent =
     | { readonly type: "transcript-ready"; readonly payload: TranscriptReadyPayload }
     | {
@@ -201,7 +199,7 @@ export function isSpeechCapabilities(value: unknown): value is SpeechCapabilitie
     if (!isRecord(value)) {
         return false;
     }
-    // Additive since v0.2.4 (§99): validated only when present, so older
+    // Additive: validated only when present, so older
     // backend payloads without backendVersion stay valid.
     const backendVersion = value["backendVersion"];
     if (backendVersion !== undefined && typeof backendVersion !== "string") {

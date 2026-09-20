@@ -1,11 +1,11 @@
 /**
- * DeckyBackendClient (spec §30) — thin transport over the Decky backend.
+ * DeckyBackendClient — thin transport over the Decky backend.
  *
  * Callables travel through `DeckyTransport.call`; backend events are
  * subscribed once per listener and the first emitted argument is handed to
- * the listener as the unvalidated payload (§67). Payload validation with the
+ * the listener as the unvalidated payload. Payload validation with the
  * boundary type guards happens in the adapters, before anything is emitted
- * into the application (§99).
+ * into the application.
  *
  * The transport is injected: the real `@decky/api` binding lives in
  * `DeckyApiTransport` and is imported only by the composition root, because
@@ -25,10 +25,10 @@ export interface DeckyTransport {
 }
 
 /**
- * Unwraps the backend's coded-result envelope (§68): the Python `Plugin`
+ * Unwraps the backend's coded-result envelope: the Python `Plugin`
  * facade returns `{"ok": true, ...payload}` on success and
- * `{"ok": false, "code": <§68 code>, ...}` on failure. A coded failure is
- * thrown as a `DictationError` so callers observe stable §68 codes instead
+ * `{"ok": false, "code": <stable code>, ...}` on failure. A coded failure is
+ * thrown as a `DictationError` so callers observe stable codes instead
  * of a silently swallowed `ok: false`. Responses that are not coded results
  * (payloads handed over directly by a transport) pass through unchanged.
  */
@@ -63,9 +63,9 @@ export class DeckyBackendClient {
     }
 
     /**
-     * Subscribes to a backend event (§30 names are the frozen contract).
+     * Subscribes to a backend event (event names are the frozen contract).
      * The listener receives the first payload argument; a throwing listener
-     * is contained so it cannot break Decky's event dispatch (§106 analog).
+     * is contained so it cannot break Decky's event dispatch.
      */
     subscribe(eventName: string, listener: (payload: unknown) => void): Disposable {
         const rawListener = (...args: unknown[]) => {

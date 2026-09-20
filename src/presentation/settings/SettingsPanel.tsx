@@ -1,22 +1,22 @@
 /**
- * SettingsPanel (spec §54/§80/§102) — the Decky plugin panel.
+ * SettingsPanel — the Decky plugin panel.
  *
  * Loads the settings document through the SettingsPort (backend-owned
- * persistence, §55) and saves through the same port on every change. The
- * §80 sections render as nested titled panel sections. v0.2.5 declutter
+ * persistence) and saves through the same port on every change. The panel
+ * sections render as nested titled panel sections. Declutter
  * (owner list): the Microphone/Available chip row, the Maximum Recording
  * Duration slider, the VAD toggle, the runtime-health row and the whole
  * Diagnostics section are gone — the panel reads as Dictation card / (setup
  * when needed) / Runtime (Enabled) / Speech (Model, with
  * the Language picker below it only while the selected model does not pin a
  * language) / Output (Output mode). Application/runtime state is consumed
- * through `useSyncExternalStore` over the controller store (§102); only
- * this panel and the microphone mount subscribe to relevant state (§66).
+ * through `useSyncExternalStore` over the controller store; only
+ * this panel and the microphone mount subscribe to relevant state.
  * The initial settings load is honest about failure: a load that neither
  * resolves nor rejects within 10 s (a wedged backend callable) leaves the
  * loading state with a failed message and a Retry control instead of an
  * eternal spinner; the deadline is measured on the injected monotonic clock.
- * v0.2.9 install-wedge self-heal: the panel reports each settled boot-load
+ * Install-wedge self-heal: the panel reports each settled boot-load
  * outcome to the optional `selfHeal` port — two consecutive full-deadline
  * timeouts (the wedged-callable signature) make the composition-root side
  * reload the plugin backend once, the hint names it, and the loader's
@@ -55,13 +55,13 @@ export interface SettingsPanelProps {
     readonly store: StateStore<DictationState>;
     readonly setupProgress: StateStore<SetupProgressSnapshot | null>;
     readonly diagnostics: DiagnosticsSource;
-    /** Monotonic clock for the settings-load deadline (§7.1 durations only). */
+    /** Monotonic clock for the settings-load deadline (durations only). */
     readonly clock: ClockPort;
     readonly locale?: Locale;
     /**
-     * Additive v0.2 dictation card wiring (owner pivot): stores + press/copy
+     * Additive dictation card wiring (owner pivot): stores + press/copy
      * handlers composed by the composition root. The card renders only when
-     * provided (§99 additive surface — never a fake control).
+     * provided (additive surface — never a fake control).
      */
     readonly dictation?: {
         readonly levelMeter: LevelMeterStore;
@@ -70,9 +70,9 @@ export interface SettingsPanelProps {
         readonly onCopy: (text: string) => Promise<boolean>;
     };
     /**
-     * Additive curated model catalog wiring (ADR-011): guarded catalog store
+     * Additive curated model catalog wiring: guarded catalog store
      * + download handlers composed by the composition root. The model
-     * select renders only when provided (§99 additive surface — never a
+     * select renders only when provided (additive surface — never a
      * fake control). `deleteModel` drives the in-app model cleanup callable;
      * the Manage models affordance renders only over a loaded catalog.
      */
@@ -84,7 +84,7 @@ export interface SettingsPanelProps {
         readonly deleteModel: (modelId: string) => Promise<void>;
     };
     /**
-     * Additive install-wedge self-heal wiring (v0.2.9): the panel reports
+     * Additive install-wedge self-heal wiring: the panel reports
      * settled boot-load outcomes; the bound port (composed in the
      * composition root) owns the gates — dictation session, model download —
      * and the loader route access. `reportLoadOutcome` returns whether the
@@ -124,13 +124,13 @@ export function SettingsPanel({
     // effect for Retry.
     const [loadFailed, setLoadFailed] = React.useState(false);
     const [loadAttempt, setLoadAttempt] = React.useState(0);
-    // Self-heal leg (v0.2.9): set when the port reports that the loader
+    // Self-heal leg: set when the port reports that the loader
     // reload fired; the failed-state hint then names the reload instead of
     // the generic advice. Cleared by a success or a re-import re-arm.
     const [reloadPending, setReloadPending] = React.useState(false);
-    // Bound, render-stable store accessors (§102): useSyncExternalStore calls
+    // Bound, render-stable store accessors: useSyncExternalStore calls
     // these as plain functions, so unbound class methods would lose `this`.
-    // Same closure pattern as the microphone-button bridge (§66).
+    // Same closure pattern as the microphone-button bridge.
     const subscribe = React.useMemo(
         () => (onChange: () => void) => store.subscribe(onChange),
         [store],
@@ -138,7 +138,7 @@ export function SettingsPanel({
     const getSnapshot = React.useMemo(() => () => store.getSnapshot(), [store]);
     const runtimeState = React.useSyncExternalStore(subscribe, getSnapshot);
     // Setup progress is transport-level UI state with its own dedicated
-    // store; same bound-accessor pattern (§102), never the dictation machine.
+    // store; same bound-accessor pattern, never the dictation machine.
     const subscribeSetup = React.useMemo(
         () => (onChange: () => void) => setupProgress.subscribe(onChange),
         [setupProgress],
@@ -148,8 +148,8 @@ export function SettingsPanel({
         [setupProgress],
     );
     const setup = React.useSyncExternalStore(subscribeSetup, getSetupSnapshot);
-    // Additive v0.2: the dictation card's transcript snapshot — same bound
-    // accessor pattern (§102); absent wiring renders no card.
+    // Additive: the dictation card's transcript snapshot — same bound
+    // accessor pattern; absent wiring renders no card.
     const subscribeTranscript = React.useMemo(
         () => (onChange: () => void) =>
             dictation?.transcript.subscribe(onChange) ?? (() => undefined),
@@ -160,8 +160,8 @@ export function SettingsPanel({
         [dictation],
     );
     const dictationTranscript = React.useSyncExternalStore(subscribeTranscript, getTranscript);
-    // Additive ADR-011: the catalog snapshot decides whether the Language
-    // picker renders at all (same bound-accessor pattern, §102). Absent
+    // Additive: the catalog snapshot decides whether the Language
+    // picker renders at all (same bound-accessor pattern). Absent
     // wiring reads as the unloaded catalog → the picker stays.
     const subscribeCatalog = React.useMemo(
         () => (onChange: () => void) =>
@@ -180,7 +180,7 @@ export function SettingsPanel({
     // languages at all: an unloaded catalog, an unknown (older-backend)
     // model id, or a general model without a `languages` field. ANY
     // declared-language model hides the picker — single-language
-    // declarations are the only shipped case (ADR-011/ADR-012), and for
+    // declarations are the only shipped case, and for
     // those the backend forces the declared language regardless of
     // `settings.language`, so the picker would be a lie. The persisted
     // `language` value is never cleared or rewritten here — switching back
@@ -193,7 +193,7 @@ export function SettingsPanel({
 
     React.useEffect(() => {
         let cancelled = false;
-        // The deadline lives on the injected monotonic clock (§7.1 durations
+        // The deadline lives on the injected monotonic clock (durations
         // only); the window timer is just the wakeup, and the clock decides
         // whether the deadline actually elapsed when it fires.
         const deadline = clock.nowMonotonicMs() + SETTINGS_LOAD_TIMEOUT_MS;
@@ -234,8 +234,8 @@ export function SettingsPanel({
                 }
             });
         // Failure hydration: a startup failure that fired before this panel
-        // subscribed left no live setup snapshot (on-device v0.1.3 finding).
-        // The adapter rebuilds the terminal failed view from the §30 status
+        // subscribed left no live setup snapshot (on-device finding).
+        // The adapter rebuilds the terminal failed view from the status
         // report, never overwriting an existing snapshot (live wins).
         void diagnostics.hydrateSetupProgress();
         return () => {
@@ -244,7 +244,7 @@ export function SettingsPanel({
         };
     }, [settings, diagnostics, clock, loadAttempt, selfHeal]);
 
-    // Self-heal re-arm (v0.2.9): when the loader re-imports this plugin
+    // Self-heal re-arm: when the loader re-imports this plugin
     // (fresh backend is up) while the panel sits in the failed state, retry
     // the load instead of waiting for the user to find Retry. Subscribed
     // only while failed, so re-imports outside a failure never restart the
@@ -260,9 +260,9 @@ export function SettingsPanel({
         });
     }, [selfHeal, loadFailed]);
 
-    // ADR-011: load the curated catalog once per panel mount; load failures
+    // Load the curated catalog once per panel mount; load failures
     // leave the store empty and the select reports the catalog as
-    // unavailable (§57: availability is reported, never assumed).
+    // unavailable (availability is reported, never assumed).
     React.useEffect(() => {
         if (modelCatalog === undefined) {
             return;
@@ -382,7 +382,7 @@ export function SettingsPanel({
                     </PanelSectionRow>
                 ) : null}
                 {/* In-app model cleanup (owner request): the affordance
-                    renders only over a LOADED catalog (§57: reported, never
+                    renders only over a LOADED catalog (reported, never
                     assumed) and opens the manage modal through the
                     production path. */}
                 {modelCatalog !== undefined &&

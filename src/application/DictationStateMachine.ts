@@ -1,34 +1,36 @@
 /**
- * Pure dictation state machine (spec §8/§8.1/§8.2).
+ * Pure dictation state machine.
  *
  * `transition` performs no I/O, accesses no global state, contains no Decky
  * and no DOM calls, and is fully unit-testable. The controller dispatches the
  * returned effects through the ports; the machine itself never touches them.
  *
- * Event alphabet (the §8 flow names press/acknowledgement/transcript/inserted;
- * §88 names MICROPHONE_PRESSED):
+ * Event alphabet (the dictation flow: press, acknowledgement, transcript,
+ * inserted; the mic control press is named MICROPHONE_PRESSED):
  *
- * - STARTUP_COMPLETED / STARTUP_FAILED — boot or restart outcome (§57, §82).
- * - MICROPHONE_PRESSED — the mic control was pressed (§88). Carries a fresh
+ * - STARTUP_COMPLETED / STARTUP_FAILED — boot or restart outcome.
+ * - MICROPHONE_PRESSED — the mic control was pressed. Carries a fresh
  *   session only for the ready→starting edge, where the machine could not
  *   otherwise learn the controller-generated session; on all other edges the
  *   payload is ignored.
- * - RECORDING_STARTED / RECORDING_STOPPED — acknowledgements (§75: the active
- *   indicator appears only after the start acknowledgement and ends only after
- *   the stop acknowledgement). Carry the sessionId for §11 stale protection.
+ * - RECORDING_STARTED / RECORDING_STOPPED — acknowledgements: the active
+ *   indicator appears only after the start acknowledgement and ends only
+ *   after the stop acknowledgement. Carry the sessionId for stale-result
+ *   protection.
  * - TRANSCRIPT_READY / TRANSCRIPT_SUPPRESSED — transcription outcome; the
- *   suppressed variant is dispatched by the controller when §11/§12 rule the
- *   result stale, so insertion is never even attempted.
- * - INSERTION_SUCCEEDED / INSERTION_FAILED — insertion outcome (§22 Result).
- * - CANCEL_REQUESTED — first-class cancellation (§72).
- * - KEYBOARD_CLOSED — keyboard context disappeared (§12).
- * - SPEECH_FAILED — an error event from the speech port (§68 codes).
- * - ERROR_DISMISSED — user acknowledged a recoverable error (§69).
+ *   suppressed variant is dispatched by the controller when the result is
+ *   stale or the keyboard context changed, so insertion is never even
+ *   attempted.
+ * - INSERTION_SUCCEEDED / INSERTION_FAILED — insertion outcome (Result).
+ * - CANCEL_REQUESTED — first-class cancellation.
+ * - KEYBOARD_CLOSED — keyboard context disappeared.
+ * - SPEECH_FAILED — an error event from the speech port (stable error codes).
+ * - ERROR_DISMISSED — user acknowledged a recoverable error.
  *
  * Rejection semantics: an event that is not applicable in the current state —
- * including every §8.1 forbidden transition and every §11 stale result — is
- * rejected by returning the current state unchanged with no effects. The
- * machine never throws on stale or duplicate input.
+ * including every forbidden transition and every stale result — is rejected
+ * by returning the current state unchanged with no effects. The machine never
+ * throws on stale or duplicate input.
  */
 
 import type { RuntimeCapabilities } from "../domain/Capability";
@@ -82,7 +84,7 @@ export interface TransitionResult {
 
 /**
  * Error codes that leave the plugin unable to continue without an explicit
- * restart-style action (spec §69 "fatal runtime error"); every other code is a
+ * restart-style action (fatal runtime errors); every other code is a
  * recoverable error that returns the plugin to ready after cleanup.
  */
 const FATAL_ERROR_CODES: ReadonlySet<DictationErrorCode> = new Set([
@@ -113,17 +115,16 @@ function sameSession(state: { readonly session: DictationSession }, sessionId: s
 }
 
 /**
- * Deterministic unavailable-reason derivation from the capability report
- * (spec §57), checked in a fixed order. Returns `null` when the plugin is
- * ready to dictate.
+ * Deterministic unavailable-reason derivation from the capability report,
+ * checked in a fixed order. Returns `null` when the plugin is ready to
+ * dictate.
  *
- * v0.2.2 (on-device regression fix): readiness is the QAM flow's own
- * requirement — runtime available, model installed, plugin enabled. The
- * keyboard facets (keyboardHookAvailable, clipboard/nativePaste,
- * directInsert) do NOT gate the flow: the panel flow records and carries the
- * transcript to the clipboard with no keyboard injection, and a degraded
- * keyboard only leaves the in-keyboard button dormant while the facets stay
- * honestly reported (§57/§105).
+ * On-device regression fix: readiness is the QAM flow's own requirement —
+ * runtime available, model installed, plugin enabled. The keyboard facets
+ * (keyboardHookAvailable, clipboard/nativePaste, directInsert) do NOT gate
+ * the flow: the panel flow records and carries the transcript to the
+ * clipboard with no keyboard injection, and a degraded keyboard only leaves
+ * the in-keyboard button dormant while the facets stay honestly reported.
  */
 function unavailableReasonFor(
     capabilities: RuntimeCapabilities,
@@ -201,7 +202,7 @@ export function transition(current: DictationState, event: DictationEvent): Tran
                         { type: "START_RECORDING", sessionId: event.session.sessionId },
                     );
                 case "recording":
-                    // Press while recording stops the recording (spec §8/§88).
+                    // Press while recording stops the recording.
                     return result(
                         { kind: "stopping", session: current.session },
                         { type: "STOP_RECORDING", sessionId: current.session.sessionId },
@@ -210,12 +211,12 @@ export function transition(current: DictationState, event: DictationEvent): Tran
                 case "stopping":
                 case "transcribing":
                 case "inserting":
-                    // Duplicate presses while an operation is pending are ignored (§10).
+                    // Duplicate presses while an operation is pending are ignored.
                     return unchanged(current);
                 case "booting":
                 case "unavailable":
                 case "error":
-                    // §8.1: e.g. error → recording is forbidden.
+                    // e.g. error → recording is forbidden.
                     return unchanged(current);
             }
             break;
@@ -225,7 +226,7 @@ export function transition(current: DictationState, event: DictationEvent): Tran
             switch (current.kind) {
                 case "starting":
                     if (!sameSession(current, event.sessionId)) {
-                        return unchanged(current); // stale acknowledgement (§11)
+                        return unchanged(current); // stale acknowledgement
                     }
                     return result({ kind: "recording", session: current.session });
                 case "booting":
@@ -245,7 +246,7 @@ export function transition(current: DictationState, event: DictationEvent): Tran
             switch (current.kind) {
                 case "stopping":
                     if (!sameSession(current, event.sessionId)) {
-                        return unchanged(current); // stale acknowledgement (§11)
+                        return unchanged(current); // stale acknowledgement
                     }
                     return result({ kind: "transcribing", session: current.session });
                 case "booting":
@@ -272,14 +273,14 @@ export function transition(current: DictationState, event: DictationEvent): Tran
                 case "transcribing":
                 case "stopping": {
                     if (!sameSession(current, event.sessionId)) {
-                        return unchanged(current); // stale result (§11)
+                        return unchanged(current); // stale result
                     }
                     let normalized: string;
                     try {
                         normalized = validateTranscript(event.transcript);
                     } catch (error) {
                         if (error instanceof EmptyTranscriptError) {
-                            // Empty speech: silently back to ready, no insert (§77).
+                            // Empty speech: silently back to ready, no insert.
                             return result({ kind: "ready" });
                         }
                         if (error instanceof DictationError) {
@@ -308,7 +309,7 @@ export function transition(current: DictationState, event: DictationEvent): Tran
                 case "stopping":
                 case "inserting":
                 case "error":
-                    // §8.1: e.g. ready → transcribing and recording → inserting are forbidden.
+                    // e.g. ready → transcribing and recording → inserting are forbidden.
                     return unchanged(current);
             }
             break;
@@ -323,7 +324,7 @@ export function transition(current: DictationState, event: DictationEvent): Tran
                     if (!sameSession(current, event.sessionId)) {
                         return unchanged(current);
                     }
-                    // Keyboard context changed while transcribing: no insertion (§12).
+                    // Keyboard context changed while transcribing: no insertion.
                     return result({ kind: "ready" });
                 case "booting":
                 case "unavailable":
@@ -364,9 +365,9 @@ export function transition(current: DictationState, event: DictationEvent): Tran
                     if (!sameSession(current, event.sessionId)) {
                         return unchanged(current);
                     }
-                    // Insertion failure is a recoverable error (§69); no retry happens
-                    // automatically — the user presses again (§8.1 forbids auto-recovery
-                    // into a session state).
+                    // Insertion failure is a recoverable error; no retry happens
+                    // automatically — the user presses again (auto-recovery into a
+                    // session state is forbidden).
                     return result({ kind: "error", error: event.error, recoverable: true });
                 case "booting":
                 case "unavailable":
@@ -388,7 +389,7 @@ export function transition(current: DictationState, event: DictationEvent): Tran
                 case "stopping":
                 case "transcribing":
                     // Cancellation stops capture, discards any result and emits no
-                    // transcript; a late backend result is stale (§11) (§72).
+                    // transcript; a late backend result is stale.
                     return result(
                         { kind: "ready" },
                         { type: "CANCEL_RECORDING", sessionId: current.session.sessionId },
@@ -412,17 +413,17 @@ export function transition(current: DictationState, event: DictationEvent): Tran
                         return unchanged(current); // a different keyboard context
                     }
                     // Keyboard disappeared: cancel, discard, be ready when the next
-                    // keyboard appears (§12).
+                    // keyboard appears.
                     return result(
                         { kind: "ready" },
                         { type: "CANCEL_RECORDING", sessionId: current.session.sessionId },
                     );
                 case "transcribing":
                     // Transcription may finish; insertion is suppressed at the
-                    // transcript event (§12).
+                    // transcript event.
                     return unchanged(current);
                 case "inserting":
-                    // The inserter revalidates the context inside its transaction (§24).
+                    // The inserter revalidates the context inside its transaction.
                     return unchanged(current);
                 case "booting":
                 case "unavailable":
@@ -440,7 +441,7 @@ export function transition(current: DictationState, event: DictationEvent): Tran
                 case "stopping":
                 case "transcribing": {
                     if (event.sessionId !== null && event.sessionId !== current.session.sessionId) {
-                        return unchanged(current); // stale error (§11)
+                        return unchanged(current); // stale error
                     }
                     return result(
                         {
@@ -448,7 +449,7 @@ export function transition(current: DictationState, event: DictationEvent): Tran
                             error: event.error,
                             recoverable: !isFatalDictationError(event.error),
                         },
-                        // Recoverable path cleanup: cancel whatever is still in flight (§69).
+                        // Recoverable path cleanup: cancel whatever is still in flight.
                         { type: "CANCEL_RECORDING", sessionId: current.session.sessionId },
                     );
                 }
@@ -466,7 +467,7 @@ export function transition(current: DictationState, event: DictationEvent): Tran
             switch (current.kind) {
                 case "error":
                     if (!current.recoverable) {
-                        // Fatal errors need an explicit restart-style action (§69).
+                        // Fatal errors need an explicit restart-style action.
                         return unchanged(current);
                     }
                     return result({ kind: "ready" });

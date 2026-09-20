@@ -15,9 +15,9 @@
  * the first backend rejection and the refresh reports the honest state.
  *
  * Like the download modal this body renders in Steam's modal root, OUTSIDE
- * the panel tree: it observes the catalog store directly (§102 pattern).
- * The backend resolves the file path from the model id alone (§109 analog:
- * no frontend path ever crosses the boundary).
+ * the panel tree: it observes the catalog store directly.
+ * The backend resolves the file path from the model id alone (no frontend
+ * path ever crosses the boundary).
  */
 
 import * as React from "react";
@@ -66,7 +66,7 @@ export interface ManageModelsModalProps {
     readonly locale: Locale;
     /** The selected model id: its delete is disabled (active-model guard). */
     readonly selectedModelId: string;
-    /** Deletes one model through the §30 `delete_model` callable. */
+    /** Deletes one model through the backend `delete_model` callable. */
     readonly onDelete: (modelId: string) => Promise<void>;
     /** Refreshes the catalog through the existing `list_models` path. */
     readonly onRefresh: () => Promise<void>;

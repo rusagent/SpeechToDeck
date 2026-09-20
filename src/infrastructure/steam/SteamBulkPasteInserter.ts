@@ -1,20 +1,20 @@
 /**
- * SteamBulkPasteInserter (spec §22-§24) — the production bulk insertion
+ * SteamBulkPasteInserter — the production bulk insertion
  * architecture: complete transcript → clipboard, then exactly one native
  * paste on the verified keyboard context.
  *
- * Transaction sequence (§24), in this exact order:
- *   1. validate text (core §78 validation, incl. the 16 KiB UTF-8 limit);
+ * Transaction sequence, in this exact order:
+ *   1. validate text (core validation, incl. the 16 KiB UTF-8 limit);
  *   2. validate keyboard context;
  *   3. write the entire transcript to the clipboard — once;
  *   4. revalidate keyboard context (the user may close the keyboard while
  *      clipboard preparation runs; the transcript may remain in the
- *      clipboard, §79 — no restoration in v1);
+ *      clipboard — no restoration);
  *   5. invoke exactly one paste action;
  *   6. return success.
  *
  * No per-character iteration, no character-to-keycode translation, no field
- * submission, Unicode preserved (§22). Failures are `Result` values (§22).
+ * submission, Unicode preserved. Failures are `Result` values.
  */
 
 import { validateTranscript, DictationError } from "../../domain/DictationError";
@@ -40,7 +40,7 @@ export class SteamBulkPasteInserter implements BulkTextInserter {
     ) {}
 
     async probe(context: KeyboardContext): Promise<BulkInsertionCapability> {
-        // No optimistic assumption (§57): a failed probe reports unavailable.
+        // No optimistic assumption: a failed probe reports unavailable.
         let clipboardAvailable = false;
         let maxTextBytes = 0;
         let pasteAvailable = false;
@@ -61,14 +61,14 @@ export class SteamBulkPasteInserter implements BulkTextInserter {
             available: clipboardAvailable,
             directInsert,
             clipboardOnly: clipboardAvailable && !directInsert,
-            // A limit is only meaningful for a usable path (§57: no
+            // A limit is only meaningful for a usable path (no
             // optimistic assumption).
             maxTextBytes: clipboardAvailable ? maxTextBytes : 0,
         };
     }
 
     async insert(context: KeyboardContext, text: string): Promise<BulkInsertResult> {
-        // 1. Validate text (§24 step 1) — core §78 semantics and the 16 KiB limit.
+        // 1. Validate text — core validation semantics and the 16 KiB limit.
         let normalized: string;
         try {
             normalized = validateTranscript(text);
@@ -83,12 +83,12 @@ export class SteamBulkPasteInserter implements BulkTextInserter {
             return err(failure);
         }
 
-        // 2. Validate keyboard context (§24 step 2).
+        // 2. Validate keyboard context.
         if (!this.contextMatches(context)) {
             return err(new DictationError("KEYBOARD_CONTEXT_CHANGED"));
         }
 
-        // 3. Write the complete transcript once (§24 step 3).
+        // 3. Write the complete transcript once.
         try {
             await this.clipboard.writeText(context, normalized);
         } catch (error) {
@@ -102,13 +102,13 @@ export class SteamBulkPasteInserter implements BulkTextInserter {
             return err(failure);
         }
 
-        // 4. Revalidate keyboard context (§24 step 4).
+        // 4. Revalidate keyboard context.
         if (!this.contextMatches(context)) {
             this.logger.info("context changed after clipboard write; paste suppressed");
             return err(new DictationError("KEYBOARD_CONTEXT_CHANGED"));
         }
 
-        // 5. Exactly one paste action (§24 step 5).
+        // 5. Exactly one paste action.
         try {
             await this.pasteAction.invokePaste(context);
         } catch (error) {
@@ -122,7 +122,7 @@ export class SteamBulkPasteInserter implements BulkTextInserter {
             return err(failure);
         }
 
-        // 6. Success (§24 step 6).
+        // 6. Success.
         return ok(undefined);
     }
 

@@ -1,36 +1,37 @@
 /**
- * KeyboardTabBridge (v0.1.7) — the frontend engine of the tab-bridge
+ * KeyboardTabBridge — the frontend engine of the tab-bridge
  * architecture.
  *
  * The Big Picture keyboard lives in the CDP target titled exactly
  * "Steam Big Picture Mode", a document the plugin's own context cannot see
- * (the v0.1.6 registry path proved the SharedJSContext view is a dead end).
+ * (the earlier registry path proved the SharedJSContext view is a dead end).
  * This engine drives the loader's official `executeInTab` API (verified
- * callable from the sandboxed frontend — see IMPLEMENTATION_STATUS.md):
+ * callable from the sandboxed frontend):
  *
  * - injects the self-installing bootstrap (idempotently, immediately at start
  *   and re-injected every `reinjectMs` — the SP document can be replaced);
- * - polls ONLY while `isEnabled` (§61 deviation: the owner-approved 250 ms
- *   cadence) with ONE self-contained expression returning visibility,
+ * - polls ONLY while `isEnabled` (the owner-approved 250 ms cadence) with
+ *   ONE self-contained expression returning visibility,
  *   container presence, the in-window bootstrap flag, and drained press
  *   events — the single capability channel, no extra probe;
- * - translates keyboard visibility into keyboard context lifecycle (§7.2:
- *   every appearance is a fresh context id);
+ * - translates keyboard visibility into keyboard context lifecycle (every
+ *   appearance is a fresh context id);
  * - drains press events to the owner callback (the DictationController press
- *   path — the machine's §10/§11/§12 semantics stay authoritative);
+ *   path — the machine's press-serialization and stale-result semantics stay
+ *   authoritative);
  * - performs the one-payload transcript insertion (`__stdMicInsert`), the
- *   §24 fallback single paste (`__stdMicPaste`), and the §75 visual-state
+ *   fallback single paste (`__stdMicPaste`), and the visual-state
  *   pushes (`__stdMicState`).
  *
  * Failure semantics (verified loader behavior): `executeInTab` RESOLVES with
  * `{success: false}` for a missing tab title and for in-tab JS exceptions; a
  * loader transport outage rejects. Both are contained and drive a bounded
- * exponential backoff (§106: never an unbounded error loop). A keyboard
+ * exponential backoff (never an unbounded error loop). A keyboard
  * context whose document stays unreachable across sustained failures is
- * closed — §12 suppression stays truthful when the SP view dies mid-session.
+ * closed — suppression stays truthful when the SP view dies mid-session.
  *
  * All capability facts (`transportOk`, `bootstrapInjected`, `keyboardSeen`)
- * are observed from poll results, never assumed (§57).
+ * are observed from poll results, never assumed.
  */
 
 import type { KeyboardContext } from "../../domain/DictationSession";
@@ -52,13 +53,13 @@ import type { MicBridgeVisualState } from "./keyboardBridgeBootstrap";
 /** Exact CDP tab title of the Big Picture keyboard document (probe evidence). */
 export const SP_KEYBOARD_TAB_TITLE = "Steam Big Picture Mode";
 
-/** Default poll cadence (§61 deviation, owner-approved for the tab bridge). */
+/** Default poll cadence (owner-approved for the tab bridge). */
 export const DEFAULT_TAB_BRIDGE_POLL_MS = 250;
 
 /** Bootstrap re-injection cadence — SP document replacement healing. */
 export const DEFAULT_TAB_BRIDGE_REINJECT_MS = 30_000;
 
-/** Bounded backoff: first retry delay and hard cap (§61: bounded, not tight). */
+/** Bounded backoff: first retry delay and hard cap. */
 export const DEFAULT_TAB_BRIDGE_BACKOFF_BASE_MS = 1_000;
 export const DEFAULT_TAB_BRIDGE_BACKOFF_MAX_MS = 30_000;
 
@@ -71,7 +72,7 @@ export const DEFAULT_TAB_BRIDGE_START_SETTLE_MS = 5_000;
 
 /**
  * Consecutive transport failures with an open context before the context is
- * closed as unreachable (≈ backoff-sum seconds; keeps §12 suppression honest
+ * closed as unreachable (≈ backoff-sum seconds; keeps suppression honest
  * when the SP view disappears mid-transcription).
  */
 const TRANSPORT_FAILURES_BEFORE_CONTEXT_CLOSE = 4;
@@ -89,14 +90,14 @@ export type TabExecutor = (
     code: string,
 ) => Promise<TabExecutionResult>;
 
-/** Structural surface the one-payload insertion path consumes (§22 front end). */
+/** Structural surface the one-payload insertion path consumes. */
 export interface TabBridgeInsertionSurface {
     currentContext(): KeyboardContext | null;
 
     insertText(text: string): Promise<boolean>;
 }
 
-/** Structural surface the §24 fallback paste path consumes. */
+/** Structural surface the fallback paste path consumes. */
 export interface TabBridgePasteSurface {
     currentContext(): KeyboardContext | null;
 
@@ -111,7 +112,7 @@ export interface TabBridgePressEvent {
     readonly kind: string;
 }
 
-/** Decoded poll payload (strict shape guard at the boundary, §99). */
+/** Decoded poll payload (strict shape guard at the boundary). */
 export interface TabBridgePollPayload {
     readonly v: boolean;
     readonly c: boolean;
@@ -120,7 +121,7 @@ export interface TabBridgePollPayload {
     readonly f: boolean;
 }
 
-/** Stable lowercase degrade reasons (§105 convention). */
+/** Stable lowercase degrade reasons (shared convention). */
 export type TabBridgeDegradeReason =
     "sp-target-not-found" | "bridge-not-injected" | "signature-not-found";
 
@@ -159,7 +160,7 @@ function isPressEvent(value: unknown): value is TabBridgePressEvent {
     return typeof record["t"] === "number" && typeof record["kind"] === "string";
 }
 
-/** Strict boundary guard for the poll payload crossing the tab boundary (§99). */
+/** Strict boundary guard for the poll payload crossing the tab boundary. */
 export function parsePollPayload(raw: unknown): TabBridgePollPayload | null {
     if (typeof raw !== "string") {
         return null;
@@ -245,7 +246,7 @@ export class KeyboardTabBridge {
     /**
      * Starts the poll loop and awaits ONE bounded inject+poll cycle so the
      * startup capability report is built on settled facts. Never throws:
-     * transport failures are contained (the controller's §82 startup sequence
+     * transport failures are contained (the controller's startup sequence
      * must not fail because the SP view was briefly unavailable).
      */
     async start(): Promise<void> {
@@ -264,7 +265,7 @@ export class KeyboardTabBridge {
         ]);
     }
 
-    /** §83: full stop — poll loop down, in-window bootstrap uninstalled, context closed. */
+    /** Full stop — poll loop down, in-window bootstrap uninstalled, context closed. */
     async stop(): Promise<void> {
         if (this.stopped) {
             return;
@@ -287,7 +288,7 @@ export class KeyboardTabBridge {
         return this.current;
     }
 
-    /** Observed facts (§57) with the derived stable degrade reason. */
+    /** Observed facts with the derived stable degrade reason. */
     getFacts(): TabBridgeFacts {
         const reason: TabBridgeDegradeReason | null = !this.transportOk
             ? "sp-target-not-found"
@@ -305,7 +306,7 @@ export class KeyboardTabBridge {
         };
     }
 
-    /** Panel-facing snapshot (§58-shaped consumer, Task 4 row source). */
+    /** Panel-facing diagnostics snapshot (the diagnostics panel row source). */
     getDiagnostics(): TabBridgeDiagnostics {
         const facts = this.getFacts();
         return {
@@ -316,10 +317,10 @@ export class KeyboardTabBridge {
         };
     }
 
-    // ── Bridge operations (all §106-contained) ──
+    // ── Bridge operations (all exception-contained) ──
 
     /**
-     * One-payload transcript insertion (§2.2/§22): resolves to true only when
+     * One-payload transcript insertion: resolves to true only when
      * the in-window `__stdMicInsert` reported success.
      */
     async insertText(text: string): Promise<boolean> {
@@ -334,7 +335,7 @@ export class KeyboardTabBridge {
         }
     }
 
-    /** §24 fallback step 5: the single native paste in the keyboard document. */
+    /** Fallback final step: the single native paste in the keyboard document. */
     async invokePaste(): Promise<boolean> {
         if (this.stopped) {
             return false;
@@ -347,7 +348,7 @@ export class KeyboardTabBridge {
         }
     }
 
-    /** §58.5 analog: paste-mechanism recognition in the keyboard document. */
+    /** Read-only paste-mechanism recognition in the keyboard document. */
     async probePasteMechanism(): Promise<boolean> {
         if (this.stopped) {
             return false;
@@ -360,7 +361,7 @@ export class KeyboardTabBridge {
         }
     }
 
-    /** §75 visual-state push (fire-and-forget, contained). */
+    /** Visual-state push (fire-and-forget, contained). */
     pushState(state: MicBridgeVisualState): void {
         if (this.stopped) {
             return;
@@ -385,7 +386,7 @@ export class KeyboardTabBridge {
         }
         const nowMs = this.now();
         if (nowMs < this.gateUntilMs) {
-            return; // bounded backoff (§61)
+            return; // bounded backoff
         }
         this.ticking = true;
         try {
@@ -484,9 +485,9 @@ export class KeyboardTabBridge {
             this.backoffMaxMs,
         );
         this.gateUntilMs = this.now() + delayMs;
-        // §12 protection: a document with an open context that stays
+        // Suppression protection: a document with an open context that stays
         // unreachable is effectively gone — close it so suppression and the
-        // §24 context revalidation stay truthful.
+        // context revalidation stay truthful.
         if (
             this.current !== null &&
             this.failureStreak >= TRANSPORT_FAILURES_BEFORE_CONTEXT_CLOSE

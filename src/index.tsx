@@ -1,9 +1,9 @@
 /**
- * Composition root (spec §6) and Decky plugin entry (§112).
+ * Composition root and Decky plugin entry.
  *
  * This module only creates dependencies and wires them — no application
- * logic. `PluginCompositionRoot` (§84) owns every disposable and disposes in
- * reverse construction order, executing the §83 unload sequence: controller
+ * logic. `PluginCompositionRoot` owns every disposable and disposes in
+ * reverse construction order, executing the unload sequence: controller
  * dispose (cancel recording) → keyboard stop (unmount mic UI, restore hooks)
  * → speech shutdown (unsubscribe backend events) → store unsubscription.
  */
@@ -48,9 +48,9 @@ import { extractSession } from "./domain/DictationState";
 // evaluates `m.default()`); the composition root is internal wiring.
 
 /**
- * Install-wedge self-heal gate (v0.2.9): a download counts as in flight
+ * Install-wedge self-heal gate: a download counts as in flight
  * until its settle path clears it — EXCEPT the held final 100% completion
- * frame (ADR-011), which is settled state the modal still renders, never a
+ * frame, which is settled state the modal still renders, never a
  * live download.
  */
 function isDownloadInFlight(snapshot: ModelCatalogSnapshot): boolean {
@@ -64,21 +64,21 @@ class PluginCompositionRoot implements Disposable {
     private readonly logger: Logger;
     private started = false;
 
-    /** Wired dependencies the plugin panel consumes (§6 wiring outputs). */
+    /** Wired dependencies the plugin panel consumes. */
     readonly settingsPort: SettingsPort;
     readonly controllerStore: StateStore<DictationState>;
     readonly setupProgress: SetupProgressStore;
     readonly diagnostics: DiagnosticsSource;
     /** Monotonic clock: controller timings and the panel's load deadline. */
     readonly clock: ClockPort;
-    /** Additive v0.2 dictation card wiring for the plugin panel. */
+    /** Additive dictation card wiring for the plugin panel. */
     readonly dictation: {
         readonly levelMeter: LevelMeterStore;
         readonly transcript: StateStore<PanelTranscriptSnapshot | null>;
         readonly onPress: () => void;
         readonly onCopy: (text: string) => Promise<boolean>;
     };
-    /** Additive curated model catalog wiring for the plugin panel (ADR-011). */
+    /** Additive curated model catalog wiring for the plugin panel. */
     readonly modelCatalog: {
         readonly store: StateStore<ModelCatalogSnapshot>;
         readonly load: () => Promise<void>;
@@ -86,7 +86,7 @@ class PluginCompositionRoot implements Disposable {
         readonly cancel: () => void;
         readonly deleteModel: (modelId: string) => Promise<void>;
     };
-    /** Install-wedge self-heal wiring for the plugin panel (v0.2.9). */
+    /** Install-wedge self-heal wiring for the plugin panel. */
     readonly selfHeal: {
         readonly reportLoadOutcome: (outcome: SettingsLoadOutcome) => boolean;
         readonly onImportPlugin: (listener: () => void) => () => void;
@@ -95,7 +95,7 @@ class PluginCompositionRoot implements Disposable {
     constructor(logger: Logger = new Logger("plugin.lifecycle")) {
         this.logger = logger;
 
-        // §6 wiring — construction order only, no service locator.
+        // Wiring — construction order only, no service locator.
         const transport = createDeckyApiTransport();
         const backendClient = new DeckyBackendClient(transport);
         const speechPort = new DeckySpeechAdapter(backendClient);
@@ -103,9 +103,9 @@ class PluginCompositionRoot implements Disposable {
         this.settingsPort = settingsAdapter;
         this.setupProgress = speechPort.setupProgress;
 
-        // v0.1.7: the mic button lives in the real keyboard document
+        // The mic button lives in the real keyboard document
         // ("Steam Big Picture Mode") via the loader's official executeInTab;
-        // the v0.1.6 registry-mount adapter is a proven dead end
+        // the earlier registry-mount adapter is a proven dead end
         // (managersFound=0 on device) and is no longer wired. The store is
         // resolved lazily: the controller below is assigned before any
         // keyboard event can arrive (bridge polls start with start()).
@@ -115,7 +115,7 @@ class PluginCompositionRoot implements Disposable {
             onPress: () => {
                 void controller?.handleMicrophonePressed();
             },
-            // §61 gate: the poll loop runs ONLY while the plugin is enabled
+            // Gate: the poll loop runs ONLY while the plugin is enabled
             // (the machine derives PLUGIN_DISABLED from the startup settings).
             isEnabled: () => {
                 const state = controller?.getSnapshot();
@@ -139,7 +139,7 @@ class PluginCompositionRoot implements Disposable {
         );
         this.controllerStore = controller;
 
-        // v0.2.5: trimmed to the two methods the panel still consumes (the
+        // Trimmed to the two methods the panel still consumes (the
         // Diagnostics section removal orphaned the capability/cross-view
         // loaders; the loader-side providers stay untouched).
         this.diagnostics = {
@@ -149,9 +149,9 @@ class PluginCompositionRoot implements Disposable {
             },
         };
 
-        // v0.2 dictation card (owner pivot): the big button presses the SAME
-        // controller through the panel entry (§10 mutex, §8 machine); the
-        // level/transcript stores are the adapter's guarded UI side-channels;
+        // Dictation card (owner pivot): the big button presses the SAME
+        // controller through the panel entry (same mutex and state machine);
+        // the level/transcript stores are the adapter's guarded UI side-channels;
         // the copy is the panel execCommand path (primary while the backend
         // xclip leg reports "skipped").
         this.dictation = {
@@ -163,8 +163,8 @@ class PluginCompositionRoot implements Disposable {
             onCopy: (text: string) => copyTextToClipboard(text),
         };
 
-        // ADR-011 model catalog: the guarded store side-channel plus the
-        // §30 download callables. Failures are logged with their detail and
+        // Model catalog: the guarded store side-channel plus the
+        // download callables. Failures are logged with their detail and
         // leave the picker's store untouched (the row returns to its
         // pre-download action); nothing is silently swallowed.
         this.modelCatalog = {
@@ -211,10 +211,10 @@ class PluginCompositionRoot implements Disposable {
             },
         };
 
-        // Install-wedge self-heal (v0.2.9): the panel reports boot-load
+        // Install-wedge self-heal: the panel reports boot-load
         // outcomes through the two-method port below. The gates are read
         // HERE, fresh at report time, over the composed stores — the reload
-        // never fires during an active dictation session (any §8 sessionful
+        // never fires during an active dictation session (any sessionful
         // state) or an in-flight model download. The reload itself lives in
         // the infrastructure adapter and fires at most once per frontend
         // module session (the loader's re-import resets it — never loops).
@@ -234,8 +234,8 @@ class PluginCompositionRoot implements Disposable {
         );
         this.lifecycle = new PluginLifecycle(controller, keyboardHost, speechPort);
 
-        // §84: dispose in reverse construction order → lifecycle first (it
-        // runs the §83 sequence incl. hook restore), presenter afterwards.
+        // Dispose in reverse construction order → lifecycle first (it
+        // runs the unload sequence incl. hook restore), presenter afterwards.
         this.resources.push(this.lifecycle, this.presenter);
     }
 
@@ -254,7 +254,7 @@ class PluginCompositionRoot implements Disposable {
             try {
                 await resource.dispose();
             } catch (error) {
-                // §84/§106: one failing teardown step must not block the rest.
+                // One failing teardown step must not block the rest.
                 this.logger.error("composition root teardown step failed", {
                     detail: error instanceof Error ? error.message : String(error),
                 });

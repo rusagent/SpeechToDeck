@@ -1,5 +1,5 @@
 /**
- * Monotonic clock adapter (spec §7.1 `startedAtMonotonicMs`): monotonic
+ * Monotonic clock adapter (feeds `startedAtMonotonicMs`): monotonic
  * orderings and durations only, never a wall-clock date.
  */
 

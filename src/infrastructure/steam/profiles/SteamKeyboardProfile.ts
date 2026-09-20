@@ -1,5 +1,5 @@
 /**
- * Compatibility profile contract (spec §59) and its discovery context.
+ * Compatibility profile contract and its discovery context.
  *
  * Steam-version specifics live in explicit profile objects under
  * `src/infrastructure/steam/profiles/` — never scattered through the adapter
@@ -15,7 +15,7 @@ import type {
 
 /**
  * What discovery observed in the current Steam session. Every field is a
- * typed internal representation converted at the boundary (§98/§103);
+ * typed internal representation converted at the boundary;
  * `manager` and `keyboardDom` are `null` when the corresponding capability
  * check failed — profiles decide support, they never guess.
  */
@@ -27,8 +27,8 @@ export interface SteamDiscoveryContext {
 }
 
 /**
- * Handle for the keyboard's native paste semantic action (spec §26/§28
- * Candidate A). Invoking it performs the same operation the user's Paste
+ * Handle for the keyboard's native paste semantic action. Invoking it
+ * performs the same operation the user's Paste
  * control performs; it never types content.
  */
 export interface SteamPasteHandle {

@@ -1,5 +1,5 @@
 /**
- * Tab-bridge bootstrap source (v0.1.7) — string building ONLY.
+ * Tab-bridge bootstrap source — string building ONLY.
  *
  * This module produces the self-installing JavaScript source that
  * `executeInTab("Steam Big Picture Mode", false, source)` evaluates inside the
@@ -28,13 +28,13 @@
  *   into the captured editable — the native value setter from the element's
  *   prototype chain plus exactly one bubbled `input` InputEvent (the
  *   React-controlled-component-safe pattern); contenteditable uses one
- *   `execCommand("insertText")`. Returns true only on success; §2.2/§22
+ *   `execCommand("insertText")`. Returns true only on success;
  *   one-payload semantics hold (no per-character synthesis anywhere).
  * - `window.__stdMicState(state)`: visual state push from the poller
  *   (idle/recording/error classes + `aria-pressed`).
- * - `window.__stdMicPaste()`: §24 fallback single native paste on the captured
+ * - `window.__stdMicPaste()`: fallback single native paste on the captured
  *   editable (execCommand("paste"), elevated by the loader's userGesture).
- * - `window.__stdMicTeardown()`: full in-window uninstall (§83 unload).
+ * - `window.__stdMicTeardown()`: full in-window uninstall.
  *
  * Every entry point is exception-contained: the bridge must never throw inside
  * the Steam UI document.
@@ -349,7 +349,7 @@ export const KEYBOARD_BRIDGE_BOOTSTRAP_SOURCE = `
         );
     }
 
-    // §61 safety net: the plugin's 250 ms poll calls this before reading the
+    // Safety net: the plugin's 250 ms poll calls this before reading the
     // state, so a missed observer event self-heals within one poll tick (no
     // idle timers in the keyboard window).
     window.__stdKbEvaluate = evaluate;
@@ -369,7 +369,8 @@ export const KEYBOARD_BRIDGE_BOOTSTRAP_SOURCE = `
         }
     };
 
-    // §24 fallback step 5: the single native paste, executed inside the
+    // Fallback transaction, final step: the single native paste, executed
+    // inside the
     // keyboard document on the captured editable (CDP userGesture is set by
     // the loader's evaluate). Never types text itself.
     window.__stdMicPaste = function () {
@@ -440,9 +441,9 @@ export const KEYBOARD_BRIDGE_BOOTSTRAP_SOURCE = `
  * Poll expression: ONE self-contained synchronous evaluation returning the
  * bridge payload as JSON. Works with and without the bootstrap installed
  * (`b` reports the in-window flag, so injection success is observed, not
- * assumed). Drains up to 9 queued press events per poll (§61 cadence 250 ms).
+ * assumed). Drains up to 9 queued press events per poll (250 ms cadence).
  * The leading comma operand re-runs the bootstrap's visibility evaluation
- * FIRST, so a missed observer event self-heals within one poll tick (§61).
+ * FIRST, so a missed observer event self-heals within one poll tick.
  * `v` reports the visibility CLASS TOKEN alone (same authority as the
  * bootstrap's `isVisible`): offsetWidth reads 0 in CEF on device while the
  * keyboard is on screen.
@@ -474,7 +475,7 @@ export function buildStateExpression(state: MicBridgeVisualState): string {
 }
 
 /**
- * §58.5 analog for the §24 fallback: read-only paste-mechanism recognition in
+ * Read-only paste-mechanism recognition for the fallback path in
  * the keyboard document. Never pastes — it only verifies the mechanism exists
  * (same honesty rule as the clipboard write-mechanism probe).
  */
@@ -485,12 +486,12 @@ export function buildPasteProbeExpression(): string {
     );
 }
 
-/** §24 fallback step 5 expression: exactly one native paste on the focused editable. */
+/** Fallback final-step expression: exactly one native paste on the focused editable. */
 export function buildPasteExpression(): string {
     return "window.__stdMicPaste && window.__stdMicPaste()";
 }
 
-/** Full in-window uninstall (§83 unload hygiene). */
+/** Full in-window uninstall (unload hygiene). */
 export function buildTeardownExpression(): string {
     return "window.__stdMicTeardown && window.__stdMicTeardown()";
 }

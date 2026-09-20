@@ -1,14 +1,14 @@
 /**
- * MicrophoneButton (spec §19/§20/§107) — pure presentation component.
+ * MicrophoneButton — pure presentation component.
  *
- * No backend logic. Accessibility (§107): implicit button role, accessible
+ * No backend logic. Accessibility: implicit button role, accessible
  * name per state, `aria-pressed` for the recording state, disabled state,
  * and a per-state glyph/marker so the state never relies on color alone.
  *
- * State craft (§20): recording adds a pulsing ring, a solid badge and the
+ * State craft: recording adds a pulsing ring, a solid badge and the
  * optional mm:ss elapsed label (driven by the caller from the session state,
- * never a free-running idle loop, §61/§66); processing shows a spinner;
- * error shows a badge plus a brief localized message flash (§20: detailed
+ * never a free-running idle loop); processing shows a spinner;
+ * error shows a badge plus a brief localized message flash (the detailed
  * error remains in the plugin panel). Motion respects the user's
  * reduced-motion preference.
  */
@@ -25,17 +25,17 @@ export interface MicrophoneButtonProps {
     readonly locale?: Locale;
     /**
      * Recording elapsed label (mm:ss). Pure display, `aria-hidden` — the
-     * accessible name stays stable instead of churning every second (§107).
+     * accessible name stays stable instead of churning every second.
      */
     readonly elapsedLabel?: string | undefined;
     /**
-     * Localized error message for the brief §20 error flash. Announced via
+     * Localized error message for the brief error flash. Announced via
      * `role="status"`; hides itself after a few seconds.
      */
     readonly errorMessage?: string | undefined;
     /**
-     * Rendered diameter in px (additive v0.2: the QAM dictation card renders
-     * a larger control). Same 44 px default and identical §19/§20/§75
+     * Rendered diameter in px (additive: the QAM dictation card renders
+     * a larger control). Same 44 px default and identical visual-state
      * semantics for the keyboard mount.
      */
     readonly size?: number;
@@ -157,7 +157,7 @@ function glyphSize(buttonSize: number): number {
 
 /**
  * Motion styles, injected once. Both animations are active-state feedback
- * (§20 recording/spinner) and switch off under `prefers-reduced-motion`.
+ * (recording ring / spinner) and switch off under `prefers-reduced-motion`.
  */
 const MOTION_STYLES = `
 @keyframes speechtodeck-pulse {
@@ -188,7 +188,7 @@ function injectMotionStyles(): void {
     motionStylesInjected = true;
 }
 
-/** Brief §20 error flash: one timer per message, disposed on change/unmount. */
+/** Brief error flash: one timer per message, disposed on change/unmount. */
 function useErrorFlash(errorMessage: string | undefined): boolean {
     const [visible, setVisible] = React.useState(false);
     React.useEffect(() => {

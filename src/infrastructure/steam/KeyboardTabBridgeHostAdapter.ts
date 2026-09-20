@@ -1,24 +1,24 @@
 /**
- * SteamKeyboardTabBridgeHostAdapter (v0.1.7) — the KeyboardHostPort the
+ * SteamKeyboardTabBridgeHostAdapter — the KeyboardHostPort the
  * controller, presenter and lifecycle see, implemented over the tab bridge.
  *
- * This REPLACES the v0.1.6 registry-mount adapter in the composition root
+ * This REPLACES the earlier registry-mount adapter in the composition root
  * (on-device evidence: the window-store registry never exposes a keyboard
  * manager — managersFound=0 with the keyboard open). Responsibilities:
  *
  * - keyboard lifecycle: poll visibility → keyboard-opened/keyboard-closed
- *   port events with fresh context ids (§7.2) — the controller's existing
+ *   port events with fresh context ids — the controller's existing
  *   subscription consumes them unchanged;
  * - microphone control: the button lives in the keyboard document (bootstrap
  *   injected via executeInTab), so `mountMicrophoneControl` translates the
- *   §75-true model output into `__stdMicState` pushes instead of rendering
+ *   model's visual state into `__stdMicState` pushes instead of rendering
  *   React into a plugin-owned node;
- * - §58-shaped diagnostics: the capability derivation (`reason === null` →
+ * - keyboard-hook diagnostics: the capability derivation (`reason === null` →
  *   `keyboardHookAvailable`) consumes observed bridge facts — transport round
  *   trip proven, in-window bootstrap flag read back, keyboard container seen.
  *
- * Hard boundaries kept from §14/§106: no dictation logic; every executor call
- * is exception-contained; no optimistic capability assumption (§57).
+ * Hard boundaries kept: no dictation logic; every executor call
+ * is exception-contained; no optimistic capability assumption.
  */
 
 import type { KeyboardContext } from "../../domain/DictationSession";
@@ -91,9 +91,9 @@ export class SteamKeyboardTabBridgeHostAdapter implements KeyboardHostPort, Disp
         this.bridge = new KeyboardTabBridge(bridgeOptions);
     }
 
-    // ── KeyboardHostPort (§13) ──
+    // ── KeyboardHostPort ──
 
-    /** Never throws: transport failures degrade through `getDiagnostics` (§105). */
+    /** Never throws: transport failures degrade through `getDiagnostics`. */
     async start(): Promise<void> {
         if (this.stopped) {
             return;
@@ -105,7 +105,7 @@ export class SteamKeyboardTabBridgeHostAdapter implements KeyboardHostPort, Disp
         if (this.stopped) {
             return;
         }
-        this.stopped = true; // new mounts and visual pushes are rejected from here on (§83)
+        this.stopped = true; // new mounts and visual pushes are rejected from here on
         this.releaseMic();
         await this.bridge.stop();
     }
@@ -125,13 +125,13 @@ export class SteamKeyboardTabBridgeHostAdapter implements KeyboardHostPort, Disp
 
     /**
      * The control itself is the in-window `std-mic-host` div (self-installing
-     * bootstrap). This method records the §75-true visual state and pushes it
+     * bootstrap). This method records the visual state and pushes it
      * into the keyboard document; the returned Disposable detaches the
-     * current props (exactly the plugin-owned surface, §18).
+     * current props (exactly the plugin-owned surface).
      */
     mountMicrophoneControl(props: MicrophoneControlProps): Disposable {
         if (this.stopped) {
-            // §83: no visual pushes after teardown started; return a no-op mount.
+            // No visual pushes after teardown started; return a no-op mount.
             return {
                 dispose: () => undefined,
             };
@@ -151,14 +151,15 @@ export class SteamKeyboardTabBridgeHostAdapter implements KeyboardHostPort, Disp
     }
 
     /**
-     * §58-shaped mapping for the controller's capability derivation. Field
+     * Keyboard-hook diagnostics mapping for the controller's capability
+     * derivation. Field
      * semantics under the tab bridge: `registryFound` = a transport round
      * trip resolved at least once; `keyboardSignatureSeen` = the keyboard
      * container was observed at least once; `documentResolved` = the
      * in-window bootstrap flag was read back; `managersHooked` is
      * structurally 0 (no registry managers in this architecture). `reason`
      * is null — hence `keyboardHookAvailable` — only when all observed facts
-     * are proven (§57).
+     * are proven.
      */
     getDiagnostics(): KeyboardHostDiagnostics {
         const facts = this.bridge.getFacts();
@@ -171,7 +172,7 @@ export class SteamKeyboardTabBridgeHostAdapter implements KeyboardHostPort, Disp
         };
     }
 
-    /** Panel-facing tab-bridge rows (Task 4) from the same observed facts. */
+    /** Panel-facing tab-bridge rows from the same observed facts. */
     getBridgeDiagnostics(): TabBridgeDiagnostics {
         return this.bridge.getDiagnostics();
     }

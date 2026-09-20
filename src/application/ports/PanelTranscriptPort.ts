@@ -1,15 +1,14 @@
 /**
  * Last-transcript snapshot store for the plugin panel's dictation card
- * (additive v0.2 transport-level UI state, mirroring the setup-progress
- * store pattern).
+ * (transport-level UI state, mirroring the setup-progress store pattern).
  *
  * The adapter publishes every guarded `transcript_ready` payload here —
- * with the additive backend clipboard outcome — so the card can show the
- * transcript preview, the clipboard status line and the "copy again"
- * action. It never enters the dictation state machine (§8) and never
- * touches insertion; §12 suppression semantics on the controller are
- * unchanged. The store holds at most the latest transcript; nothing here
- * is persisted or logged (§73).
+ * with the backend clipboard outcome — so the card can show the transcript
+ * preview, the clipboard status line and the "copy again" action. It never
+ * enters the dictation state machine and never touches insertion; the
+ * controller's suppression semantics are unchanged. The store holds at most
+ * the latest transcript; nothing here is persisted or logged (privacy:
+ * transcripts never reach logs).
  */
 
 import type { TranscriptClipboardStatus } from "./SpeechPort";

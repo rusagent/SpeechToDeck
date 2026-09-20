@@ -1,5 +1,5 @@
 /**
- * Known compatibility profiles (spec §59). New Steam builds are supported by
+ * Known compatibility profiles. New Steam builds are supported by
  * adding a profile here, not by touching adapter or application code.
  */
 

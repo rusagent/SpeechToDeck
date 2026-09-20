@@ -1,5 +1,5 @@
 /**
- * Unique id source for session ids (spec §7.1, §11 stale-result protection).
+ * Unique id source for session ids (backs stale-result protection).
  */
 export interface IdGeneratorPort {
     nextId(): string;

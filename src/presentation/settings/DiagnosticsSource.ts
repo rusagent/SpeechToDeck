@@ -2,7 +2,7 @@
  * DiagnosticsSource — the panel's data-source seam wired by the composition
  * root (no Decky/Steam imports).
  *
- * v0.2.5: the read-only Diagnostics section was removed from the panel
+ * The read-only Diagnostics section was removed from the panel
  * (owner declutter), which orphaned the capability/cross-view loaders — the
  * interface is trimmed to the two members the panel still consumes: the
  * setup-progress hydration and the explicit runtime restart behind the
@@ -12,13 +12,13 @@
 
 export interface DiagnosticsSource {
     /**
-     * Hydrates the setup store from the §30 status report so a startup
+     * Hydrates the setup store from the status report so a startup
      * failure that fired before the panel subscribed still renders (live
      * events always win). No-op when the runtime is fine or a snapshot
      * already exists.
      */
     hydrateSetupProgress(): Promise<void>;
 
-    /** The §69 explicit restart behind the failed-state retry button. */
+    /** The explicit runtime restart behind the failed-state retry button. */
     restartRuntime(): Promise<void>;
 }

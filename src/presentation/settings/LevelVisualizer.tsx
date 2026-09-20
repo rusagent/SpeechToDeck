@@ -1,5 +1,5 @@
 /**
- * LevelVisualizer (v0.2.4 owner feature) — the dictation card's live level
+ * LevelVisualizer (owner feature) — the dictation card's live level
  * strip with three user-selectable styles over the SAME real-frame window:
  *
  * - `heatmap` (default): a scrolling time-column heat map styled after the
@@ -8,15 +8,15 @@
  *   is one real frame, the newest stays on the right, and amplitude maps to
  *   color temperature with a soft glow on hot columns. Faint horizontal
  *   scanlines echo the reference image.
- * - `classic`: the extracted v0.2 24-bar strip, pixel-identical.
+ * - `classic`: the extracted 24-bar strip, pixel-identical.
  * - `mirror`: the same bars folded vertically around a center line.
  *
- * §73 (privacy/no fabrication): every style renders ONLY the real received
+ * Privacy/no fabrication: every style renders ONLY the real received
  * `recording_level` amplitudes passed in `bars` (the adapter-guarded
  * LevelMeterStore window) — a level visualization, never synthetic content.
- * §61: bars re-render on publishes, never on a timer; the height/color
+ * Bars re-render on publishes, never on a timer; the height/color
  * transitions run only while events arrive and are disabled under
- * `prefers-reduced-motion`. All strings via i18n (§108).
+ * `prefers-reduced-motion`. All strings via i18n.
  *
  * The style choice is frontend-local by design (a pure presentation
  * preference, NOT a backend setting): it persists in `localStorage` under the
@@ -29,10 +29,10 @@ import { LEVEL_BAR_COUNT } from "../../application/ports/LevelMeterPort";
 import { translate } from "../i18n/messages";
 import type { Locale, MessageKey } from "../i18n/messages";
 
-/** The selectable visualizer styles (stable storage values, §108-adjacent). */
+/** The selectable visualizer styles (stable storage values). */
 export type VisualizerStyle = "heatmap" | "classic" | "mirror";
 
-/** Frontend-local storage key (spec-external presentation preference). */
+/** Frontend-local storage key (a presentation preference, not a backend setting). */
 export const LEVEL_STYLE_STORAGE_KEY = "speechtodeck.levelStyle";
 
 /** Default when nothing (or garbage) is stored: the owner's headline style. */
@@ -198,7 +198,7 @@ const CENTER_LINE_STYLE: React.CSSProperties = {
     pointerEvents: "none",
 };
 
-/** Motion styles, injected once; off under `prefers-reduced-motion` (§61). */
+/** Motion styles, injected once; off under `prefers-reduced-motion`. */
 const VISUALIZER_MOTION_STYLES = `
 .speechtodeck-level-bar { transition: height 90ms linear; }
 .speechtodeck-heat-col { transition: background 90ms linear, box-shadow 90ms linear; }
@@ -382,7 +382,7 @@ const STYLE_PICKER_SELECT_STYLE: React.CSSProperties = {
 };
 
 export interface LevelVisualizerProps {
-    /** Real amplitudes 0..1 from the guarded LevelMeterStore window (§73). */
+    /** Real amplitudes 0..1 from the guarded LevelMeterStore window. */
     readonly bars: readonly number[];
     /**
      * Whether the live strip renders. The card shows the strip only while

@@ -1,15 +1,15 @@
 /**
- * Default compatibility profile (spec §59/§60).
+ * Default compatibility profile.
  *
- * Locator evidence preference order (§60): stable semantic attributes first,
+ * Locator evidence preference order: stable semantic attributes first,
  * then roles/accessible labels, then structural relationships; a known
- * profile-specific signature (§60.5) is the last honest locator for a Steam
+ * profile-specific signature is the last honest locator for a Steam
  * build whose real DOM carries no semantic attributes. Matching is
  * conservative multi-evidence: an unknown structure reports "unsupported"
- * instead of guessing and continuing (§89, §2.4).
+ * instead of guessing and continuing.
  *
- * v0.2.2 (on-device regression fix): the live-scanned keyboard container
- * (`.tmp/cdp/kb-deep.out`) is a permanently-present node with a hash-prefixed
+ * On-device regression fix: the live-scanned keyboard container is a
+ * permanently-present node with a hash-prefixed
  * CSS-module class + the literal "VirtualKeyboardVisible" visibility token,
  * inside a `DIV.*.Panel` parent — with NO semantic attributes, NO recognized
  * paste control, and NO button-role key controls. The former key-control
@@ -30,7 +30,7 @@ export const VK_ROOT_ATTRIBUTE = "data-virtualkeyboard";
 /** Semantic attribute marking the keyboard's native paste action control. */
 export const VK_PASTE_ACTION_ATTRIBUTE = "data-vk-action";
 
-/** Plugin-owned mount node marker (spec §18 example). */
+/** Plugin-owned mount node marker. */
 export const MIC_ROOT_ATTRIBUTE = "data-speechtodeck-root";
 
 function hasAttributeTrue(element: HTMLElement, attribute: string): boolean {
@@ -46,19 +46,19 @@ function isActivatableControl(element: HTMLElement): boolean {
 }
 
 /**
- * The stable CSS-module token (§60.5 known-signature): the live-verified
- * keyboard container class carries the literal `virtualkeyboard` /
- * `VirtualKeyboard` token with hash prefixes (the visibility token
+ * The stable CSS-module token (the known-signature evidence): the
+ * live-verified keyboard container class carries the literal `virtualkeyboard`
+ * / `VirtualKeyboard` token with hash prefixes (the visibility token
  * "VirtualKeyboardVisible" is the locator's separate visibility evidence).
  */
 const VK_CLASS_TOKEN_PATTERN = /virtualkeyboard/i;
 
 /**
- * Structural relationship (§60.4) verified on deck hardware: the keyboard
+ * Structural relationship verified on deck hardware: the keyboard
  * container's parent is a `DIV` carrying Steam's `Panel` class
- * (`DIV._1DLmEVjfX3d7Ec8CW7vJnt Panel`, kb-deep.out). Together with the class
+ * (`DIV._1DLmEVjfX3d7Ec8CW7vJnt Panel`). Together with the class
  * token this is the two-evidence known signature — the token alone never
- * decides (§60).
+ * decides.
  */
 function hasVerifiedPanelParent(keyboard: HTMLElement): boolean {
     const parent = keyboard.parentElement;
@@ -73,12 +73,12 @@ export const DefaultSteamKeyboardProfile: SteamKeyboardProfile = {
         if (keyboard === null) {
             return false;
         }
-        // Signature A (§60.1): stable semantic attribute on the root.
+        // Signature A: stable semantic attribute on the root.
         if (hasAttributeTrue(keyboard, VK_ROOT_ATTRIBUTE)) {
             return true;
         }
-        // Signature B (live-verified on deck hardware, v0.2.2): the known
-        // profile-specific container signature (§60.5) — the CSS-module class
+        // Signature B (live-verified on deck hardware): the known
+        // profile-specific container signature — the CSS-module class
         // token AND the verified Panel parent relationship. The real DOM's
         // key controls are not button-role elements and the container stays
         // mounted while hidden, so neither key presence nor visibility is a
@@ -88,7 +88,7 @@ export const DefaultSteamKeyboardProfile: SteamKeyboardProfile = {
 
     locateMountPoint(keyboard: HTMLElement): HTMLElement | null {
         // The keyboard root itself: appending keeps every Steam-owned child
-        // untouched (§18); cleanup removes only the plugin-owned node. The
+        // untouched; cleanup removes only the plugin-owned node. The
         // root was validated by `matches` (either signature), so no attribute
         // re-check here — the verified real keyboard carries no semantic
         // attributes, only the CSS-module token.
@@ -100,7 +100,7 @@ export const DefaultSteamKeyboardProfile: SteamKeyboardProfile = {
         if (pasteControl === null) {
             return null;
         }
-        // Evidence 2 (§60.2): the paste control must be an activatable
+        // Second evidence: the paste control must be an activatable
         // button-role element; anything else is not a recognized mechanism.
         if (!isActivatableControl(pasteControl)) {
             return null;

@@ -1,15 +1,15 @@
 /**
- * KeyboardBridgeInserter (v0.1.7) — the bulk insertion front end.
+ * KeyboardBridgeInserter — the bulk insertion front end.
  *
- * Primary path (§2.2/§22 reading, see IMPLEMENTATION_STATUS.md): the COMPLETE
+ * Primary path: the COMPLETE
  * transcript is delivered as ONE payload through the in-window
  * `__stdMicInsert` (native value setter + exactly one `input` event on the
  * captured editable). No per-character iteration, no keycode translation.
  *
- * Fallback path: the §24 clipboard-write + single-native-paste transaction,
+ * Fallback path: the clipboard-write + single-native-paste transaction,
  * used ONLY when the focused-element insertion reports failure (element gone,
  * not editable, or transport failure). The fallback revalidates the keyboard
- * context internally before writing and pasting (§24 steps 2/4).
+ * context internally before writing and pasting.
  */
 
 import { validateTranscript, DictationError } from "../../domain/DictationError";
@@ -32,14 +32,15 @@ export class KeyboardBridgeInserter implements BulkTextInserter {
     ) {}
 
     async probe(context: KeyboardContext): Promise<BulkInsertionCapability> {
-        // Capability rows stay about the §24 mechanisms; the bridge path is
-        // gated per-insertion by the observed context (§57: report, don't
-        // assume — the panel shows the tab-bridge rows separately).
+        // Capability rows stay about the clipboard/paste mechanisms; the
+        // bridge path is gated per-insertion by the observed context
+        // (report, don't assume — the panel shows the tab-bridge rows
+        // separately).
         return this.fallback.probe(context);
     }
 
     async insert(context: KeyboardContext, text: string): Promise<BulkInsertResult> {
-        // 1. Validate text once (§24 step 1 — core §78 semantics, 16 KiB limit).
+        // 1. Validate text once (core validation semantics, 16 KiB limit).
         let normalized: string;
         try {
             normalized = validateTranscript(text);
@@ -68,12 +69,12 @@ export class KeyboardBridgeInserter implements BulkTextInserter {
             if (inserted) {
                 return ok(undefined);
             }
-            this.logger.info("bridge insert declined; §24 clipboard path takes over");
+            this.logger.info("bridge insert declined; clipboard fallback path takes over");
         } else {
-            this.logger.info("bridge context no longer current; §24 clipboard path takes over");
+            this.logger.info("bridge context no longer current; clipboard fallback takes over");
         }
 
-        // 3. Fallback: §24 clipboard + single paste (revalidates context internally).
+        // 3. Fallback: clipboard + single paste (revalidates context internally).
         return this.fallback.insert(context, normalized);
     }
 }

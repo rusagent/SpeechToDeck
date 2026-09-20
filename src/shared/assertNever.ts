@@ -1,5 +1,5 @@
 /**
- * Exhaustiveness guard for discriminated unions (spec §3.4/§98).
+ * Exhaustiveness guard for discriminated unions.
  *
  * Reachable only when a union gains a member without a matching handler; the
  * compiler makes the argument `never` in every exhaustively handled switch.

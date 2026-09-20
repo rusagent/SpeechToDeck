@@ -24,7 +24,7 @@ export function createDeckyApiTransport(): DeckyTransport {
 }
 
 /**
- * Real `executeInTab` binding for the v0.1.7 tab bridge (same module-load
+ * Real `executeInTab` binding for the tab bridge (same module-load
  * side-effect boundary as `createDeckyApiTransport`: imported ONLY by the
  * composition root; tests inject fakes over the `TabExecutor` seam).
  */

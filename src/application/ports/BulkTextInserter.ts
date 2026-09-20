@@ -1,5 +1,5 @@
 /**
- * Semantic bulk insertion contract (spec §22).
+ * Semantic bulk insertion contract.
  *
  * A compliant implementation sends the complete text as one payload, performs
  * no per-character iteration and no character-to-keycode translation, preserves

@@ -1,14 +1,14 @@
 /**
- * TabBridgePasteActionAdapter (v0.1.7) — the §26 paste action executed in the
+ * TabBridgePasteActionAdapter — the native paste action executed in the
  * Big Picture keyboard document through the official `executeInTab` API.
  *
- * §24 fallback semantics: the clipboard is written first by the plugin
+ * Fallback semantics: the clipboard is written first by the plugin
  * context (shared OS clipboard), then EXACTLY ONE native paste is invoked on
  * the still-current keyboard context — here via the in-window
  * `__stdMicPaste` (execCommand("paste") on the captured editable, elevated by
  * the loader's userGesture). It never types contents.
  *
- * Probe honesty (§57/§58.5): the probe only verifies that the paste mechanism
+ * Probe honesty: the probe only verifies that the paste mechanism
  * is recognized in the keyboard document — it never pastes.
  */
 
@@ -26,7 +26,7 @@ export class TabBridgePasteActionAdapter implements PasteActionPort {
     ) {}
 
     async probe(context: KeyboardContext): Promise<PasteCapability> {
-        void context; // mechanism is document-global in the SP view; the context is caller-verified (§24 step 2)
+        void context; // mechanism is document-global in the SP view; the context is caller-verified
         return { available: await this.bridge.probePasteMechanism() };
     }
 

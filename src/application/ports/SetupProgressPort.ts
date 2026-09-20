@@ -1,11 +1,11 @@
 /**
  * Versioned backend `setup_progress` payload (frozen contract) with its
- * manual boundary type guard (§99) and the small dedicated snapshot store
+ * manual boundary type guard and the small dedicated snapshot store
  * the plugin panel consumes.
  *
  * Setup progress is transport-level UI state: it never enters the dictation
- * state machine (§8) and is only observed by the settings panel through
- * `useSyncExternalStore` (§102). Invalid payloads are dropped by the adapter
+ * state machine and is only observed by the settings panel through
+ * `useSyncExternalStore`. Invalid payloads are dropped by the adapter
  * (count-logged), never rendered.
  */
 
@@ -13,7 +13,7 @@
 export type SetupStep =
     "runtime.verify" | "model.ensure" | "daemon.start" | "model.warmup" | "ready" | "failed";
 
-/** i18n keys for the current step (exactly the §108 message keys). */
+/** i18n keys for the current step (exactly the translation message keys). */
 export type SetupLabelKey =
     | "setup.step.runtimeVerify"
     | "setup.step.modelEnsure"
@@ -81,7 +81,7 @@ function isPercent(value: unknown): value is number {
     return typeof value === "number" && Number.isFinite(value) && value >= 0 && value <= 100;
 }
 
-/** Manual type guard for payloads crossing the backend boundary (§99). */
+/** Manual type guard for payloads crossing the backend boundary. */
 export function isSetupProgressSnapshot(value: unknown): value is SetupProgressSnapshot {
     if (!isRecord(value)) {
         return false;
@@ -125,8 +125,8 @@ export function isSetupProgressSnapshot(value: unknown): value is SetupProgressS
 }
 
 /**
- * Minimal external store for the latest setup snapshot (§102 shape:
- * `getSnapshot`/`subscribe` pair consumed by `useSyncExternalStore`).
+ * Minimal external store for the latest setup snapshot (external-store
+ * shape: `getSnapshot`/`subscribe` pair consumed by `useSyncExternalStore`).
  * Structurally compatible with `StateStore<T>`; the latest valid payload
  * wins, listeners are notified on every publish.
  */

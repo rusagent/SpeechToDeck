@@ -1,5 +1,5 @@
 /**
- * Paste action port (spec §26). `invokePaste` MUST invoke the native semantic
+ * Paste action port. `invokePaste` MUST invoke the native semantic
  * paste operation associated with the currently visible Steam keyboard and
  * MUST NOT type the contents itself.
  */

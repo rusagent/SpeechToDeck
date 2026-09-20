@@ -1,5 +1,5 @@
 /**
- * Application state as a discriminated union — exactly spec §8/§3.4.
+ * Application state as a discriminated union.
  *
  * Boolean flags such as `isRecording`/`hasError` are forbidden; every state is
  * one member of this union, so invalid combinations cannot be expressed.
@@ -10,8 +10,8 @@ import type { DictationSession } from "./DictationSession";
 
 /**
  * Why dictation is unavailable. Derived deterministically from the startup
- * capability report (spec §57) and the enabled setting, checked in a fixed
- * order by the state machine.
+ * capability report and the enabled setting, checked in a fixed order by the
+ * state machine.
  */
 export type UnavailableReason =
     | "PLUGIN_DISABLED"
