@@ -3,9 +3,9 @@
 A Steam Deck plugin for local voice dictation. A BIG dictation button in the
 QuickAccess panel records your voice, transcribes it **locally**, shows a
 **live level strip** while recording, and copies the finished transcript to
-the **system clipboard** — paste it anywhere with the Steam virtual
-keyboard's own Paste key (open the keyboard with STEAM+X, press Paste). No
-cloud services, no audio leaves the device, no automatic submit.
+the **system clipboard** — open a text field, bring up the Steam virtual
+keyboard with STEAM+X, and press its Paste key. No cloud services, no audio
+leaves the device, and nothing is typed automatically.
 
 ## How it works
 
@@ -14,16 +14,7 @@ cloud services, no audio leaves the device, no automatic submit.
   the live microphone envelope streamed from the native runtime's own
   `audio.sock` broadcast (10 ms frames coalesced to 15 Hz event vectors) —
   a real level meter, not a spectrum. After stop the transcript appears in
-  the panel with its clipboard status and a "copy again" button. The panel
-  flow works with or without the Steam keyboard open: its transcript is
-  never auto-inserted anywhere.
-- A mic button is also mounted into the Steam virtual keyboard through a
-  strict anti-corruption layer; all undocumented Steam internals stay inside
-  `src/infrastructure/steam/`. The mount works without changing any Steam
-  settings — no "Allow Remote CEF Debugging" toggle is required. Optionally
-  enabling that toggle (Decky settings) enriches the plugin's diagnostics
-  panel with cross-view facts (whether the Steam keyboard view is reachable
-  and showing); the dictation feature itself never depends on it.
+  the panel with its clipboard status and a "copy again" button.
 - Recording flows through an explicit state machine (a discriminated union,
   no boolean flag soup): record full utterance → stop → transcribe →
   clipboard → you paste.

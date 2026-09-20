@@ -5,7 +5,7 @@
     "api_version": 1,
     "publish": {
         "tags": ["utility", "keyboard", "speech", "voice"],
-        "description": "Adds a microphone button to the Steam virtual keyboard that transcribes speech locally and inserts the final transcript as one complete payload — no cloud services, no live streaming.",
+        "description": "Local voice dictation on Steam Deck: press the dictation button in the QuickAccess panel, speak, and your words are transcribed on-device and copied to the system clipboard — paste them with the Steam keyboard's Paste key. No cloud services, no automatic typing.",
         "image": "https://raw.githubusercontent.com/rusagent/SpeechToDeck/main/assets/screenshot.jpg"
     }
 }
