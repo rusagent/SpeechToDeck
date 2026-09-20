@@ -15,7 +15,6 @@ import type { DictationSession } from "./DictationSession";
  */
 export type UnavailableReason =
     | "PLUGIN_DISABLED"
-    | "KEYBOARD_HOOK_UNAVAILABLE"
     | "SPEECH_RUNTIME_UNAVAILABLE"
     | "MICROPHONE_UNAVAILABLE"
     | "MODEL_NOT_INSTALLED"

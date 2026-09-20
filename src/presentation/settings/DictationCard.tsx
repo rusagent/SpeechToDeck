@@ -2,11 +2,11 @@
  * DictationCard — the QAM panel's dictation surface.
  *
  * Layout, top of the plugin panel: a BIG microphone button driven by the
- * SAME application state union and `MicrophoneButtonModel` semantics as the
- * keyboard mount (the active indicator appears only after the start
- * acknowledgement and ends with the stop), presses going through the
- * controller's panel press path (mutex, state machine, stale-result
- * protection — all unchanged). While `recording`, the LevelVisualizer's
+ * application state union through `MicrophoneButtonModel` semantics (the
+ * active indicator appears only after the start acknowledgement and ends
+ * with the stop), presses going through the controller's panel press path
+ * (mutex, state machine, stale-result protection — all unchanged). While
+ * `recording`, the LevelVisualizer's
  * strip renders ONLY the real received `recording_level` frames (live
  * amplitude envelope from the daemon's audio.sock — a level meter, not an
  * FFT) in the user-selected style (heatmap default, classic, mirror;
@@ -28,8 +28,8 @@
 
 import * as React from "react";
 import { PanelSectionRow } from "@decky/ui";
-import { MicrophoneButton } from "../keyboard/MicrophoneButton";
-import { microphoneButtonModel } from "../keyboard/MicrophoneButtonModel";
+import { MicrophoneButton } from "../controls/MicrophoneButton";
+import { microphoneButtonModel } from "../controls/MicrophoneButtonModel";
 import { translate, translateError, translateMicLabel } from "../i18n/messages";
 import type { Locale } from "../i18n/messages";
 import type { DictationState } from "../../domain/DictationState";

@@ -3,9 +3,8 @@
  *
  * This module only creates dependencies and wires them — no application
  * logic. `PluginCompositionRoot` owns every disposable and disposes in
- * reverse construction order, executing the unload sequence: controller
- * dispose (cancel recording) → keyboard stop (unmount mic UI, restore hooks)
- * → speech shutdown (unsubscribe backend events) → store unsubscription.
+ * reverse construction order, executing the unload sequence: lifecycle
+ * dispose (controller dispose → speech shutdown) → store unsubscription.
  */
 
 import { definePlugin } from "@decky/api";
@@ -14,10 +13,7 @@ import { DictationController } from "./application/DictationController";
 import type { StateStore } from "./application/DictationController";
 import { PluginLifecycle } from "./application/PluginLifecycle";
 import { DeckyBackendClient } from "./infrastructure/decky/DeckyBackendClient";
-import {
-    createDeckyApiTransport,
-    createDeckyTabExecutor,
-} from "./infrastructure/decky/DeckyApiTransport";
+import { createDeckyApiTransport } from "./infrastructure/decky/DeckyApiTransport";
 import { DeckySelfHeal } from "./infrastructure/decky/DeckySelfHeal";
 import type { SettingsLoadOutcome } from "./infrastructure/decky/DeckySelfHeal";
 import { DeckySpeechAdapter } from "./infrastructure/decky/DeckySpeechAdapter";
@@ -27,14 +23,9 @@ import type { LevelMeterStore } from "./application/ports/LevelMeterPort";
 import type { ModelCatalogSnapshot } from "./application/ports/ModelCatalogPort";
 import type { PanelTranscriptSnapshot } from "./application/ports/PanelTranscriptPort";
 import { copyTextToClipboard } from "./infrastructure/system/PanelClipboard";
-import { KeyboardBridgeInserter } from "./infrastructure/steam/KeyboardBridgeInserter";
-import { SteamKeyboardTabBridgeHostAdapter } from "./infrastructure/steam/KeyboardTabBridgeHostAdapter";
-import { SteamBulkPasteInserter } from "./infrastructure/steam/SteamBulkPasteInserter";
 import { SteamClipboardAdapter } from "./infrastructure/steam/SteamClipboardAdapter";
-import { TabBridgePasteActionAdapter } from "./infrastructure/steam/TabBridgePasteActionAdapter";
 import { RandomIdGenerator } from "./infrastructure/system/RandomIdGenerator";
 import { SystemClock } from "./infrastructure/system/SystemClock";
-import { MicrophoneControlPresenter } from "./presentation/keyboard/MicrophoneButtonMount";
 import { SettingsPanel } from "./presentation/settings/SettingsPanel";
 import type { DiagnosticsSource } from "./presentation/settings/DiagnosticsSource";
 import type { Disposable } from "./shared/Disposable";
@@ -60,7 +51,6 @@ function isDownloadInFlight(snapshot: ModelCatalogSnapshot): boolean {
 class PluginCompositionRoot implements Disposable {
     private readonly resources: Disposable[] = [];
     private readonly lifecycle: PluginLifecycle;
-    private readonly presenter: MicrophoneControlPresenter;
     private readonly logger: Logger;
     private started = false;
 
@@ -103,36 +93,16 @@ class PluginCompositionRoot implements Disposable {
         this.settingsPort = settingsAdapter;
         this.setupProgress = speechPort.setupProgress;
 
-        // The mic button lives in the real keyboard document
-        // ("Steam Big Picture Mode") via the loader's official executeInTab;
-        // the earlier registry-mount adapter is a proven dead end
-        // (managersFound=0 on device) and is no longer wired. The store is
-        // resolved lazily: the controller below is assigned before any
-        // keyboard event can arrive (bridge polls start with start()).
-        let controller: DictationController | null = null;
-        const keyboardHost = new SteamKeyboardTabBridgeHostAdapter({
-            executor: createDeckyTabExecutor(),
-            onPress: () => {
-                void controller?.handleMicrophonePressed();
-            },
-            // Gate: the poll loop runs ONLY while the plugin is enabled
-            // (the machine derives PLUGIN_DISABLED from the startup settings).
-            isEnabled: () => {
-                const state = controller?.getSnapshot();
-                return !(state?.kind === "unavailable" && state.reason === "PLUGIN_DISABLED");
-            },
-        });
+        // Clipboard-only output: the settled transcript travels to the system
+        // clipboard in one write; the user carries it into any text field with
+        // the Steam keyboard's Paste key (STEAM+X).
         const clipboard = new SteamClipboardAdapter();
-        const pasteAction = new TabBridgePasteActionAdapter(keyboardHost.bridge);
-        const fallbackInserter = new SteamBulkPasteInserter(clipboard, pasteAction, keyboardHost);
-        const textInserter = new KeyboardBridgeInserter(keyboardHost.bridge, fallbackInserter);
 
         const clock = new SystemClock();
         this.clock = clock;
-        controller = new DictationController(
+        const controller = new DictationController(
             speechPort,
-            keyboardHost,
-            textInserter,
+            clipboard,
             settingsAdapter,
             clock,
             new RandomIdGenerator(),
@@ -149,16 +119,16 @@ class PluginCompositionRoot implements Disposable {
             },
         };
 
-        // Dictation card: the big button presses the SAME
-        // controller through the panel entry (same mutex and state machine);
-        // the level/transcript stores are the adapter's guarded UI side-channels;
-        // the copy is the panel execCommand path (primary while the backend
-        // xclip leg reports "skipped").
+        // Dictation card: the big button presses the SAME controller through
+        // the panel entry (mutex, state machine, stale-result protection);
+        // the level/transcript stores are the adapter's guarded UI
+        // side-channels; the copy is the panel execCommand path (primary
+        // while the backend xclip leg reports "skipped").
         this.dictation = {
             levelMeter: speechPort.levelMeter,
             transcript: speechPort.panelTranscript,
             onPress: () => {
-                void controller?.handlePanelMicrophonePressed();
+                void controller.handlePanelMicrophonePressed();
             },
             onCopy: (text: string) => copyTextToClipboard(text),
         };
@@ -229,14 +199,8 @@ class PluginCompositionRoot implements Disposable {
             onImportPlugin: (listener) => selfHeal.onImportPlugin(listener),
         };
 
-        this.presenter = new MicrophoneControlPresenter(controller, keyboardHost, () =>
-            controller?.handleMicrophonePressed(),
-        );
-        this.lifecycle = new PluginLifecycle(controller, keyboardHost, speechPort);
-
-        // Dispose in reverse construction order → lifecycle first (it
-        // runs the unload sequence incl. hook restore), presenter afterwards.
-        this.resources.push(this.lifecycle, this.presenter);
+        this.lifecycle = new PluginLifecycle(controller, speechPort);
+        this.resources.push(this.lifecycle);
     }
 
     async start(): Promise<void> {
@@ -244,7 +208,6 @@ class PluginCompositionRoot implements Disposable {
             return;
         }
         this.started = true;
-        this.presenter.start();
         await this.lifecycle.start();
         this.logger.info("composition root started");
     }

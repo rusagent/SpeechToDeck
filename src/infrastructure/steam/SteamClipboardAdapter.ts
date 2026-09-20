@@ -12,8 +12,6 @@ import {
     DictationError,
     TranscriptTooLargeError,
 } from "../../domain/DictationError";
-import type { ClipboardCapability } from "../../domain/Capability";
-import type { KeyboardContext } from "../../domain/DictationSession";
 import type { ClipboardPort } from "../../application/ports/ClipboardPort";
 
 function clipboardWriteMechanism(): ClipboardTextWriter | null {
@@ -30,16 +28,7 @@ function clipboardWriteMechanism(): ClipboardTextWriter | null {
 type ClipboardTextWriter = (text: string) => Promise<void>;
 
 export class SteamClipboardAdapter implements ClipboardPort {
-    async probe(context: KeyboardContext): Promise<ClipboardCapability> {
-        void context; // mechanism is window-global; the context is caller-verified
-        return {
-            available: clipboardWriteMechanism() !== null,
-            maxTextBytes: MAX_TRANSCRIPT_UTF8_BYTES,
-        };
-    }
-
-    async writeText(context: KeyboardContext, text: string): Promise<void> {
-        void context; // mechanism is window-global; the context is caller-verified
+    async writeText(text: string): Promise<void> {
         const writeText = clipboardWriteMechanism();
         if (writeText === null) {
             throw new DictationError(

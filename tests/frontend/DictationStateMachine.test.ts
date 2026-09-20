@@ -21,7 +21,6 @@ import {
 
 const SESSION: DictationSession = {
     sessionId: "s-1",
-    keyboardContextId: "ctx-1",
     startedAtMonotonicMs: 1_000,
 };
 
@@ -33,10 +32,6 @@ const READY_CAPABILITIES: RuntimeCapabilities = {
     cpuAvailable: true,
     vulkanAvailable: true,
     modelInstalled: true,
-    keyboardHookAvailable: true,
-    clipboardAvailable: true,
-    nativePasteAvailable: true,
-    directInsertAvailable: true,
 };
 
 const sessionState = (
@@ -276,42 +271,8 @@ describe("cancellation", () => {
     });
 });
 
-describe("keyboard close safety", () => {
-    it("keyboard closed while recording → ready, emitting CANCEL_RECORDING", () => {
-        const result = transition(sessionState("recording"), {
-            type: "KEYBOARD_CLOSED",
-            contextId: "ctx-1",
-        });
-        expect(result.state).toEqual({ kind: "ready" });
-        expect(result.effects).toEqual([{ type: "CANCEL_RECORDING", sessionId: "s-1" }]);
-    });
-
-    it("keyboard closed while starting/stopping → ready, emitting CANCEL_RECORDING", () => {
-        for (const kind of ["starting", "stopping"] as const) {
-            const result = transition(sessionState(kind), {
-                type: "KEYBOARD_CLOSED",
-                contextId: "ctx-1",
-            });
-            expect(result.state).toEqual({ kind: "ready" });
-            expect(result.effects).toEqual([{ type: "CANCEL_RECORDING", sessionId: "s-1" }]);
-        }
-    });
-
-    it("keyboard closed while transcribing keeps the state: transcription may finish", () => {
-        rejected(sessionState("transcribing"), { type: "KEYBOARD_CLOSED", contextId: "ctx-1" });
-    });
-
-    it("keyboard closed while inserting keeps the state: the inserter revalidates", () => {
-        rejected(INSERTING, { type: "KEYBOARD_CLOSED", contextId: "ctx-1" });
-    });
-
-    it("a different context closing does not affect the session", () => {
-        rejected(sessionState("recording"), { type: "KEYBOARD_CLOSED", contextId: "ctx-9" });
-    });
-});
-
 describe("empty speech and transcript rejection", () => {
-    it("empty transcript → ready with no effects: no clipboard write, no paste", () => {
+    it("empty transcript → ready with no effects: no clipboard write", () => {
         const result = transition(sessionState("transcribing"), {
             type: "TRANSCRIPT_READY",
             sessionId: "s-1",
@@ -458,15 +419,6 @@ describe("on-device outcome ordering: outcome lands during stopping", () => {
         ]);
     });
 
-    it("stopping → ready on TRANSCRIPT_SUPPRESSED (panel session)", () => {
-        const result = transition(sessionState("stopping"), {
-            type: "TRANSCRIPT_SUPPRESSED",
-            sessionId: "s-1",
-        });
-        expect(result.state).toEqual({ kind: "ready" });
-        applied(result);
-    });
-
     it("empty speech during stopping returns to ready without inserting", () => {
         const result = transition(sessionState("stopping"), {
             type: "TRANSCRIPT_READY",
@@ -482,10 +434,6 @@ describe("on-device outcome ordering: outcome lands during stopping", () => {
             type: "TRANSCRIPT_READY",
             sessionId: "s-2",
             transcript: "hello",
-        });
-        rejected(sessionState("stopping"), {
-            type: "TRANSCRIPT_SUPPRESSED",
-            sessionId: "s-2",
         });
     });
 });

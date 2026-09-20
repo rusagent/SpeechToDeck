@@ -4,8 +4,7 @@
  * Responsibilities: owns the current application state (exposed as a
  * `StateStore` for `useSyncExternalStore`), creates sessions, serializes
  * microphone actions through an async operation mutex, dispatches
- * state-machine effects, rejects stale backend results by session id, and
- * verifies the keyboard context before insertion.
+ * state-machine effects, and rejects stale backend results by session id.
  *
  * MUST NOT: know DOM selectors, Steam internals, spawn processes, know file
  * paths, or call Decky directly — it only sees the ports.
@@ -16,28 +15,22 @@
  *   during recording/transcription flows.
  * - `dismissError()` — recoverable errors return to ready after the user
  *   acknowledged them (the machine's ERROR_DISMISSED edge).
- * - `getLastSuppressedTranscript()` — a suppressed transcript is retained so
- *   the plugin panel can offer manual copy.
  */
 
 import type { RuntimeCapabilities } from "../domain/Capability";
-import { directInsertAvailable } from "../domain/Capability";
 import { DictationError } from "../domain/DictationError";
 import type { DictationErrorCode } from "../domain/DictationError";
-import type { KeyboardContext } from "../domain/DictationSession";
 import type { DictationState } from "../domain/DictationState";
 import { extractSession } from "../domain/DictationState";
-import { err } from "../domain/Result";
 import type { Disposable } from "../shared/Disposable";
 import { Logger, nullSink } from "../shared/Logger";
 import { Mutex } from "../shared/Mutex";
 import { assertNever } from "../shared/assertNever";
 import { transition } from "./DictationStateMachine";
 import type { DictationEffect, TransitionResult } from "./DictationStateMachine";
-import type { BulkInsertResult, BulkTextInserter } from "./ports/BulkTextInserter";
+import type { ClipboardPort } from "./ports/ClipboardPort";
 import type { ClockPort } from "./ports/ClockPort";
 import type { IdGeneratorPort } from "./ports/IdGeneratorPort";
-import type { KeyboardHostPort } from "./ports/KeyboardHostPort";
 import type { PluginSettings, SettingsPort } from "./ports/SettingsPort";
 import type {
     SpeechCapabilities,
@@ -66,7 +59,7 @@ export type TimeoutHandle = ReturnType<typeof setTimeout>;
  * plugin registration is torn, every backend callable hangs and the card
  * would sit in `booting` forever with a dead button (verified against a
  * live device). Generous enough
- * for a real cold start (settings load, hook install, backend init); tests
+ * for a real cold start (settings load, backend init); tests
  * inject manual scheduling and never wait.
  */
 const STARTUP_WATCHDOG_MS = 10_000;
@@ -94,17 +87,14 @@ export class DictationController implements Disposable, StateStore<DictationStat
 
     private state: DictationState = { kind: "booting" };
     private speechEvents: Disposable | null = null;
-    private keyboardEvents: Disposable | null = null;
     private startupWatchdog: TimeoutHandle | null = null;
     private startupExpired = false;
-    private suppressedTranscript: string | null = null;
     private started = false;
     private disposed = false;
 
     constructor(
         private readonly speech: SpeechPort,
-        private readonly keyboard: KeyboardHostPort,
-        private readonly inserter: BulkTextInserter,
+        private readonly clipboard: ClipboardPort,
         private readonly settings: SettingsPort,
         private readonly clock: ClockPort,
         private readonly ids: IdGeneratorPort,
@@ -126,15 +116,6 @@ export class DictationController implements Disposable, StateStore<DictationStat
         return () => {
             this.listeners.delete(listener);
         };
-    }
-
-    /**
-     * Transcript retained after keyboard-context suppression so the plugin
-     * panel can offer
-     * manual copy; never logged, never inserted.
-     */
-    getLastSuppressedTranscript(): string | null {
-        return this.suppressedTranscript;
     }
 
     // ── Lifecycle ──
@@ -159,26 +140,11 @@ export class DictationController implements Disposable, StateStore<DictationStat
 
         try {
             this.speechEvents = this.speech.subscribe((event) => this.onSpeechEvent(event));
-            this.keyboardEvents = this.keyboard.subscribe((event) => {
-                if (event.type === "keyboard-opened") {
-                    this.handleKeyboardOpened(event.context);
-                } else {
-                    void this.handleKeyboardClosed(event.contextId);
-                }
-            });
 
-            // Startup order: load settings → install keyboard hook →
-            // initialize speech runtime (backend init incl. model). The hook
-            // install MUST NOT wait for model loading, so the keyboard host
-            // starts first.
-            //
-            // On-device regression fix: a failed hook does NOT abort startup.
-            // The QAM panel flow needs no keyboard injection; a broken hook
-            // only leaves the in-keyboard button dormant and degrades through
-            // the diagnostics consumed by the capability report.
-            // The load itself stays load-bearing: a failure must fail startup
-            // with SETTINGS_LOAD_FAILED, and the loaded `enabled` flag
-            // drives the startup outcome.
+            // Startup order: load settings → initialize speech runtime
+            // (backend init incl. model). The load is load-bearing: a failure
+            // must fail startup with SETTINGS_LOAD_FAILED, and the loaded
+            // `enabled` flag drives the startup outcome.
             let loadedSettings: PluginSettings;
             try {
                 loadedSettings = await this.settings.load();
@@ -189,14 +155,6 @@ export class DictationController implements Disposable, StateStore<DictationStat
                     reason: "SETTINGS_LOAD_FAILED",
                 });
                 return;
-            }
-
-            try {
-                await this.keyboard.start();
-            } catch (error) {
-                this.logger.warn("keyboard hook start failed; continuing without it", {
-                    detail: describeError(error),
-                });
             }
 
             let capabilities: SpeechCapabilities;
@@ -213,7 +171,7 @@ export class DictationController implements Disposable, StateStore<DictationStat
                 return;
             }
 
-            const report = await this.buildRuntimeCapabilities(capabilities);
+            const report = this.buildRuntimeCapabilities(capabilities);
             this.applyStartupOutcome({
                 type: "STARTUP_COMPLETED",
                 capabilities: report,
@@ -242,56 +200,17 @@ export class DictationController implements Disposable, StateStore<DictationStat
         }
 
         this.speechEvents?.dispose();
-        this.keyboardEvents?.dispose();
         this.speechEvents = null;
-        this.keyboardEvents = null;
         this.listeners.clear();
     }
 
-    // ── Microphone and keyboard interaction ──
-
-    async handleMicrophonePressed(): Promise<void> {
-        if (this.disposed) {
-            return;
-        }
-        const kind = this.state.kind;
-        if (kind !== "ready" && kind !== "recording") {
-            // Transient/terminal states ignore presses without queueing.
-            return;
-        }
-        await this.mutex.runExclusive(async () => {
-            const current = this.state;
-            if (current.kind === "ready") {
-                const context = this.keyboard.currentContext();
-                if (context === null) {
-                    this.logger.warn("press ignored: no keyboard context");
-                    return;
-                }
-                this.apply({
-                    type: "MICROPHONE_PRESSED",
-                    session: {
-                        sessionId: this.ids.nextId(),
-                        keyboardContextId: context.id,
-                        startedAtMonotonicMs: this.clock.nowMonotonicMs(),
-                    },
-                });
-                return;
-            }
-            if (current.kind === "recording") {
-                this.apply({ type: "MICROPHONE_PRESSED" });
-            }
-            // Any state re-checked under the lock stays ignored.
-        });
-    }
+    // ── Microphone interaction ──
 
     /**
-     * Panel press: the QAM dictation card's big button. Same serialized
-     * press path — the operation mutex, the state machine, and stale-result
-     * protection are all identical — but a press with NO keyboard context
-     * starts a clipboard-flow session (`keyboardContextId: null`): its
-     * transcript is never inserted, suppression retains it for the panel,
-     * and the system-clipboard leg carries it to the Steam keyboard's Paste
-     * key. The keyboard-mount press semantics above are unchanged.
+     * The QAM dictation card's big button — the only press path. The press
+     * is serialized through the operation mutex, the state machine, and
+     * stale-result protection; its transcript settles onto the system
+     * clipboard for the Steam keyboard's Paste key.
      */
     async handlePanelMicrophonePressed(): Promise<void> {
         if (this.disposed) {
@@ -304,12 +223,10 @@ export class DictationController implements Disposable, StateStore<DictationStat
         await this.mutex.runExclusive(async () => {
             const current = this.state;
             if (current.kind === "ready") {
-                const context = this.keyboard.currentContext();
                 this.apply({
                     type: "MICROPHONE_PRESSED",
                     session: {
                         sessionId: this.ids.nextId(),
-                        keyboardContextId: context === null ? null : context.id,
                         startedAtMonotonicMs: this.clock.nowMonotonicMs(),
                     },
                 });
@@ -318,16 +235,6 @@ export class DictationController implements Disposable, StateStore<DictationStat
             if (current.kind === "recording") {
                 this.apply({ type: "MICROPHONE_PRESSED" });
             }
-        });
-    }
-
-    handleKeyboardOpened(context: KeyboardContext): void {
-        this.logger.info("keyboard opened", { contextId: context.id });
-    }
-
-    async handleKeyboardClosed(contextId: string): Promise<void> {
-        await this.mutex.runExclusive(async () => {
-            this.apply({ type: "KEYBOARD_CLOSED", contextId });
         });
     }
 
@@ -346,7 +253,7 @@ export class DictationController implements Disposable, StateStore<DictationStat
         this.apply({ type: "ERROR_DISMISSED" });
     }
 
-    // ── Speech port events (stale-result and suppression handling) ──
+    // ── Speech port events (stale-result handling) ──
 
     private onSpeechEvent(event: SpeechEvent): void {
         switch (event.type) {
@@ -367,19 +274,8 @@ export class DictationController implements Disposable, StateStore<DictationStat
     private onTranscriptReady(payload: TranscriptReadyPayload): void {
         const session = extractSession(this.state);
         if (session === null || payload.sessionId !== session.sessionId) {
-            // Stale result: never injected.
+            // Stale result: never processed.
             this.logger.info("stale transcript discarded", { sessionId: payload.sessionId });
-            return;
-        }
-        const context = this.keyboard.currentContext();
-        if (context === null || context.id !== session.keyboardContextId) {
-            // Keyboard closed/gone while transcribing: suppress insertion and
-            // retain the transcript for manual copy.
-            this.suppressedTranscript = payload.text;
-            this.logger.info("transcript suppressed: keyboard context changed", {
-                sessionId: session.sessionId,
-            });
-            this.apply({ type: "TRANSCRIPT_SUPPRESSED", sessionId: session.sessionId });
             return;
         }
         this.apply({
@@ -496,7 +392,7 @@ export class DictationController implements Disposable, StateStore<DictationStat
                     break;
                 }
                 case "INSERT_TEXT":
-                    await this.insertTranscript(effect.sessionId, effect.text);
+                    await this.copyTranscriptToClipboard(effect.sessionId, effect.text);
                     break;
                 default:
                     assertNever(effect);
@@ -516,85 +412,50 @@ export class DictationController implements Disposable, StateStore<DictationStat
         this.apply({ type: "SPEECH_FAILED", sessionId, error: dictationError });
     }
 
-    private async insertTranscript(sessionId: string, text: string): Promise<void> {
+    /**
+     * The output leg: the complete transcript travels to the system clipboard
+     * in exactly one write — the user then presses the Steam keyboard's
+     * Paste key (STEAM+X). No paste action and no text insertion is
+     * attempted; a failed write is a recoverable error, never a retry loop.
+     */
+    private async copyTranscriptToClipboard(sessionId: string, text: string): Promise<void> {
         const session = extractSession(this.state);
         if (session === null || session.sessionId !== sessionId) {
             return;
         }
-        // Context is verified again immediately before insertion.
-        const context = this.keyboard.currentContext();
-        if (context === null || context.id !== session.keyboardContextId) {
-            this.suppressedTranscript = text;
-            this.logger.info("insertion suppressed: keyboard context changed", { sessionId });
-            this.apply({ type: "TRANSCRIPT_SUPPRESSED", sessionId });
-            return;
-        }
-        let outcome: BulkInsertResult;
+        let failure: DictationError | null = null;
         try {
-            outcome = await this.inserter.insert(context, text);
+            await this.clipboard.writeText(text);
         } catch (error) {
-            // The inserter contract reports failures as Result values;
-            // an escaping exception is mapped to the closest stable code.
-            outcome = err(
-                new DictationError("CLIPBOARD_WRITE_FAILED", describeError(error), {
-                    cause: error,
-                }),
-            );
+            // The clipboard contract reports failures as exceptions;
+            // an escaping error maps to the closest stable code.
+            failure =
+                error instanceof DictationError
+                    ? error
+                    : new DictationError("CLIPBOARD_WRITE_FAILED", describeError(error), {
+                          cause: error,
+                      });
         }
-        if (outcome.ok) {
+        if (failure === null) {
             this.apply({ type: "INSERTION_SUCCEEDED", sessionId });
         } else {
-            this.logger.error("bulk insertion failed", {
+            this.logger.error("clipboard write failed", {
                 sessionId,
-                code: outcome.error.code,
+                code: failure.code,
             });
-            this.apply({ type: "INSERTION_FAILED", sessionId, error: outcome.error });
+            this.apply({ type: "INSERTION_FAILED", sessionId, error: failure });
         }
     }
 
     // ── Capability report ──
 
-    private async buildRuntimeCapabilities(
-        speech: SpeechCapabilities,
-    ): Promise<RuntimeCapabilities> {
-        // Derive keyboardHookAvailable from the host's keyboard-hook
-        // diagnostics when the implementation reports them — a registry or
-        // signature miss degrades the capability honestly (no optimistic
-        // assumption). Hosts without the optional surface (older or
-        // simpler doubles) keep the previous behavior: start() resolved, so
-        // the hook is installed.
-        const diagnostics =
-            typeof this.keyboard.getDiagnostics === "function"
-                ? this.keyboard.getDiagnostics()
-                : null;
-        const keyboardHookAvailable = diagnostics === null ? true : diagnostics.reason === null;
-        let clipboardAvailable = false;
-        let nativePasteAvailable = false;
-        const context = this.keyboard.currentContext();
-        if (context !== null) {
-            try {
-                const insertion = await this.inserter.probe(context);
-                clipboardAvailable = insertion.directInsert || insertion.clipboardOnly;
-                nativePasteAvailable = insertion.directInsert;
-            } catch (error) {
-                // No optimistic assumption: a failed probe reports false.
-                this.logger.warn("insertion probe failed", { detail: describeError(error) });
-            }
-        }
+    private buildRuntimeCapabilities(speech: SpeechCapabilities): RuntimeCapabilities {
         return {
             speechRuntimeAvailable: speech.speechRuntimeAvailable,
             microphoneAvailable: speech.microphoneAvailable,
             cpuAvailable: speech.cpuAvailable,
             vulkanAvailable: speech.vulkanAvailable,
             modelInstalled: speech.modelInstalled,
-            keyboardHookAvailable,
-            clipboardAvailable,
-            nativePasteAvailable,
-            directInsertAvailable: directInsertAvailable({
-                clipboardAvailable,
-                nativePasteAvailable,
-                keyboardHookAvailable,
-            }),
         };
     }
 

@@ -140,7 +140,7 @@ function fakeSetupStore(
 function recordingState(): DictationState {
     return {
         kind: "recording",
-        session: { sessionId: "s1", keyboardContextId: "c1", startedAtMonotonicMs: 0 },
+        session: { sessionId: "s1", startedAtMonotonicMs: 0 },
     };
 }
 
@@ -203,19 +203,20 @@ describe("SettingsPanel", () => {
         expect(container.querySelector('[data-panel-title="SpeechToDeck"]')).not.toBeNull();
         expect(screen.getByText("Loading settings…")).not.toBeNull();
 
-        // Sections: runtime, speech, output. Kept rows only.
+        // Sections: runtime, speech. Kept rows only.
         expect(await screen.findByText(/Enable plugin/)).not.toBeNull();
         expect(screen.getAllByText(/Language/).length).toBeGreaterThan(0);
-        expect(screen.getAllByText(/Output mode/).length).toBeGreaterThan(0);
 
         // Removed rows and the whole Diagnostics section stay gone (a
         // deliberate decluttering; the Compute backend select followed later —
         // the Vulkan/CPU choice is an internal concern, the
-        // setting stays "auto" and is simply never rendered).
+        // setting stays "auto" and is simply never rendered; Output mode left
+        // with the clipboard-only product decision).
         expect(screen.queryByText(/Compute backend/)).toBeNull();
         expect(screen.queryByText(/Runtime health/)).toBeNull();
         expect(screen.queryByText(/Maximum recording duration/)).toBeNull();
         expect(screen.queryByText(/Voice activity detection/)).toBeNull();
+        expect(screen.queryByText(/Output mode/)).toBeNull();
         expect(screen.queryByText(/Steam keyboard detected/)).toBeNull();
         expect(container.querySelector('[data-panel-title="Diagnostics"]')).toBeNull();
     });

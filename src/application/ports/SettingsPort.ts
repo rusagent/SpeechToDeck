@@ -30,8 +30,6 @@ export interface PluginSettings {
 
     /** `"system"`/`"auto"` sentinels or any language tag string. */
     language: string;
-
-    outputMode: "direct-insert" | "clipboard-only";
 }
 
 /**
@@ -53,8 +51,7 @@ export function isPluginSettings(value: unknown): value is PluginSettings {
             record["computeBackend"] === "cpu") &&
         typeof record["modelId"] === "string" &&
         MODEL_ID_RE.test(record["modelId"]) &&
-        typeof record["language"] === "string" &&
-        (record["outputMode"] === "direct-insert" || record["outputMode"] === "clipboard-only")
+        typeof record["language"] === "string"
     );
 }
 

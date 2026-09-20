@@ -36,7 +36,7 @@ export interface MicrophoneButtonProps {
     /**
      * Rendered diameter in px (additive: the QAM dictation card renders
      * a larger control). Same 44 px default and identical visual-state
-     * semantics for the keyboard mount.
+     * semantics at every size.
      */
     readonly size?: number;
 }

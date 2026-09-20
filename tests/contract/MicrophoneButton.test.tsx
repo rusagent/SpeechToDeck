@@ -6,7 +6,7 @@
 
 import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { MicrophoneButton } from "../../src/presentation/keyboard/MicrophoneButton";
+import { MicrophoneButton } from "../../src/presentation/controls/MicrophoneButton";
 
 afterEach(cleanup);
 

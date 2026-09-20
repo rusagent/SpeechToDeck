@@ -19,13 +19,11 @@ export const EN_MESSAGES = {
 
     "section.runtime": "Runtime",
     "section.speech": "Speech",
-    "section.output": "Output",
     "section.dictation": "Dictation",
 
     "setting.enabled": "Enable plugin",
     "setting.model": "Model",
     "setting.language": "Language",
-    "setting.outputMode": "Output mode",
     "setting.loading": "Loading settings…",
     "setting.saveFailed": "Saving settings failed. The change was not persisted.",
     "setting.loadFailed": "Backend is not responding.",
@@ -49,8 +47,6 @@ export const EN_MESSAGES = {
     "option.model.kotoba-whisper-v2.0-f16": "Kotoba v2.0 Japanese F16",
     "option.language.system": "System language",
     "option.language.auto": "Auto-detect",
-    "option.output.direct-insert": "Direct insert",
-    "option.output.clipboard-only": "Clipboard only",
 
     "hint.language.system": "Same as auto-detect: the spoken language is detected automatically.",
     "hint.language.auto": "Detects the spoken language automatically.",
@@ -135,13 +131,11 @@ export const DE_MESSAGES: Record<MessageKey, string> = {
 
     "section.runtime": "Laufzeit",
     "section.speech": "Spracherkennung",
-    "section.output": "Ausgabe",
     "section.dictation": "Diktieren",
 
     "setting.enabled": "Plugin aktivieren",
     "setting.model": "Modell",
     "setting.language": "Sprache",
-    "setting.outputMode": "Ausgabemodus",
     "setting.loading": "Einstellungen werden geladen…",
     "setting.saveFailed":
         "Speichern der Einstellungen fehlgeschlagen. Die Änderung wurde nicht übernommen.",
@@ -164,8 +158,6 @@ export const DE_MESSAGES: Record<MessageKey, string> = {
     "option.model.kotoba-whisper-v2.0-f16": "Kotoba v2.0 Japanisch F16",
     "option.language.system": "Systemsprache",
     "option.language.auto": "Automatisch erkennen",
-    "option.output.direct-insert": "Direkt einfügen",
-    "option.output.clipboard-only": "Nur Zwischenablage",
 
     "hint.language.system":
         "Wie Automatisch erkennen: Die gesprochene Sprache wird automatisch erkannt.",

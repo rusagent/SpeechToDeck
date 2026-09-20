@@ -17,13 +17,11 @@
  *   indicator appears only after the start acknowledgement and ends only
  *   after the stop acknowledgement. Carry the sessionId for stale-result
  *   protection.
- * - TRANSCRIPT_READY / TRANSCRIPT_SUPPRESSED — transcription outcome; the
- *   suppressed variant is dispatched by the controller when the result is
- *   stale or the keyboard context changed, so insertion is never even
- *   attempted.
- * - INSERTION_SUCCEEDED / INSERTION_FAILED — insertion outcome (Result).
+ * - TRANSCRIPT_READY — transcription outcome; dispatched only after the
+ *   controller matched it against the active session, so a stale result is
+ *   never even attempted.
+ * - INSERTION_SUCCEEDED / INSERTION_FAILED — clipboard-write outcome (Result).
  * - CANCEL_REQUESTED — first-class cancellation.
- * - KEYBOARD_CLOSED — keyboard context disappeared.
  * - SPEECH_FAILED — an error event from the speech port (stable error codes).
  * - ERROR_DISMISSED — user acknowledged a recoverable error.
  *
@@ -51,7 +49,6 @@ export type DictationEvent =
     | { readonly type: "RECORDING_STARTED"; readonly sessionId: string }
     | { readonly type: "RECORDING_STOPPED"; readonly sessionId: string }
     | { readonly type: "TRANSCRIPT_READY"; readonly sessionId: string; readonly transcript: string }
-    | { readonly type: "TRANSCRIPT_SUPPRESSED"; readonly sessionId: string }
     | { readonly type: "INSERTION_SUCCEEDED"; readonly sessionId: string }
     | {
           readonly type: "INSERTION_FAILED";
@@ -59,7 +56,6 @@ export type DictationEvent =
           readonly error: DictationError;
       }
     | { readonly type: "CANCEL_REQUESTED" }
-    | { readonly type: "KEYBOARD_CLOSED"; readonly contextId: string }
     | {
           readonly type: "SPEECH_FAILED";
           readonly sessionId: string | null;
@@ -117,14 +113,8 @@ function sameSession(state: { readonly session: DictationSession }, sessionId: s
 /**
  * Deterministic unavailable-reason derivation from the capability report,
  * checked in a fixed order. Returns `null` when the plugin is ready to
- * dictate.
- *
- * On-device regression fix: readiness is the QAM flow's own requirement —
- * runtime available, model installed, plugin enabled. The keyboard facets
- * (keyboardHookAvailable, clipboard/nativePaste, directInsert) do NOT gate
- * the flow: the panel flow records and carries the transcript to the
- * clipboard with no keyboard injection, and a degraded keyboard only leaves
- * the in-keyboard button dormant while the facets stay honestly reported.
+ * dictate: runtime available, microphone present, model installed, plugin
+ * enabled.
  */
 function unavailableReasonFor(
     capabilities: RuntimeCapabilities,
@@ -315,30 +305,6 @@ export function transition(current: DictationState, event: DictationEvent): Tran
             break;
         }
 
-        case "TRANSCRIPT_SUPPRESSED": {
-            switch (current.kind) {
-                // Same FIFO ordering as TRANSCRIPT_READY above: the panel
-                // suppression lands while the machine is still in `stopping`.
-                case "transcribing":
-                case "stopping":
-                    if (!sameSession(current, event.sessionId)) {
-                        return unchanged(current);
-                    }
-                    // Keyboard context changed while transcribing: no insertion.
-                    return result({ kind: "ready" });
-                case "booting":
-                case "unavailable":
-                case "ready":
-                case "starting":
-                case "recording":
-                case "stopping":
-                case "inserting":
-                case "error":
-                    return unchanged(current);
-            }
-            break;
-        }
-
         case "INSERTION_SUCCEEDED": {
             switch (current.kind) {
                 case "inserting":
@@ -398,36 +364,6 @@ export function transition(current: DictationState, event: DictationEvent): Tran
                 case "unavailable":
                 case "ready":
                 case "inserting":
-                case "error":
-                    return unchanged(current);
-            }
-            break;
-        }
-
-        case "KEYBOARD_CLOSED": {
-            switch (current.kind) {
-                case "starting":
-                case "recording":
-                case "stopping":
-                    if (current.session.keyboardContextId !== event.contextId) {
-                        return unchanged(current); // a different keyboard context
-                    }
-                    // Keyboard disappeared: cancel, discard, be ready when the next
-                    // keyboard appears.
-                    return result(
-                        { kind: "ready" },
-                        { type: "CANCEL_RECORDING", sessionId: current.session.sessionId },
-                    );
-                case "transcribing":
-                    // Transcription may finish; insertion is suppressed at the
-                    // transcript event.
-                    return unchanged(current);
-                case "inserting":
-                    // The inserter revalidates the context inside its transaction.
-                    return unchanged(current);
-                case "booting":
-                case "unavailable":
-                case "ready":
                 case "error":
                     return unchanged(current);
             }

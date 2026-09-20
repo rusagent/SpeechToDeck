@@ -61,8 +61,7 @@ disabled delete, Delete all inactive.
 
 `index.html?case=panel|mic|setup|dictation&locale=en|de&state=ready|recording|error&variant=<setup>&dictation=<idle|recording|transcript>&catalog=none|ready|modal|manage&scroll=<Section>`
 
-- `panel` — the real `SettingsPanel` (sections Runtime/Speech/Output/
-  Diagnostics).
+- `panel` — the real `SettingsPanel` (sections Runtime/Speech).
 - `mic` — the real `MicrophoneButton` in all four visual states (ready,
   recording with elapsed timer, processing spinner, error with localized
   flash).

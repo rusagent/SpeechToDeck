@@ -6,7 +6,6 @@ export const TEST_SETTINGS: PluginSettings = {
     computeBackend: "auto",
     modelId: "base",
     language: "system",
-    outputMode: "direct-insert",
 };
 
 /** In-memory SettingsPort fake; load failures are injectable. */

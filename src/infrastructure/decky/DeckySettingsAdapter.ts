@@ -32,13 +32,12 @@ export class DeckySettingsAdapter implements SettingsPort {
         // schemaVersion is backend-owned; the update payload whitelists
         // exactly the client-settable fields and never carries it (the backend
         // rejects a client-side schemaVersion). The removed
-        // maxRecordingSeconds/vadEnabled fields are never sent.
+        // maxRecordingSeconds/vadEnabled/outputMode fields are never sent.
         const update = {
             enabled: settings.enabled,
             computeBackend: settings.computeBackend,
             modelId: settings.modelId,
             language: settings.language,
-            outputMode: settings.outputMode,
         };
         await this.backend.call(SETTINGS_CALLABLES.updateSettings, update);
     }

@@ -18,7 +18,7 @@
 import * as React from "react";
 import { createRoot } from "react-dom/client";
 import { SettingsPanel } from "../../src/presentation/settings/SettingsPanel";
-import { MicrophoneButton } from "../../src/presentation/keyboard/MicrophoneButton";
+import { MicrophoneButton } from "../../src/presentation/controls/MicrophoneButton";
 import { DictationCard } from "../../src/presentation/settings/DictationCard";
 import { LevelMeterStore } from "../../src/application/ports/LevelMeterPort";
 import { translateError } from "../../src/presentation/i18n/messages";
@@ -466,7 +466,6 @@ function fakeState(stateKind: HarnessParams["stateKind"]): DictationState {
                 kind: "recording",
                 session: {
                     sessionId: "harness-1",
-                    keyboardContextId: "ctx-1",
                     startedAtMonotonicMs: performance.now() - 83_000,
                 },
             };
@@ -686,7 +685,6 @@ function DictationCase({
                   kind: "recording",
                   session: {
                       sessionId: "harness-1",
-                      keyboardContextId: null,
                       startedAtMonotonicMs: 0,
                   },
               }

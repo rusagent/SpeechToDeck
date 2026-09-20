@@ -58,32 +58,6 @@ export interface RuntimeFailureRecord {
 }
 
 /**
- * Optional cross-view diagnostics report (additive `get_status` field):
- * read-only CDP facts behind the user's "Allow Remote CEF Debugging" toggle.
- * `reason` is a stable lowercase code (never UI text).
- */
-export interface CdpDiagnosticsReport {
-    readonly cdpAvailable: boolean;
-    readonly spTargetSeen: boolean;
-    readonly keyboardSeen: boolean;
-    readonly keyboardVisible: boolean;
-    readonly reason: string | null;
-}
-
-export function isCdpDiagnosticsReport(value: unknown): value is CdpDiagnosticsReport {
-    if (!isRecord(value)) {
-        return false;
-    }
-    return (
-        typeof value["cdpAvailable"] === "boolean" &&
-        typeof value["spTargetSeen"] === "boolean" &&
-        typeof value["keyboardSeen"] === "boolean" &&
-        typeof value["keyboardVisible"] === "boolean" &&
-        (value["reason"] === null || typeof value["reason"] === "string")
-    );
-}
-
-/**
  * Additive dictation-flow facts (optional `get_status` field): which
  * clipboard backend is active — "xclip" (backend writer ready) or
  * "unavailable" (the frontend copy is primary). `clipboard` is always
@@ -110,8 +84,7 @@ export function isDictationFlowReport(value: unknown): value is DictationFlowRep
 /**
  * Versioned `get_status` response, fields the frontend consumes.
  * `runtime.lastFailure` is the backend's stored startup failure (or null)
- * and drives the setup panel's failure hydration. `cdpDiagnostics` is
- * additive and validated only when present (older backends omit it).
+ * and drives the setup panel's failure hydration.
  */
 export interface RuntimeStatusReport {
     readonly protocolVersion: 1;
@@ -123,7 +96,6 @@ export interface RuntimeStatusReport {
         readonly lastFailure: RuntimeFailureRecord | null;
     };
     readonly modelDownloadInProgress: boolean;
-    readonly cdpDiagnostics?: CdpDiagnosticsReport;
     /** Additive (validated only when present). */
     readonly dictationFlow?: DictationFlowReport;
 }
@@ -152,10 +124,6 @@ export function isRuntimeStatusReport(value: unknown): value is RuntimeStatusRep
             failure["code"].length === 0 ||
             typeof failure["stepIndex"] !== "number")
     ) {
-        return false;
-    }
-    const cdp = value["cdpDiagnostics"];
-    if (cdp !== undefined && !isCdpDiagnosticsReport(cdp)) {
         return false;
     }
     const flow = value["dictationFlow"];

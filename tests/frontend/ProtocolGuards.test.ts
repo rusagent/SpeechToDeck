@@ -11,7 +11,6 @@ import { describe, expect, it } from "vitest";
 import { DICTATION_ERROR_CODES, isDictationErrorCode } from "../../src/domain/DictationError";
 import { isRuntimeCapabilities } from "../../src/domain/Capability";
 import {
-    isCdpDiagnosticsReport,
     isDictationFlowReport,
     isRuntimeStatusReport,
 } from "../../src/application/ports/SpeechPort";
@@ -49,7 +48,6 @@ const VALID_SETTINGS: PluginSettings = {
     computeBackend: "auto",
     modelId: "base",
     language: "system",
-    outputMode: "direct-insert",
 };
 
 describe("isTranscriptReadyPayload", () => {
@@ -232,7 +230,7 @@ describe("isSpeechCapabilities and status", () => {
     });
 });
 
-describe("isRuntimeStatusReport + isCdpDiagnosticsReport", () => {
+describe("isRuntimeStatusReport", () => {
     const base = {
         protocolVersion: 1,
         runtime: {
@@ -245,34 +243,8 @@ describe("isRuntimeStatusReport + isCdpDiagnosticsReport", () => {
         modelDownloadInProgress: false,
     };
 
-    it("accepts the report without the optional cdpDiagnostics field (older backend)", () => {
+    it("accepts the minimal report (additive fields absent)", () => {
         expect(isRuntimeStatusReport(base)).toBe(true);
-    });
-
-    it("accepts and preserves a valid cdpDiagnostics report", () => {
-        const payload = {
-            ...base,
-            cdpDiagnostics: {
-                cdpAvailable: false,
-                spTargetSeen: true,
-                keyboardSeen: true,
-                keyboardVisible: false,
-                reason: "remote-cdp-disabled",
-            },
-        };
-        expect(isRuntimeStatusReport(payload)).toBe(true);
-        expect(payload.cdpDiagnostics.reason).toBe("remote-cdp-disabled");
-        expect(isCdpDiagnosticsReport(payload.cdpDiagnostics)).toBe(true);
-    });
-
-    it("rejects a malformed cdpDiagnostics field", () => {
-        expect(
-            isRuntimeStatusReport({
-                ...base,
-                cdpDiagnostics: { cdpAvailable: "yes", reason: null },
-            }),
-        ).toBe(false);
-        expect(isCdpDiagnosticsReport({ cdpAvailable: true, reason: 42 })).toBe(false);
     });
 
     it("accepts the verbatim on-device get_status payload (past boundary failure)", () => {
@@ -312,7 +284,6 @@ describe("isPluginSettings", () => {
         expect(isPluginSettings({ ...VALID_SETTINGS, computeBackend: "quantum" })).toBe(false);
         expect(isPluginSettings({ ...VALID_SETTINGS, modelId: "Base;rm" })).toBe(false);
         expect(isPluginSettings({ ...VALID_SETTINGS, modelId: "" })).toBe(false);
-        expect(isPluginSettings({ ...VALID_SETTINGS, outputMode: "stream" })).toBe(false);
         expect(isPluginSettings({ ...VALID_SETTINGS, language: 1 })).toBe(false);
     });
 
@@ -335,10 +306,6 @@ describe("isRuntimeCapabilities", () => {
                 cpuAvailable: true,
                 vulkanAvailable: true,
                 modelInstalled: true,
-                keyboardHookAvailable: true,
-                clipboardAvailable: true,
-                nativePasteAvailable: true,
-                directInsertAvailable: true,
             }),
         ).toBe(true);
     });
@@ -350,10 +317,6 @@ describe("isRuntimeCapabilities", () => {
                 microphoneAvailable: true,
                 cpuAvailable: true,
                 vulkanAvailable: true,
-                modelInstalled: true,
-                keyboardHookAvailable: true,
-                clipboardAvailable: true,
-                nativePasteAvailable: true,
             }),
         ).toBe(false);
         expect(isRuntimeCapabilities({ ...VALID_SETTINGS })).toBe(false);

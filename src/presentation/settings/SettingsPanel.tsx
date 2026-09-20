@@ -5,11 +5,12 @@
  * persistence) and saves through the same port on every change. The panel
  * sections render as nested titled panel sections. Declutter
  * (deliberate list): the Microphone/Available chip row, the Maximum Recording
- * Duration slider, the VAD toggle, the runtime-health row and the whole
- * Diagnostics section are gone — the panel reads as Dictation card / (setup
+ * Duration slider, the VAD toggle, the runtime-health row, the whole
+ * Diagnostics section and the Output mode row (clipboard-only is the only
+ * output) are gone — the panel reads as Dictation card / (setup
  * when needed) / Runtime (Enabled) / Speech (Model, with
  * the Language picker below it only while the selected model does not pin a
- * language) / Output (Output mode). Application/runtime state is consumed
+ * language). Application/runtime state is consumed
  * through `useSyncExternalStore` over the controller store; only
  * this panel and the microphone mount subscribe to relevant state.
  * The initial settings load is honest about failure: a load that neither
@@ -25,14 +26,7 @@
  */
 
 import * as React from "react";
-import {
-    ButtonItem,
-    DialogButton,
-    DropdownItem,
-    PanelSection,
-    PanelSectionRow,
-    ToggleField,
-} from "@decky/ui";
+import { ButtonItem, DialogButton, PanelSection, PanelSectionRow, ToggleField } from "@decky/ui";
 import type { DictationState } from "../../domain/DictationState";
 import type { StateStore } from "../../application/DictationController";
 import type { ClockPort } from "../../application/ports/ClockPort";
@@ -42,7 +36,7 @@ import type { ModelCatalogSnapshot } from "../../application/ports/ModelCatalogP
 import { LevelMeterStore } from "../../application/ports/LevelMeterPort";
 import type { PanelTranscriptSnapshot } from "../../application/ports/PanelTranscriptPort";
 import { translate } from "../i18n/messages";
-import type { Locale, MessageKey } from "../i18n/messages";
+import type { Locale } from "../i18n/messages";
 import type { DiagnosticsSource } from "./DiagnosticsSource";
 import { DictationCard } from "./DictationCard";
 import { LanguagePicker } from "./LanguagePicker";
@@ -97,14 +91,8 @@ export interface SettingsPanelProps {
     };
 }
 
-const OUTPUT_MODES: readonly PluginSettings["outputMode"][] = ["direct-insert", "clipboard-only"];
-
 /** How long the initial settings load may stay unanswered before failing. */
 const SETTINGS_LOAD_TIMEOUT_MS = 10_000;
-
-function optionLabel(locale: Locale, prefix: string, value: string): string {
-    return translate(locale, `${prefix}.${value}` as MessageKey);
-}
 
 export function SettingsPanel({
     settings,
@@ -414,22 +402,6 @@ export function SettingsPanel({
                         />
                     </PanelSectionRow>
                 ) : null}
-            </PanelSection>
-
-            <PanelSection title={translate(locale, "section.output")}>
-                <PanelSectionRow>
-                    <DropdownItem
-                        label={translate(locale, "setting.outputMode")}
-                        rgOptions={OUTPUT_MODES.map((mode) => ({
-                            data: mode,
-                            label: optionLabel(locale, "option.output", mode),
-                        }))}
-                        selectedOption={value.outputMode}
-                        onChange={(option) =>
-                            update({ outputMode: option.data as PluginSettings["outputMode"] })
-                        }
-                    />
-                </PanelSectionRow>
             </PanelSection>
         </PanelSection>
     );

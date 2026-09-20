@@ -632,7 +632,6 @@ describe("DeckySettingsAdapter", () => {
                     computeBackend: TEST_SETTINGS.computeBackend,
                     modelId: TEST_SETTINGS.modelId,
                     language: TEST_SETTINGS.language,
-                    outputMode: TEST_SETTINGS.outputMode,
                 },
             ],
         });

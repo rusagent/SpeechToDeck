@@ -15,14 +15,7 @@ class TracingController extends DictationController {
     disposeError: Error | null = null;
 
     constructor(private readonly ownedRig: TestRig) {
-        super(
-            ownedRig.speech,
-            ownedRig.keyboard,
-            ownedRig.inserter,
-            ownedRig.settings,
-            ownedRig.clock,
-            ownedRig.ids,
-        );
+        super(ownedRig.speech, ownedRig.clipboard, ownedRig.settings, ownedRig.clock, ownedRig.ids);
     }
 
     override async dispose(): Promise<void> {
@@ -43,42 +36,38 @@ function createLifecycleRig(): {
     const base = createTestRig();
     const controller = new TracingController(base);
     const rig: TestRig = { ...base, controller };
-    const lifecycle = new PluginLifecycle(controller, rig.keyboard, rig.speech);
+    const lifecycle = new PluginLifecycle(controller, rig.speech);
     return { rig, controller, lifecycle };
 }
 
 describe("startup", () => {
     it("a repeated lifecycle.start does not re-run the startup sequence", async () => {
         const { rig, lifecycle } = createLifecycleRig();
-        rig.keyboard.open();
         await lifecycle.start();
         await lifecycle.start();
 
-        expect(rig.trace.filter((entry) => entry === "keyboard.start")).toHaveLength(1);
         expect(rig.trace.filter((entry) => entry === "speech.initialize")).toHaveLength(1);
         expect(rig.controller.getSnapshot().kind).toBe("ready");
     });
 
     it("reaches ready through the lifecycle", async () => {
         const { rig, lifecycle } = createLifecycleRig();
-        rig.keyboard.open();
         await lifecycle.start();
         expect(rig.controller.getSnapshot().kind).toBe("ready");
     });
 });
 
 describe("unload (reverse-order disposal)", () => {
-    it("disposes controller → keyboard → speech", async () => {
+    it("disposes controller → speech shutdown", async () => {
         const { rig, lifecycle } = createLifecycleRig();
-        rig.keyboard.open();
         await lifecycle.start();
 
         await lifecycle.dispose();
 
         const sequenced = rig.trace.filter((entry) =>
-            ["controller.dispose", "keyboard.stop", "speech.shutdown"].includes(entry),
+            ["controller.dispose", "speech.shutdown"].includes(entry),
         );
-        expect(sequenced).toEqual(["controller.dispose", "keyboard.stop", "speech.shutdown"]);
+        expect(sequenced).toEqual(["controller.dispose", "speech.shutdown"]);
     });
 
     it("is idempotent: a second dispose runs nothing again", async () => {
@@ -87,7 +76,6 @@ describe("unload (reverse-order disposal)", () => {
         await lifecycle.dispose();
 
         expect(controller.disposeCount).toBe(1);
-        expect(rig.trace.filter((entry) => entry === "keyboard.stop")).toHaveLength(1);
         expect(rig.trace.filter((entry) => entry === "speech.shutdown")).toHaveLength(1);
     });
 
@@ -95,7 +83,6 @@ describe("unload (reverse-order disposal)", () => {
         const { rig, lifecycle } = createLifecycleRig();
         await lifecycle.dispose();
         expect(rig.trace).toContain("controller.dispose");
-        expect(rig.trace).toContain("keyboard.stop");
         expect(rig.trace).toContain("speech.shutdown");
     });
 
@@ -106,7 +93,6 @@ describe("unload (reverse-order disposal)", () => {
         await lifecycle.dispose();
         await flush();
 
-        expect(rig.trace).toContain("keyboard.stop");
         expect(rig.trace).toContain("speech.shutdown");
     });
 });

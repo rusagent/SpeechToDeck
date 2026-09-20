@@ -25,10 +25,9 @@ import type { DeckyTransport } from "../../src/infrastructure/decky/DeckyBackend
 import { copyTextToClipboard } from "../../src/infrastructure/system/PanelClipboard";
 import { Deferred } from "../../src/shared/Deferred";
 import type { Disposable } from "../../src/shared/Disposable";
-import { FakeBulkTextInserter } from "../frontend/fakes/FakeBulkTextInserter";
+import { FakeClipboardPort } from "../frontend/fakes/FakeClipboardPort";
 import { FakeClock } from "../frontend/fakes/FakeClock";
 import { FakeIdGenerator } from "../frontend/fakes/FakeIdGenerator";
-import { FakeKeyboardHost } from "../frontend/fakes/FakeKeyboardHost";
 import { FakeSettingsPort } from "../frontend/fakes/FakeSettingsPort";
 import { flush } from "../frontend/fakes/TestRig";
 
@@ -178,19 +177,17 @@ describe("panel dictation journey: press → levels → stop → transcript → 
 
         const backend = new DeckyBackendClient(transport);
         const speech = new DeckySpeechAdapter(backend);
-        // No keyboard context: presses route through the panel clipboard flow.
         const controller = new DictationController(
             speech,
-            new FakeKeyboardHost([]),
-            new FakeBulkTextInserter([]),
+            new FakeClipboardPort([]),
             new FakeSettingsPort(),
             new FakeClock(),
             new FakeIdGenerator(),
         );
 
         // The real panel clipboard path; execCommand is the CEF success seam.
-        // jsdom limitation (see KeyboardBridgeBootstrap.test.ts): the API does
-        // not exist, so the seam is defined rather than spied.
+        // jsdom limitation: navigator.clipboard does not exist, so the seam is
+        // defined rather than spied.
         let copiedViaExecCommand: string | null = null;
         Object.defineProperty(document, "execCommand", {
             configurable: true,
@@ -289,8 +286,7 @@ describe("panel dictation journey: empty speech must never lock the mic", () => 
         const speech = new DeckySpeechAdapter(backend);
         const controller = new DictationController(
             speech,
-            new FakeKeyboardHost([]),
-            new FakeBulkTextInserter([]),
+            new FakeClipboardPort([]),
             new FakeSettingsPort(),
             new FakeClock(),
             new FakeIdGenerator(),

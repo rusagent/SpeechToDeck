@@ -27,7 +27,7 @@ afterEach(cleanup);
 
 const RECORDING: DictationState = {
     kind: "recording",
-    session: { sessionId: "panel-1", keyboardContextId: null, startedAtMonotonicMs: 0 },
+    session: { sessionId: "panel-1", startedAtMonotonicMs: 0 },
 };
 const READY: DictationState = { kind: "ready" };
 // On-device press failure class: the coded envelope came back, but the
