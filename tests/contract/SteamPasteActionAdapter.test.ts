@@ -1,5 +1,5 @@
 /**
- * SteamPasteActionAdapter contract tests (spec §26/§28 Candidate A): paste
+ * SteamPasteActionAdapter contract tests: paste
  * discovery via the profile, exactly the native paste control activation,
  * no character typing ever, and fail-closed on context mismatch or missing
  * mechanism.
@@ -50,7 +50,7 @@ describe("SteamPasteActionAdapter", () => {
             await adapter.invokePaste(context);
 
             expect(fixture.pasteCalls).toHaveLength(1); // exactly one native paste
-            expect(fixture.typedEvents).toEqual([]); // never types characters (§26)
+            expect(fixture.typedEvents).toEqual([]); // never types characters
         } finally {
             fixture.detachTypingRecorder();
             clearKeyboardFixtures();

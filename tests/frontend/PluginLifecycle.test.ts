@@ -1,6 +1,6 @@
 /**
- * PluginLifecycle tests (spec §82/§83/§84): startup delegation, §83 unload
- * sequence executed through §84 reverse-order disposal, idempotent dispose,
+ * PluginLifecycle tests: startup delegation, the unload
+ * sequence executed through reverse-order disposal, idempotent dispose,
  * and teardown failure containment.
  */
 
@@ -47,7 +47,7 @@ function createLifecycleRig(): {
     return { rig, controller, lifecycle };
 }
 
-describe("startup (§82)", () => {
+describe("startup", () => {
     it("a repeated lifecycle.start does not re-run the startup sequence", async () => {
         const { rig, lifecycle } = createLifecycleRig();
         rig.keyboard.open();
@@ -67,7 +67,7 @@ describe("startup (§82)", () => {
     });
 });
 
-describe("unload (§83 via §84 reverse-order disposal)", () => {
+describe("unload (reverse-order disposal)", () => {
     it("disposes controller → keyboard → speech", async () => {
         const { rig, lifecycle } = createLifecycleRig();
         rig.keyboard.open();
@@ -91,7 +91,7 @@ describe("unload (§83 via §84 reverse-order disposal)", () => {
         expect(rig.trace.filter((entry) => entry === "speech.shutdown")).toHaveLength(1);
     });
 
-    it("works without start: every cleanup operation is idempotent (§83)", async () => {
+    it("works without start: every cleanup operation is idempotent", async () => {
         const { rig, lifecycle } = createLifecycleRig();
         await lifecycle.dispose();
         expect(rig.trace).toContain("controller.dispose");

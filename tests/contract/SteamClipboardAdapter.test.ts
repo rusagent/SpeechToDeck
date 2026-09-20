@@ -1,5 +1,5 @@
 /**
- * SteamClipboardAdapter contract tests (spec §25): complete-string writes
+ * SteamClipboardAdapter contract tests: complete-string writes
  * only, 16 KiB UTF-8 limit enforced with the core constant, controlled
  * errors, and honest probing of the write mechanism.
  */

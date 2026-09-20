@@ -1,7 +1,7 @@
 /**
- * Pure state machine tests (spec §8, §8.1, §8.2, §87).
+ * Pure state machine tests.
  *
- * Oracle: the spec's transition table and forbidden-transition list — not
+ * Oracle: the documented transition table and forbidden-transition list — not
  * implementation constants. Valid edges are exercised with the state kinds and
  * payloads the table requires; forbidden edges must be rejected by returning
  * the current state unchanged with no effects.
@@ -75,7 +75,7 @@ function rejected(current: DictationState, event: DictationEvent): void {
     expect(result.effects).toEqual([]);
 }
 
-describe("spec §8 transition table (valid normal flow)", () => {
+describe("state transition table (valid normal flow)", () => {
     it("booting → ready on a complete startup report", () => {
         const result = transition(
             { kind: "booting" },
@@ -122,7 +122,7 @@ describe("spec §8 transition table (valid normal flow)", () => {
         expect(result.effects).toEqual([{ type: "START_RECORDING", sessionId: "s-1" }]);
     });
 
-    it("starting → recording on the start acknowledgement (§75)", () => {
+    it("starting → recording on the start acknowledgement", () => {
         const result = transition(sessionState("starting"), {
             type: "RECORDING_STARTED",
             sessionId: "s-1",
@@ -131,13 +131,13 @@ describe("spec §8 transition table (valid normal flow)", () => {
         applied(result);
     });
 
-    it("recording → stopping on press, emitting STOP_RECORDING (§88)", () => {
+    it("recording → stopping on press, emitting STOP_RECORDING", () => {
         const result = transition(sessionState("recording"), { type: "MICROPHONE_PRESSED" });
         expect(result.state).toEqual({ kind: "stopping", session: SESSION });
         expect(result.effects).toEqual([{ type: "STOP_RECORDING", sessionId: "s-1" }]);
     });
 
-    it("stopping → transcribing on the stop acknowledgement (§75)", () => {
+    it("stopping → transcribing on the stop acknowledgement", () => {
         const result = transition(sessionState("stopping"), {
             type: "RECORDING_STOPPED",
             sessionId: "s-1",
@@ -146,7 +146,7 @@ describe("spec §8 transition table (valid normal flow)", () => {
         applied(result);
     });
 
-    it("transcribing → inserting on the transcript, trimmed, emitting INSERT_TEXT (§78)", () => {
+    it("transcribing → inserting on the transcript, trimmed, emitting INSERT_TEXT", () => {
         const result = transition(sessionState("transcribing"), {
             type: "TRANSCRIPT_READY",
             sessionId: "s-1",
@@ -169,7 +169,7 @@ describe("spec §8 transition table (valid normal flow)", () => {
     });
 });
 
-describe("spec §8.1 forbidden transitions", () => {
+describe("forbidden transitions", () => {
     it("ready → transcribing (via TRANSCRIPT_READY) is rejected", () => {
         rejected(
             { kind: "ready" },
@@ -194,7 +194,7 @@ describe("spec §8.1 forbidden transitions", () => {
     });
 });
 
-describe("duplicate presses while an operation is pending (§10)", () => {
+describe("duplicate presses while an operation is pending", () => {
     it("press during starting is ignored", () => {
         rejected(sessionState("starting"), { type: "MICROPHONE_PRESSED", session: OTHER_SESSION });
     });
@@ -215,7 +215,7 @@ describe("duplicate presses while an operation is pending (§10)", () => {
     });
 });
 
-describe("stale results and mismatched sessions (§11)", () => {
+describe("stale results and mismatched sessions", () => {
     it("start acknowledgement for another session is ignored", () => {
         rejected(sessionState("starting"), { type: "RECORDING_STARTED", sessionId: "other" });
     });
@@ -250,7 +250,7 @@ describe("stale results and mismatched sessions (§11)", () => {
     });
 });
 
-describe("cancellation (§72)", () => {
+describe("cancellation", () => {
     it("cancel during recording → ready, emitting CANCEL_RECORDING", () => {
         const result = transition(sessionState("recording"), { type: "CANCEL_REQUESTED" });
         expect(result.state).toEqual({ kind: "ready" });
@@ -276,7 +276,7 @@ describe("cancellation (§72)", () => {
     });
 });
 
-describe("keyboard close safety (§12)", () => {
+describe("keyboard close safety", () => {
     it("keyboard closed while recording → ready, emitting CANCEL_RECORDING", () => {
         const result = transition(sessionState("recording"), {
             type: "KEYBOARD_CLOSED",
@@ -301,7 +301,7 @@ describe("keyboard close safety (§12)", () => {
         rejected(sessionState("transcribing"), { type: "KEYBOARD_CLOSED", contextId: "ctx-1" });
     });
 
-    it("keyboard closed while inserting keeps the state: the inserter revalidates (§24)", () => {
+    it("keyboard closed while inserting keeps the state: the inserter revalidates", () => {
         rejected(INSERTING, { type: "KEYBOARD_CLOSED", contextId: "ctx-1" });
     });
 
@@ -310,7 +310,7 @@ describe("keyboard close safety (§12)", () => {
     });
 });
 
-describe("empty speech (§77) and transcript rejection (§78)", () => {
+describe("empty speech and transcript rejection", () => {
     it("empty transcript → ready with no effects: no clipboard write, no paste", () => {
         const result = transition(sessionState("transcribing"), {
             type: "TRANSCRIPT_READY",
@@ -349,7 +349,7 @@ describe("empty speech (§77) and transcript rejection (§78)", () => {
     });
 });
 
-describe("insertion failure and recovery (§69)", () => {
+describe("insertion failure and recovery", () => {
     it("inserting → recoverable error on insertion failure", () => {
         const result = transition(INSERTING, {
             type: "INSERTION_FAILED",
@@ -369,7 +369,7 @@ describe("insertion failure and recovery (§69)", () => {
         expect(result.state).toEqual({ kind: "ready" });
     });
 
-    it("a fatal error is not dismissible: explicit restart action required (§69)", () => {
+    it("a fatal error is not dismissible: explicit restart action required", () => {
         rejected(FATAL_ERROR, { type: "ERROR_DISMISSED" });
         expect(isFatalDictationError(FATAL_ERROR.error)).toBe(true);
         expect(isFatalDictationError(RECOVERABLE_ERROR.error)).toBe(false);
@@ -385,7 +385,7 @@ describe("insertion failure and recovery (§69)", () => {
     });
 });
 
-describe("speech failures during a session (§68/§69)", () => {
+describe("speech failures during a session", () => {
     it("transcription failure → recoverable error, emitting CANCEL_RECORDING as cleanup", () => {
         const result = transition(sessionState("recording"), {
             type: "SPEECH_FAILED",
@@ -415,7 +415,7 @@ describe("speech failures during a session (§68/§69)", () => {
     });
 });
 
-describe("purity (§8.2)", () => {
+describe("purity", () => {
     it("never mutates the current state and returns fresh state objects", () => {
         const current = sessionState("recording");
         const snapshot = structuredClone(current);
@@ -467,7 +467,7 @@ describe("on-device outcome ordering (deck 2026-09-18): outcome lands during sto
         applied(result);
     });
 
-    it("empty speech during stopping returns to ready without inserting (§77)", () => {
+    it("empty speech during stopping returns to ready without inserting", () => {
         const result = transition(sessionState("stopping"), {
             type: "TRANSCRIPT_READY",
             sessionId: "s-1",
@@ -477,7 +477,7 @@ describe("on-device outcome ordering (deck 2026-09-18): outcome lands during sto
         applied(result);
     });
 
-    it("stale session ids stay rejected during stopping (§11)", () => {
+    it("stale session ids stay rejected during stopping", () => {
         rejected(sessionState("stopping"), {
             type: "TRANSCRIPT_READY",
             sessionId: "s-2",

@@ -1,14 +1,14 @@
 /**
- * LevelVisualizer contract tests (v0.2.4 owner feature).
+ * LevelVisualizer contract tests (owner feature).
  *
  * Decision points (owner-approved net-new coverage, context pack):
  * 1. Every style renders the SAME real-frame window behind the pinned journey
  *    contract — [data-level-strip], 24×[data-level-bar], [data-level-value]
- *    0..1 — fed ONLY by real LevelMeterStore publications (§73: no synthetic
+ *    0..1 — fed ONLY by real LevelMeterStore publications (no synthetic
  *    audio data; the store is the oracle, never a fabricated frame).
  * 2. `classic` preserves the previous strip's exact bar semantics (height
  *    formula with its 4% floor, hot-bar color threshold) — a behavior
- *    preservation pin over the extracted v0.2 strip.
+ *    preservation pin over the extracted strip.
  * 3. Style selection persists under `speechtodeck.levelStyle` (persisted
  *    readback oracle); garbage and missing values fail closed to `heatmap`.
  * 4. The `heatmap` palette is the acceptance's magma ramp: deep purple floor
@@ -133,7 +133,7 @@ describe("LevelVisualizer", () => {
         expect(levelValue(22)).toBe("0.90");
         expect(levelValue(21)).toBe("0.50");
         // Same height formula (with the 4% floor) and hot-bar color as the
-        // v0.2 strip this style preserves.
+        // original strip this style preserves.
         const loud = columns[22] as HTMLElement; // 0.9
         expect(loud.className).toContain("speechtodeck-level-bar");
         expect(loud.style.height).toBe("90%");

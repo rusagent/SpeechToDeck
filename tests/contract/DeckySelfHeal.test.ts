@@ -1,5 +1,5 @@
 /**
- * DeckySelfHeal contract tests (v0.2.9 install-wedge self-heal).
+ * DeckySelfHeal contract tests (install-wedge self-heal).
  *
  * Named production defect: loader v3.2.9 UI reinstalls can orphan the
  * frontend→backend call channel — the settings load never settles (no coded

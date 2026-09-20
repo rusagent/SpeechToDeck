@@ -1,14 +1,14 @@
 /**
- * SteamKeyboardTabBridgeHostAdapter contract tests (v0.1.7, Task 3/5).
+ * SteamKeyboardTabBridgeHostAdapter contract tests.
  *
- * Decision points (owner-approved Task 5 coverage):
+ * Decision points (owner-approved coverage):
  * - poll visibility reaches consumers as keyboard-opened/keyboard-closed port
- *   events (the controller's existing §13 subscription stays authoritative);
- * - the §75-true model visual maps onto the in-window __stdMicState pushes
+ *   events (the controller's existing subscription stays authoritative);
+ * - the model-true visual maps onto the in-window __stdMicState pushes
  *   (recording → recording, error → error, everything else → idle);
- * - the §58-shaped diagnostics mapping degrades the capability honestly
+ * - the keyboard-hook diagnostics mapping degrades the capability honestly
  *   (reason null only when transport + bootstrap + container are all proven);
- * - stop tears the in-window surface down and rejects later mounts (§83).
+ * - stop tears the in-window surface down and rejects later mounts.
  */
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -31,8 +31,8 @@ function createAdapterHarness() {
         executor: async (tab, runAsync, code) => {
             calls.push({ tab, runAsync, code });
             // The poll expression references __stdKbBridgeLoaded too (the b
-            // flag) — the poll shape must be matched first. v0.1.8: the poll
-            // leads with the §61 __stdKbEvaluate self-heal call, so match on
+            // flag) — the poll shape must be matched first. The poll
+            // leads with the __stdKbEvaluate self-heal call, so match on
             // the JSON.stringify({ payload wrapper, not the prefix.
             if (code.includes("JSON.stringify({")) {
                 return { success: true, result: JSON.stringify(nextPoll) };
@@ -65,7 +65,7 @@ afterEach(() => {
 });
 
 describe("SteamKeyboardTabBridgeHostAdapter port events", () => {
-    it("forwards poll visibility as keyboard-opened/keyboard-closed (§13)", async () => {
+    it("forwards poll visibility as keyboard-opened/keyboard-closed", async () => {
         const harness = createAdapterHarness();
         const events: string[] = [];
         harness.adapter.subscribe((event) => {
@@ -100,8 +100,8 @@ describe("SteamKeyboardTabBridgeHostAdapter port events", () => {
     });
 });
 
-describe("SteamKeyboardTabBridgeHostAdapter microphone control (§75 mapping)", () => {
-    it("pushes the exact §75-true visual into the keyboard document", async () => {
+describe("SteamKeyboardTabBridgeHostAdapter microphone control (visual mapping)", () => {
+    it("pushes the exact model-true visual into the keyboard document", async () => {
         const harness = createAdapterHarness();
         await harness.adapter.start();
         harness.calls.length = 0;
@@ -132,14 +132,14 @@ describe("SteamKeyboardTabBridgeHostAdapter microphone control (§75 mapping)", 
         const stateCalls = harness.calls.filter((call) => call.code.includes("__stdMicState"));
         expect(stateCalls.map((call) => call.code)).toEqual([
             'window.__stdMicState && window.__stdMicState("recording")',
-            'window.__stdMicState && window.__stdMicState("idle")', // processing → not active (§75)
+            'window.__stdMicState && window.__stdMicState("idle")', // processing → not active
             'window.__stdMicState && window.__stdMicState("error")',
             'window.__stdMicState && window.__stdMicState("idle")', // mount disposed → neutral
         ]);
         await harness.adapter.stop();
     });
 
-    it("rejects mounts after stop (§83)", async () => {
+    it("rejects mounts after stop", async () => {
         const harness = createAdapterHarness();
         await harness.adapter.start();
         await harness.adapter.stop();
@@ -157,7 +157,7 @@ describe("SteamKeyboardTabBridgeHostAdapter microphone control (§75 mapping)", 
     });
 });
 
-describe("SteamKeyboardTabBridgeHostAdapter diagnostics (§57/§105)", () => {
+describe("SteamKeyboardTabBridgeHostAdapter diagnostics", () => {
     it("claims the hook only when transport, bootstrap and container are proven", async () => {
         const harness = createAdapterHarness();
         await harness.adapter.start();

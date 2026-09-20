@@ -4,7 +4,7 @@
  * Decision points: the four step rows derive their state from the guarded
  * payload, subsequent payloads advance the active step and per-step/overall
  * percents (render-only arithmetic: completed × 25 + percent/4), the
- * terminal failed state surfaces the mapped §68 error with a retry control,
+ * terminal failed state surfaces the mapped error with a retry control,
  * and the bar exposes progressbar ARIA semantics (no `aria-valuenow` while
  * indeterminate). The store and adapter boundary is covered in
  * DeckyAdapters.test.ts.
@@ -51,7 +51,7 @@ describe("SetupProgressPanel", () => {
         const steps = screen.getAllByRole("listitem");
         expect(steps).toHaveLength(4);
         // Accessible names come from the visible labels; the state glyphs
-        // are aria-hidden and never color-only (§107).
+        // are aria-hidden and never color-only.
         expect(steps.map((step) => step.getAttribute("data-step-state"))).toEqual([
             "done",
             "active",
@@ -116,7 +116,7 @@ describe("SetupProgressPanel", () => {
         expect(screen.queryByText(/^\d+%$/)).toBeNull();
     });
 
-    it("marks the failing step, maps the §68 error code and offers retry", async () => {
+    it("marks the failing step, maps the error code and offers retry", async () => {
         let resolveRetry: (() => void) | null = null;
         const onRetry = vi.fn(
             () =>
@@ -133,7 +133,7 @@ describe("SetupProgressPanel", () => {
             "error",
             "pending",
         ]);
-        // Raw code chip plus mapped §68 text, announced via role="alert".
+        // Raw code chip plus mapped text, announced via role="alert".
         expect(screen.getByText("MODEL_DOWNLOAD_FAILED")).not.toBeNull();
         expect(screen.getByRole("alert").textContent).toContain("Downloading the model failed.");
 

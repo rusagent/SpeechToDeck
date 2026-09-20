@@ -1,12 +1,12 @@
 /**
- * KeyboardBridgeInserter contract tests (v0.1.7, Task 5/§24 reading).
+ * KeyboardBridgeInserter contract tests.
  *
- * Decision points (owner-approved Task 5 coverage):
- * - the bridge one-payload path is PRIMARY: success short-circuits the §24
+ * Decision points (owner-approved coverage):
+ * - the bridge one-payload path is PRIMARY: success short-circuits the
  *   clipboard+paste fallback (no clipboard write, no paste);
- * - the §24 fallback runs ONLY when the bridge insertion declines or the
- *   context is no longer current (see IMPLEMENTATION_STATUS.md §2.2 reading);
- * - text validation happens once, before any path (§24 step 1 / §78).
+ * - the fallback runs ONLY when the bridge insertion declines or the
+ *   context is no longer current;
+ * - text validation happens once, before any path.
  */
 
 import { describe, expect, it } from "vitest";
@@ -62,7 +62,7 @@ class StubFallback implements BulkTextInserter {
 }
 
 describe("KeyboardBridgeInserter path selection", () => {
-    it("short-circuits on bridge success — the §24 fallback stays untouched", async () => {
+    it("short-circuits on bridge success — the fallback stays untouched", async () => {
         const bridge = new StubBridge();
         const fallback = new StubFallback();
         const inserter = new KeyboardBridgeInserter(bridge, fallback);
@@ -74,7 +74,7 @@ describe("KeyboardBridgeInserter path selection", () => {
         expect(fallback.insertCalls).toEqual([]);
     });
 
-    it("takes the §24 clipboard+paste path only when the bridge declines", async () => {
+    it("takes the clipboard+paste path only when the bridge declines", async () => {
         const bridge = new StubBridge();
         const fallback = new StubFallback();
         const inserter = new KeyboardBridgeInserter(bridge, fallback);
@@ -98,7 +98,7 @@ describe("KeyboardBridgeInserter path selection", () => {
         expect(fallback.insertCalls).toEqual([{ contextId: "vk-1-id-1", text: "veraltet" }]);
     });
 
-    it("propagates the fallback verdict when the §24 path also fails", async () => {
+    it("propagates the fallback verdict when the fallback path also fails", async () => {
         const bridge = new StubBridge();
         bridge.insertOutcome = new Error("transport down");
         const fallback = new StubFallback();
@@ -111,7 +111,7 @@ describe("KeyboardBridgeInserter path selection", () => {
         expect(result.ok === false && result.error.code).toBe("PASTE_ACTION_UNAVAILABLE");
     });
 
-    it("rejects invalid text before touching any path (§24 step 1)", async () => {
+    it("rejects invalid text before touching any path", async () => {
         const bridge = new StubBridge();
         const fallback = new StubFallback();
         const inserter = new KeyboardBridgeInserter(bridge, fallback);
@@ -124,7 +124,7 @@ describe("KeyboardBridgeInserter path selection", () => {
         expect(fallback.insertCalls).toEqual([]);
     });
 
-    it("delegates the capability probe to the §24 mechanisms", async () => {
+    it("delegates the capability probe to the fallback mechanisms", async () => {
         const bridge = new StubBridge();
         const fallback = new StubFallback();
         const inserter = new KeyboardBridgeInserter(bridge, fallback);

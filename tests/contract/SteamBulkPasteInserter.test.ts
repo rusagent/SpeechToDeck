@@ -1,8 +1,8 @@
 /**
- * SteamBulkPasteInserter contract tests (spec §22-§24): the §24 transaction
+ * SteamBulkPasteInserter contract tests: the transaction
  * order — validate → context → clipboard once → context revalidation →
  * exactly one paste — with fail-closed behavior on blocked or changed
- * contexts, and the §28 candidate capability model in `probe`.
+ * contexts, and the candidate capability model in `probe`.
  */
 
 import { describe, expect, it } from "vitest";
@@ -28,7 +28,7 @@ async function readyContext() {
 }
 
 describe("SteamBulkPasteInserter", () => {
-    it("insert runs the §24 transaction in order: clipboard once, then one paste", async () => {
+    it("insert runs the transaction in order: clipboard once, then one paste", async () => {
         const { clipboard, paste, inserter, context, keyboard } = await readyContext();
 
         const result = await inserter.insert(context, `  ${UNICODE_TRANSCRIPT}  `);
@@ -47,7 +47,7 @@ describe("SteamBulkPasteInserter", () => {
         const result = await inserter.insert(context, UNICODE_TRANSCRIPT);
 
         expect(result).toMatchObject({ ok: false, error: { code: "KEYBOARD_CONTEXT_CHANGED" } });
-        expect(clipboard.writeCalls).toHaveLength(1); // write happened (may remain, §79)
+        expect(clipboard.writeCalls).toHaveLength(1); // write happened (may remain)
         expect(paste.invokeCalls).toHaveLength(0); // no paste into a dead context
     });
 
@@ -103,7 +103,7 @@ describe("SteamBulkPasteInserter", () => {
             maxTextBytes: MAX_TRANSCRIPT_UTF8_BYTES,
         });
 
-        paste.available = false; // §28 Candidate C degraded path
+        paste.available = false; // degraded clipboard-only path
         expect(await inserter.probe(context)).toEqual({
             available: true,
             directInsert: false,
@@ -111,7 +111,7 @@ describe("SteamBulkPasteInserter", () => {
             maxTextBytes: MAX_TRANSCRIPT_UTF8_BYTES,
         });
 
-        clipboard.available = false; // §28: nothing usable
+        clipboard.available = false; // nothing usable
         expect(await inserter.probe(context)).toEqual({
             available: false,
             directInsert: false,

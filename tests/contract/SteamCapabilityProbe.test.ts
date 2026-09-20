@@ -1,5 +1,5 @@
 /**
- * SteamCapabilityProbe contract tests (spec §58): the checklist is reported
+ * SteamCapabilityProbe contract tests: the checklist is reported
  * honestly per fixture state, fails closed on unsupported structures, and
  * never modifies user text (clipboard write is never invoked by probing).
  */
@@ -33,7 +33,7 @@ function stubClipboard(writeText: unknown): { restore: () => void } {
 }
 
 describe("SteamCapabilityProbe", () => {
-    it("reports the full §58 checklist as usable on the supported fixture", () => {
+    it("reports the full checklist as usable on the supported fixture", () => {
         const stubs = installSteamWindowStubs();
         const writeText = vi.fn();
         const clipboard = stubClipboard(writeText);
@@ -49,7 +49,7 @@ describe("SteamCapabilityProbe", () => {
                 supported: true,
                 profileId: "steam-vk-semantic-v1",
             });
-            // §58: capability detection never modifies user text.
+            // Capability detection never modifies user text.
             expect(writeText).not.toHaveBeenCalled();
             expect(fixture.pasteCalls).toHaveLength(0);
         } finally {

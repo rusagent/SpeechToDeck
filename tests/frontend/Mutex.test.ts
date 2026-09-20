@@ -1,6 +1,6 @@
 /**
- * Mutex tests (spec §10 mechanism): serialized critical sections, rejection
- * containment, result propagation.
+ * Mutex tests (async operation mutex): serialized critical sections,
+ * rejection containment, result propagation.
  */
 
 import { describe, expect, it } from "vitest";
@@ -8,7 +8,7 @@ import { describe, expect, it } from "vitest";
 import { Deferred } from "../../src/shared/Deferred";
 import { Mutex } from "../../src/shared/Mutex";
 
-describe("Mutex (§10 async operation mutex)", () => {
+describe("Mutex (async operation mutex)", () => {
     it("runs queued sections strictly one after another", async () => {
         const mutex = new Mutex();
         const events: string[] = [];

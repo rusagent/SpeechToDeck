@@ -15,7 +15,7 @@ export class FakeKeyboardHost implements KeyboardHostPort {
 
     startError: Error | null = null;
 
-    /** When set, reported through the optional v0.1.6 diagnostics surface. */
+    /** When set, reported through the optional diagnostics surface. */
     diagnostics: KeyboardHostDiagnostics | null = null;
 
     private listener: KeyboardHostListener | null = null;

@@ -1,5 +1,5 @@
 /**
- * ModelCatalogStore tests (§102, ADR-011): the guarded catalog + download
+ * ModelCatalogStore tests: the guarded catalog + download
  * state side-channel consumed by the ModelSelect dropdown + download modal
  * through `useSyncExternalStore`. The adapter owns payload validation; these
  * tests drive the publish methods with valid payloads only (guards are
@@ -68,7 +68,7 @@ describe("ModelCatalogStore", () => {
         expect(store.getSnapshot().download).toEqual({ modelId: "distil-small-en", percent: null });
     });
 
-    // v0.2.6 honest completion (on-device finding): the throttled progress
+    // Honest completion (on-device finding): the throttled progress
     // stream plus the old complete-clears-download semantics meant faster
     // downloads closed the modal from a stale lower frame. Completion now
     // keeps a final percent-100 snapshot alongside the install flip so the
@@ -109,7 +109,7 @@ describe("ModelCatalogStore", () => {
         expect(listener).toHaveBeenCalledTimes(2);
     });
 
-    // v0.2.5 decision point (on-device finding): a failed download must carry
+    // Decision point (on-device finding): a failed download must carry
     // its backend detail for the modal's error state, and the record must not
     // leak into the next attempt.
     it("publishes the failure detail for a model and clears it when the next download starts", () => {
@@ -183,7 +183,7 @@ describe("ModelCatalogStore", () => {
         expect(store.getSnapshot().models).toHaveLength(2);
     });
 
-    it("keeps snapshot identity stable when nothing changed (§102)", () => {
+    it("keeps snapshot identity stable when nothing changed", () => {
         const store = new ModelCatalogStore();
         const first = store.getSnapshot();
         expect(store.getSnapshot()).toBe(first);

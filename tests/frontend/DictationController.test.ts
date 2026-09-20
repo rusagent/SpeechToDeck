@@ -1,10 +1,10 @@
 /**
- * DictationController behavioral tests (spec §9-§12, §77-§78, §87).
+ * DictationController behavioral tests.
  *
  * All infrastructure is in-memory fakes; no network and no microphone. The
- * oracle is the spec: acknowledgements gate the active indicator (§75), stale
- * results are never injected (§11), suppression follows keyboard-context loss
- * (§12), and §77-§78 govern empty speech and validation. (v0.2.6: the §76
+ * oracle is the product contract: acknowledgements gate the active indicator,
+ * stale results are never injected, suppression follows keyboard-context
+ * loss, and validation governs empty speech and oversized input. (The
  * recording cap was removed — recordings are unlimited on the FE side; the
  * former watchdog suite went with it.)
  */
@@ -32,7 +32,7 @@ import {
     type TestRig,
 } from "./fakes/TestRig";
 
-describe("startup (§82)", () => {
+describe("startup", () => {
     it("reaches ready and probes insertion against the open context", async () => {
         const rig = createTestRig();
         rig.keyboard.open();
@@ -67,10 +67,10 @@ describe("startup (§82)", () => {
         expect(rig.trace).not.toContain("speech.initialize");
     });
 
-    it("keeps starting the runtime when the keyboard hook fails (v0.2.2 QAM decoupling)", async () => {
+    it("keeps starting the runtime when the keyboard hook fails (QAM decoupling)", async () => {
         // The QAM flow has no keyboard-hook dependency: a failed hook leaves
-        // the in-keyboard button dormant and degrades through the §58
-        // diagnostics — it never blocks the dictation flow (§105).
+        // the in-keyboard button dormant and degrades through the hook
+        // diagnostics — it never blocks the dictation flow.
         const rig = createTestRig();
         rig.keyboard.startError = new Error("no hook");
         rig.keyboard.open();
@@ -81,9 +81,9 @@ describe("startup (§82)", () => {
         expect(rig.trace).toContain("speech.initialize");
     });
 
-    it("keeps the flow ready while keyboard hook diagnostics degrade (v0.2.2 QAM decoupling)", async () => {
-        // §57 honesty stays in the capability report (keyboardHookAvailable
-        // still derives from the host's §58 diagnostics); the flow gate no
+    it("keeps the flow ready while keyboard hook diagnostics degrade (QAM decoupling)", async () => {
+        // Honesty stays in the capability report (keyboardHookAvailable
+        // still derives from the host's hook diagnostics); the flow gate no
         // longer consumes it — keyboard facets never make dictation
         // unavailable.
         const degraded = createTestRig();
@@ -136,7 +136,7 @@ describe("startup (§82)", () => {
     });
 });
 
-describe("happy path (§8 flow, §21 one-shot insertion)", () => {
+describe("happy path (flow, one-shot insertion)", () => {
     it("press → acknowledged recording → stop → transcript → single insertion → ready", async () => {
         const rig = createTestRig();
         await startReady(rig);
@@ -178,7 +178,7 @@ describe("happy path (§8 flow, §21 one-shot insertion)", () => {
     });
 });
 
-describe("duplicate presses while pending (§10)", () => {
+describe("duplicate presses while pending", () => {
     it("does not start parallel recordings and queues no stop", async () => {
         const rig = createTestRig();
         await startReady(rig);
@@ -201,7 +201,7 @@ describe("duplicate presses while pending (§10)", () => {
     });
 });
 
-describe("stale session handling (§11)", () => {
+describe("stale session handling", () => {
     it("discards a transcript whose session no longer matches", async () => {
         const rig = createTestRig();
         await startReady(rig);
@@ -232,7 +232,7 @@ describe("stale session handling (§11)", () => {
     });
 });
 
-describe("keyboard context changes (§7.2/§12)", () => {
+describe("keyboard context changes", () => {
     it("suppresses insertion when the context changed during transcription and retains the transcript", async () => {
         const rig = createTestRig();
         await startReady(rig);
@@ -270,7 +270,7 @@ describe("keyboard context changes (§7.2/§12)", () => {
     });
 });
 
-describe("cancellation (§72)", () => {
+describe("cancellation", () => {
     it("cancel during recording stops capture, discards the result and inserts nothing", async () => {
         const rig = createTestRig();
         await startReady(rig);
@@ -303,7 +303,7 @@ describe("cancellation (§72)", () => {
     });
 });
 
-describe("insertion failure → recoverable error (§69)", () => {
+describe("insertion failure → recoverable error", () => {
     it("surfaces a recoverable error with the stable code and recovers on dismissal", async () => {
         const rig = createTestRig();
         await startReady(rig);
@@ -324,7 +324,7 @@ describe("insertion failure → recoverable error (§69)", () => {
     });
 });
 
-describe("empty speech (§77)", () => {
+describe("empty speech", () => {
     it("returns to ready with no clipboard write and no paste", async () => {
         const rig = createTestRig();
         await startReady(rig);
@@ -338,7 +338,7 @@ describe("empty speech (§77)", () => {
     });
 });
 
-describe("transcript validation (§78)", () => {
+describe("transcript validation", () => {
     it("rejects a transcript above 16 KiB UTF-8 with TRANSCRIPT_TOO_LARGE", async () => {
         const rig = createTestRig();
         await startReady(rig);
@@ -384,7 +384,7 @@ describe("transcript validation (§78)", () => {
     });
 });
 
-describe("speech failures during a session (§68/§69)", () => {
+describe("speech failures during a session", () => {
     it("maps a transcription failure to a recoverable error and cleans up", async () => {
         const rig = createTestRig();
         await startReady(rig);
@@ -476,7 +476,7 @@ describe("stale error auto-clear on runtime ready (on-device 2026-09-19)", () =>
         });
     });
 
-    it("keeps a fatal error when the runtime reports ready again (§69)", async () => {
+    it("keeps a fatal error when the runtime reports ready again", async () => {
         const rig = createTestRig();
         await startReady(rig);
         await startRecording(rig);
@@ -502,7 +502,7 @@ describe("stale error auto-clear on runtime ready (on-device 2026-09-19)", () =>
     });
 });
 
-describe("state store (§102) and dispose (§83)", () => {
+describe("state store and dispose", () => {
     function withSubscription(rig: TestRig): { states: string[]; unsubscribe: () => void } {
         const states: string[] = [];
         const unsubscribe = rig.controller.subscribe(() => {
@@ -550,11 +550,12 @@ describe("state store (§102) and dispose (§83)", () => {
     });
 });
 
-describe("panel dictation flow (v0.2 owner pivot)", () => {
-    it("panel press starts a clipboard-flow session with every keyboard capability false (on-device v0.2.2 regression)", async () => {
+describe("panel dictation flow (owner pivot)", () => {
+    it("panel press starts a clipboard-flow session with every keyboard capability false (on-device regression)", async () => {
         // On device the probe reported `[steam.capability] supported=false
         // profileId=none` and the old keyboard gating made every QAM press
-        // dead. The flow needs only runtime + model + enabled (§57): with
+        // dead. The flow needs only runtime + model + enabled (availability
+        // is reported, never assumed): with
         // the hook failed, diagnostics degraded and no insertion facets,
         // the press must still start recording.
         const rig = createTestRig();
@@ -612,7 +613,7 @@ describe("panel dictation flow (v0.2 owner pivot)", () => {
         rig.speech.emitTranscript("id-1", "für das Panel");
         await flush();
 
-        // §12 suppression: no insertion; the transcript is retained so the
+        // Suppression: no insertion; the transcript is retained so the
         // panel card can offer copy; the flow settles back to ready.
         expect(rig.inserter.insertCalls).toEqual([]);
         expect(rig.controller.getLastSuppressedTranscript()).toBe("für das Panel");
@@ -636,14 +637,14 @@ describe("panel dictation flow (v0.2 owner pivot)", () => {
         expect(rig.controller.getSnapshot().kind).toBe("recording");
     });
 
-    it("panel presses during recording stop it; pending presses stay serialized (§10)", async () => {
+    it("panel presses during recording stop it; pending presses stay serialized", async () => {
         const rig = createTestRig();
         await rig.controller.start();
         await rig.controller.handlePanelMicrophonePressed();
         await flush();
         expect(rig.controller.getSnapshot().kind).toBe("starting");
 
-        // Duplicate press while pending: ignored, no queued stop (§10).
+        // Duplicate press while pending: ignored, no queued stop.
         await rig.controller.handlePanelMicrophonePressed();
         await flush();
         expect(rig.controller.getSnapshot().kind).toBe("starting");
@@ -699,7 +700,7 @@ describe("on-device event ordering (deck 2026-09-18): transcript precedes the st
     });
 });
 
-// ── boot watchdog (§71: no startup wait is unbounded) ───────────────────────
+// ── boot watchdog (no startup wait is unbounded) ────────────────────────────
 
 type TimeoutHandle = ReturnType<typeof setTimeout>;
 
@@ -775,7 +776,7 @@ function createWatchdogRig(speechPort?: (trace: string[]) => FakeSpeechPort): {
     return { rig: { controller, speech, keyboard, inserter, settings, clock, ids, trace }, timer };
 }
 
-describe("startup watchdog (§71: a torn loader registration must not wedge booting)", () => {
+describe("startup watchdog (a torn loader registration must not wedge booting)", () => {
     it("expires into the existing SPEECH_RUNTIME_UNAVAILABLE path and ignores a late resolution", async () => {
         const { rig, timer } = createWatchdogRig((trace) => new HangingInitializeSpeechPort(trace));
         rig.keyboard.open();

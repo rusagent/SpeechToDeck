@@ -1,5 +1,5 @@
 /**
- * DictationCard contract tests (v0.2 owner pivot): the card renders the
+ * DictationCard contract tests (owner pivot): the card renders the
  * REAL state union through MicrophoneButtonModel semantics, a level strip
  * built ONLY from real received frames (published through the real store),
  * and the transcript/clipboard block with the copy-again action. The press
@@ -30,7 +30,7 @@ const RECORDING: DictationState = {
     session: { sessionId: "panel-1", keyboardContextId: null, startedAtMonotonicMs: 0 },
 };
 const READY: DictationState = { kind: "ready" };
-// On-device press failure class: the §68 coded envelope came back, but the
+// On-device press failure class: the coded envelope came back, but the
 // card showed only the generic mic label (2026-09-18 defect).
 const ERROR: DictationState = {
     kind: "error",
@@ -69,7 +69,7 @@ async function renderCard(
 }
 
 describe("DictationCard", () => {
-    it("renders the big button from the §8 state union and routes the press", async () => {
+    it("renders the big button from the state union and routes the press", async () => {
         const onPress = vi.fn();
         const store = new LevelMeterStore();
         await renderCard(
@@ -91,14 +91,14 @@ describe("DictationCard", () => {
         expect(document.querySelector("[data-transcript-block]")).toBeNull();
     });
 
-    it("renders the §68 code chip and the translated message inline in the error state", async () => {
+    it("renders the code chip and the translated message inline in the error state", async () => {
         await renderCard(
             ERROR,
             new LevelMeterStore(),
             new FakeSnapshotStore<PanelTranscriptSnapshot | null>(null),
         );
 
-        // The stable §68 code chip plus the mapped message right in the card
+        // The stable code chip plus the mapped message right in the card
         // (same pair as the Diagnostics last-error row and the setup-failed
         // chip) — not only the generic mic label.
         const details = document.querySelector("[data-dictation-error]");

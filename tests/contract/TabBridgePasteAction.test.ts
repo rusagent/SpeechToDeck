@@ -1,12 +1,12 @@
 /**
- * TabBridgePasteActionAdapter contract tests (v0.1.7, §24 fallback step 5).
+ * TabBridgePasteActionAdapter contract tests (fallback final step).
  *
- * Decision points (owner-approved Task 5 coverage):
+ * Decision points (owner-approved coverage):
  * - the single native paste is invoked in the keyboard document ONLY on the
- *   still-current context (fail-closed otherwise, §26/§24);
+ *   still-current context (fail-closed otherwise);
  * - a declined in-window paste is a controlled PASTE_ACTION_UNAVAILABLE error,
  *   not an exception leak;
- * - the probe never pastes — it reports mechanism recognition only (§57).
+ * - the probe never pastes — it reports mechanism recognition only.
  */
 
 import { describe, expect, it } from "vitest";

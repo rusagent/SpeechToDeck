@@ -1,6 +1,6 @@
 /**
- * MicrophoneButton contract tests (spec §19/§20/§107): pure rendering of the
- * four visual states with §107 a11y — accessible name, pressed state,
+ * MicrophoneButton contract tests: pure rendering of the
+ * four visual states with full a11y — accessible name, pressed state,
  * disabled state, and per-state glyphs so state never relies on color only.
  */
 
@@ -27,7 +27,7 @@ describe("MicrophoneButton", () => {
         expect((button as HTMLButtonElement).disabled).toBe(expected.disabled);
     });
 
-    it("changes accessible name and state markers per state (not color-only, §107)", () => {
+    it("changes accessible name and state markers per state (not color-only)", () => {
         const onPress = vi.fn();
         const { rerender } = render(
             <MicrophoneButton state="ready" disabled={false} onPress={onPress} />,
@@ -45,7 +45,7 @@ describe("MicrophoneButton", () => {
         );
         const recordingButton = screen.getByRole("button");
         const recordingName = recordingButton.getAttribute("aria-label");
-        // Recording replaces the mic icon with the ticking timer (§20).
+        // Recording replaces the mic icon with the ticking timer.
         expect(recordingButton.textContent).toBe("00:42");
         expect(recordingButton.querySelector('[data-state-marker="recording"]')).not.toBeNull();
 
@@ -83,7 +83,7 @@ describe("MicrophoneButton", () => {
         expect(screen.getByRole("button").getAttribute("aria-label")).toContain("Aufnahme");
     });
 
-    it("shows the localized error flash briefly and cleans up its timer (§20)", () => {
+    it("shows the localized error flash briefly and cleans up its timer", () => {
         vi.useFakeTimers();
         try {
             const onPress = vi.fn();

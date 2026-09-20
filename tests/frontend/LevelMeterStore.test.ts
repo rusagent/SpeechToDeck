@@ -1,9 +1,9 @@
 /**
- * LevelMeterStore tests (v0.2): the 24-bar rolling window maps ONLY real
+ * LevelMeterStore tests: the 24-bar rolling window maps ONLY real
  * received frames, and the snapshot identity changes only when frames
- * actually arrive (§102).
+ * actually arrive.
  *
- * Mapping defect (visualizer invisibility, fixed post-v0.2.4): the bar height
+ * Mapping defect (visualizer invisibility, fixed): the bar height
  * was the LINEAR sample extremum max(|min|, |max|), which discarded the
  * payload's peakDbfs and rendered typical speech (linear extrema 0.02..0.3 ≈
  * the magma floor colors) as an empty-looking strip. The mapping is now
@@ -22,7 +22,7 @@ import {
 
 const FRAME = (min: number, max: number, peak = -6.0): [number, number, number] => [min, max, peak];
 
-describe("isRecordingLevelPayload (§99)", () => {
+describe("isRecordingLevelPayload", () => {
     it("accepts a valid versioned recording_level payload", () => {
         expect(
             isRecordingLevelPayload({

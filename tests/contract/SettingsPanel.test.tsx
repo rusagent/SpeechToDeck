@@ -1,9 +1,9 @@
 /**
- * SettingsPanel render tests (spec §54/§80/§102).
+ * SettingsPanel render tests.
  *
- * Named production defects: (review finding F1) the panel passed the
+ * Named production defects: (review finding) the panel passed the
  * controller's unbound `subscribe`/`getSnapshot` methods to
- * useSyncExternalStore and threw on first mount; (v0.2.5 declutter) the
+ * useSyncExternalStore and threw on first mount; (declutter) the
  * owner's panel carried dead weight — microphone chip, duration slider, VAD
  * toggle, runtime-health row, whole Diagnostics section — which this suite
  * proves removed, with Speech reading Language → Model; (load-timeout fix)
@@ -35,9 +35,9 @@ import { LevelMeterStore } from "../../src/application/ports/LevelMeterPort";
 import { ModelCatalogStore } from "../../src/application/ports/ModelCatalogPort";
 import type { DictationState } from "../../src/domain/DictationState";
 
-// §80 renders through @decky/ui components that expect the Steam UI
+// The panel renders through @decky/ui components that expect the Steam UI
 // environment; the stubs below keep the panel's own logic (loading state,
-// §80 sections, store subscription) the subject under a plain-DOM shim.
+// sections, store subscription) the subject under a plain-DOM shim.
 vi.mock("@decky/ui", async () => {
     const React = await import("react");
     const h = React.createElement;
@@ -190,7 +190,7 @@ function gatedSettingsPort(): {
 }
 
 describe("SettingsPanel", () => {
-    it("mounts and renders the decluttered §80 sections without throwing (review finding F1)", async () => {
+    it("mounts and renders the decluttered sections without throwing (review finding)", async () => {
         const { container } = render(
             <SettingsPanel
                 settings={new FakeSettingsPort()}
@@ -203,12 +203,12 @@ describe("SettingsPanel", () => {
         expect(container.querySelector('[data-panel-title="SpeechToDeck"]')).not.toBeNull();
         expect(screen.getByText("Loading settings…")).not.toBeNull();
 
-        // §80 sections: runtime, speech, output. Kept rows only.
+        // Sections: runtime, speech, output. Kept rows only.
         expect(await screen.findByText(/Enable plugin/)).not.toBeNull();
         expect(screen.getAllByText(/Language/).length).toBeGreaterThan(0);
         expect(screen.getAllByText(/Output mode/).length).toBeGreaterThan(0);
 
-        // Removed rows and the whole Diagnostics section stay gone (v0.2.5
+        // Removed rows and the whole Diagnostics section stay gone (declutter
         // owner declutter; the Compute backend select followed later — owner
         // decision that the Vulkan/CPU choice is an internal concern, the
         // setting stays "auto" and is simply never rendered).
@@ -220,7 +220,7 @@ describe("SettingsPanel", () => {
         expect(container.querySelector('[data-panel-title="Diagnostics"]')).toBeNull();
     });
 
-    // v0.2.6 rework: the Speech section reads Model → (conditional) Language.
+    // Rework: the Speech section reads Model → (conditional) Language.
     // The picker renders ONLY while the selected model does not pin a
     // language itself (unloaded catalog, unknown id, or general model); a
     // language-specific selection hides it. The persisted `language` value is
@@ -390,7 +390,7 @@ describe("SettingsPanel", () => {
         expect(showModalNodes).toHaveLength(1);
     });
 
-    it("hides the Manage models affordance while the catalog is unavailable (§57)", async () => {
+    it("hides the Manage models affordance while the catalog is unavailable", async () => {
         const modelCatalog = {
             store: new ModelCatalogStore(), // never loaded: no models
             load: async () => undefined,
@@ -413,7 +413,7 @@ describe("SettingsPanel", () => {
         expect(screen.queryByRole("button", { name: "Manage models" })).toBeNull();
     });
 
-    it("rerenders the dictation card from controller-store state changes (§102)", async () => {
+    it("rerenders the dictation card from controller-store state changes", async () => {
         const store = new FakeStateStore({ kind: "ready" });
         render(
             <SettingsPanel
@@ -439,7 +439,7 @@ describe("SettingsPanel", () => {
         expect(document.querySelector('button[data-state="recording"]')).not.toBeNull();
     });
 
-    it("renders the setup progress above the §80 sections while setup is running", async () => {
+    it("renders the setup progress above the panel sections while setup is running", async () => {
         const setup = fakeSetupStore();
         const { container } = render(
             <SettingsPanel
@@ -530,7 +530,7 @@ describe("SettingsPanel", () => {
     });
 
     it("renders the hydrated failure from the status report without live events", async () => {
-        // On-device v0.1.3 finding: the setup failure fired before the panel
+        // On-device finding: the setup failure fired before the panel
         // mounted and the plain settings UI showed nothing. Hydration through
         // the real adapter chain reconstructs the failed view, the retry
         // button drives restart_runtime, and a live event later replaces the
@@ -679,7 +679,7 @@ describe("SettingsPanel settings-load timeout", () => {
     });
 });
 
-// Self-heal decision points (v0.2.9 install wedge): the panel reports each
+// Self-heal decision points (install wedge): the panel reports each
 // settled boot-load outcome to the optional port; two consecutive
 // full-deadline timeouts are the wedged signature that arms the one-time
 // loader reload (the hint then names it), a coded rejection never triggers

@@ -1,7 +1,7 @@
 /**
- * Panel dictation journey (v0.2 owner pivot): ONE test drives the shipped
+ * Panel dictation journey (owner pivot): ONE test drives the shipped
  * flow end to end over the REAL frontend stack — decky envelope unwrap →
- * §99 boundary guards → §8 state machine → panel card render → system
+ * boundary guards → state machine → panel card render → system
  * clipboard (the paste leg's input; the physical paste is the user's
  * STEAM+X on-screen-keyboard key, which no test can press).
  *
@@ -103,7 +103,7 @@ class ScriptedLoaderTransport implements DeckyTransport {
     }
 }
 
-/** Exact backend payload shapes (deck 2026-09-18, v0.2.2 + vulkan daemon). */
+/** Exact backend payload shapes (deck 2026-09-18, vulkan daemon). */
 const GET_CAPABILITIES = {
     speechRuntimeAvailable: true,
     microphoneAvailable: true,
@@ -267,7 +267,7 @@ describe("panel dictation journey: press → levels → stop → transcript → 
     });
 });
 
-describe("panel dictation journey: empty speech (§77) must never lock the mic", () => {
+describe("panel dictation journey: empty speech must never lock the mic", () => {
     it("settles back to ready with the button pressable again when nothing was said", async () => {
         // The owner's deck scenario (2026-09-18): press, say NOTHING, stop.
         // The daemon reports empty speech (CLI exit 3) and — since the
@@ -316,7 +316,7 @@ describe("panel dictation journey: empty speech (§77) must never lock the mic",
             await flush();
         });
 
-        // §77: silently back to ready — never wedged in transcribing.
+        // Silently back to ready — never wedged in transcribing.
         expect(controller.getSnapshot().kind).toBe("ready");
         // No transcript block, no copied status, nothing to copy.
         expect(document.querySelector("[data-transcript-preview]")).toBeNull();

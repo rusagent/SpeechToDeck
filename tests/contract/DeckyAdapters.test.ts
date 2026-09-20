@@ -1,5 +1,5 @@
 /**
- * Decky adapter contract tests (spec §30/§67/§99): the frozen callable/event
+ * Decky adapter contract tests: the frozen callable/event
  * names travel verbatim, backend payloads are guarded before they reach the
  * application, and unvalidated payloads are dropped instead of passed on.
  */
@@ -35,7 +35,7 @@ const VALID_TRANSCRIPT_PAYLOAD = {
 };
 
 describe("DeckySpeechAdapter", () => {
-    it("maps SpeechPort calls onto the frozen §30 callable names", async () => {
+    it("maps SpeechPort calls onto the frozen callable names", async () => {
         const transport = new FakeDeckyTransport();
         transport.callResponses.set("get_capabilities", VALID_CAPABILITIES);
         const adapter = new DeckySpeechAdapter(new DeckyBackendClient(transport));
@@ -65,7 +65,7 @@ describe("DeckySpeechAdapter", () => {
         transport.emit("transcript_ready", VALID_TRANSCRIPT_PAYLOAD);
         transport.emit("transcript_ready", { garbage: true });
 
-        expect(events).toEqual(["transcript-ready"]); // invalid payload dropped (§99)
+        expect(events).toEqual(["transcript-ready"]); // invalid payload dropped
     });
 
     it("maps speech_error and runtime_status payloads onto typed events", async () => {
@@ -94,7 +94,7 @@ describe("DeckySpeechAdapter", () => {
         const received: { type: string; status?: string }[] = [];
         adapter.subscribe((event) => received.push(event));
 
-        // Supervisor payloads (§37) and daemon/monitor payloads (§41) with
+        // Supervisor payloads and daemon/monitor payloads with
         // their real state vocabularies.
         transport.emit("runtime_status", {
             protocolVersion: 1,
@@ -130,7 +130,7 @@ describe("DeckySpeechAdapter", () => {
             available: false,
             state: "stopped",
         });
-        // Unknown state and wrong protocol version are dropped (§99).
+        // Unknown state and wrong protocol version are dropped.
         transport.emit("runtime_status", { protocolVersion: 1, state: "exploded" });
         transport.emit("runtime_status", { protocolVersion: 2, state: "idle" });
 
@@ -223,8 +223,8 @@ describe("DeckySpeechAdapter", () => {
         expect(adapter.panelTranscript.getSnapshot()?.clipboard).toBe("skipped");
     });
 
-    it("keeps empty transcripts out of the panel store but still dispatches them (§77)", () => {
-        // The §77 empty-speech outcome travels to the machine (it settles the
+    it("keeps empty transcripts out of the panel store but still dispatches them", () => {
+        // The empty-speech outcome travels to the machine (it settles the
         // stop flow back to ready — deck 2026-09-18 lock finding), but an
         // empty text must not render a transcript block or trigger the card's
         // auto-copy (copyTextToClipboard rejects empty text → "failed" noise).
@@ -239,7 +239,7 @@ describe("DeckySpeechAdapter", () => {
         expect(events).toHaveLength(1);
     });
 
-    it("loads the model catalog through list_models and fills the guarded store (ADR-011)", async () => {
+    it("loads the model catalog through list_models and fills the guarded store", async () => {
         const transport = new FakeDeckyTransport();
         const adapter = new DeckySpeechAdapter(new DeckyBackendClient(transport));
         transport.callResponses.set("list_models", {
@@ -413,7 +413,7 @@ describe("DeckySpeechAdapter", () => {
         // never back to an empty download state.
         expect(snapshot.download).toEqual({ modelId: "distil-small-en", percent: 100 });
         expect(snapshot.models[0]?.installed).toBe(true);
-        // Download state stays out of the §29 dictation events (§102).
+        // Download state stays out of the dictation events.
         expect(speechEvents).toEqual([]);
     });
 
@@ -434,7 +434,7 @@ describe("DeckySpeechAdapter", () => {
         transport.emit("setup_progress", SETUP_SNAPSHOTS.download);
 
         expect(adapter.setupProgress.getSnapshot()).toEqual(SETUP_SNAPSHOTS.download);
-        expect(speechEvents).toEqual([]); // setup progress stays out of the §29 events
+        expect(speechEvents).toEqual([]); // setup progress stays out of the dictation events
     });
 
     it("drops invalid setup_progress payloads count-logged instead of rendering them", () => {
@@ -455,7 +455,7 @@ describe("DeckySpeechAdapter", () => {
         expect(warnings.map((entry) => entry.fields.dropped)).toEqual([1, 2]);
     });
 
-    it("unsubscribes setup_progress in the existing shutdown path (§83)", async () => {
+    it("unsubscribes setup_progress in the existing shutdown path", async () => {
         const transport = new FakeDeckyTransport();
         const adapter = new DeckySpeechAdapter(new DeckyBackendClient(transport));
         adapter.subscribe(() => undefined);
@@ -468,7 +468,7 @@ describe("DeckySpeechAdapter", () => {
     });
 
     it("hydrates a failed snapshot from the get_status report when no live event arrived", async () => {
-        // On-device v0.1.3 finding: the terminal `failed` setup event fired
+        // On-device finding: the terminal `failed` setup event fired
         // before the frontend mounted, so the panel rendered nothing. The
         // status report's stored last failure reconstructs the failed view.
         const transport = new FakeDeckyTransport();
@@ -535,7 +535,7 @@ describe("DeckySpeechAdapter", () => {
             expect(adapter.setupProgress.getSnapshot()).toBeNull();
         }
 
-        // A malformed payload is dropped, never rendered (§99).
+        // A malformed payload is dropped, never rendered.
         const entries: LogEntry[] = [];
         const transport = new FakeDeckyTransport();
         transport.callResponses.set("get_status", { nope: true });
@@ -569,7 +569,7 @@ describe("DeckySpeechAdapter", () => {
     });
 });
 
-describe("DeckyBackendClient coded-result envelope (§68)", () => {
+describe("DeckyBackendClient coded-result envelope", () => {
     it("unwraps the backend's {ok: true, ...} result and drops the envelope flag", async () => {
         const transport = new FakeDeckyTransport();
         transport.callResponses.set("get_settings", { ok: true, ...TEST_SETTINGS });
@@ -578,7 +578,7 @@ describe("DeckyBackendClient coded-result envelope (§68)", () => {
         await expect(client.call("get_settings")).resolves.toEqual(TEST_SETTINGS);
     });
 
-    it("throws a stable §68 DictationError for a coded {ok: false} failure", async () => {
+    it("throws a stable DictationError for a coded {ok: false} failure", async () => {
         const transport = new FakeDeckyTransport();
         transport.callResponses.set("start_recording", {
             ok: false,
@@ -614,7 +614,7 @@ describe("DeckyBackendClient coded-result envelope (§68)", () => {
 });
 
 describe("DeckySettingsAdapter", () => {
-    it("loads and updates settings through the frozen §30 callables with guards", async () => {
+    it("loads and updates settings through the frozen callables with guards", async () => {
         const transport = new FakeDeckyTransport();
         transport.callResponses.set("get_settings", TEST_SETTINGS);
         const adapter = new DeckySettingsAdapter(new DeckyBackendClient(transport));
@@ -623,7 +623,7 @@ describe("DeckySettingsAdapter", () => {
         expect(loaded).toEqual(TEST_SETTINGS);
 
         await adapter.save({ ...TEST_SETTINGS, enabled: false });
-        // §55: schemaVersion is backend-owned and never travels in the update.
+        // schemaVersion is backend-owned and never travels in the update.
         expect(transport.calls[1]).toEqual({
             route: "update_settings",
             args: [

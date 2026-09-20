@@ -114,7 +114,7 @@ interface DeckySubscription {
 /**
  * Valid `setup_progress` payloads for the panel, adapter and harness tests.
  * Determinate download sits at 37% of step 1 (overall = 25 + 37/4 = 34);
- * the failed payload fails the daemon step with a mapped §68 code.
+ * the failed payload fails the daemon step with a mapped error code.
  */
 export const SETUP_SNAPSHOTS = {
     download: {
@@ -159,8 +159,8 @@ export const SETUP_SNAPSHOTS = {
 } as const satisfies Record<string, SetupProgressSnapshot>;
 
 /**
- * Real-shaped `get_status` failure report (§30/§67): the backend recorded a
- * failed §82 startup (MODEL_DOWNLOAD_FAILED at the model.ensure step), the
+ * Real-shaped `get_status` failure report: the backend recorded a
+ * failed startup (MODEL_DOWNLOAD_FAILED at the model.ensure step), the
  * daemon is down, the plugin is enabled and no download is in flight. Drives
  * the setup-panel failure hydration in the adapter, panel and harness tests.
  */

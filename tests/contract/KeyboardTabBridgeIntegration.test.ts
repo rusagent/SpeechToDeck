@@ -1,21 +1,21 @@
 /**
- * KeyboardTabBridge INTEGRATION test (v0.1.7, Task 5/validation requirement).
+ * KeyboardTabBridge INTEGRATION test (validation requirement).
  *
  * The full press → transcript → insert sequence through the REAL
  * DictationController, the REAL KeyboardTabBridge engine, the REAL host
  * adapter, the REAL composite inserter and the REAL presenter — with only the
  * `executeInTab` transport faked. Decision points:
- * - a bridge press starts the existing controller session (§10 semantics, no
- *   new state machine path);
+ * - a bridge press starts the existing controller session (existing press
+ *   semantics, no new state machine path);
  * - the transcript reaches the keyboard document as ONE `__stdMicInsert`
- *   payload, complete and exactly once (§2.2/§22), with the §24 fallback
+ *   payload, complete and exactly once, with the fallback
  *   never touched;
- * - v:false mid-transcription suppresses insertion and RETAINS the transcript
- *   (§12);
+ * - v:false mid-transcription suppresses insertion and RETAINS the
+ *   transcript;
  * - double presses in one batch are deduplicated by the existing machine.
  *
  * Offline fake-path evidence: the transport is a fake; on-device behavior is
- * covered by the Task 0 evidence chain in IMPLEMENTATION_STATUS.md.
+ * covered by the on-device evidence chain.
  */
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -54,7 +54,7 @@ function createRig() {
     const executor: TabExecutor = async (tab, runAsync, code) => {
         expect(tab).toBe("Steam Big Picture Mode");
         expect(runAsync).toBe(false);
-        // The poll wraps its payload in JSON.stringify({ (after the §61
+        // The poll wraps its payload in JSON.stringify({ (after the
         // __stdKbEvaluate self-heal call) — match the poll shape FIRST, it
         // also references __stdKbBridgeLoaded (the b flag).
         if (code.includes("JSON.stringify({")) {
@@ -162,7 +162,7 @@ describe("tab bridge end to end (press → transcript → insert)", () => {
         await rig.settle();
         expect(rig.controller.getSnapshot().kind).toBe("recording");
         expect(rig.state.states).toContain(
-            'window.__stdMicState && window.__stdMicState("recording")', // §75: after the start ack
+            'window.__stdMicState && window.__stdMicState("recording")', // after the start ack
         );
 
         // Second press stops; the stop ack moves to transcribing.
@@ -178,7 +178,7 @@ describe("tab bridge end to end (press → transcript → insert)", () => {
         await rig.settle();
 
         expect(rig.state.inserts).toEqual(['window.__stdMicInsert("Hallo, Welt!")']);
-        expect(rig.fallback.insertCalls).toEqual([]); // §24 fallback untouched
+        expect(rig.fallback.insertCalls).toEqual([]); // fallback untouched
         expect(rig.controller.getSnapshot().kind).toBe("ready");
         expect(rig.state.states).toContain('window.__stdMicState && window.__stdMicState("idle")');
         expect(rig.adapter.bridge.currentContext()?.id.startsWith(SP_CONTEXT_PREFIX)).toBe(true);
@@ -187,7 +187,7 @@ describe("tab bridge end to end (press → transcript → insert)", () => {
         await rig.adapter.stop();
     });
 
-    it("suppresses insertion and retains the transcript when v:false arrives mid-transcription (§12)", async () => {
+    it("suppresses insertion and retains the transcript when v:false arrives mid-transcription", async () => {
         const rig = createRig();
         rig.presenter.start();
         await rig.controller.start();
@@ -222,7 +222,7 @@ describe("tab bridge end to end (press → transcript → insert)", () => {
         await rig.adapter.stop();
     });
 
-    it("deduplicates two presses arriving in one poll batch (§10, machine unchanged)", async () => {
+    it("deduplicates two presses arriving in one poll batch (machine unchanged)", async () => {
         const rig = createRig();
         rig.presenter.start();
         await rig.controller.start();
@@ -240,7 +240,7 @@ describe("tab bridge end to end (press → transcript → insert)", () => {
         await rig.adapter.stop();
     });
 
-    it("uninstalls the in-window bridge exactly once on teardown (§83)", async () => {
+    it("uninstalls the in-window bridge exactly once on teardown", async () => {
         const rig = createRig();
         rig.presenter.start();
         await rig.controller.start();

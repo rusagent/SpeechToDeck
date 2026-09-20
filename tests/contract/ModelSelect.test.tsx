@@ -1,7 +1,7 @@
 /**
- * ModelSelect tests (§48/§54/§80, ADR-011; v0.2.5 redesign).
+ * ModelSelect tests (redesign).
  *
- * Named production defect (on-device v0.2.4 session): the old row-based
+ * Named production defect (on-device session): the old row-based
  * picker reused ONE button as Download when idle and Cancel while
  * downloading, so the owner's tap rhythm cancelled every second download and
  * the backend mapped each cancel to MODEL_DOWNLOAD_FAILED — a pure UX
@@ -21,7 +21,7 @@ import { ModelSelect } from "../../src/presentation/settings/ModelSelect";
 import { ModelCatalogStore, type CatalogModel } from "../../src/application/ports/ModelCatalogPort";
 import type { Locale } from "../../src/presentation/i18n/messages";
 
-// §80 renders through @decky/ui components that expect the Steam UI
+// The picker renders through @decky/ui components that expect the Steam UI
 // environment. The stubs keep the selection logic (persist vs download
 // modal, grouped options, controlled revert) the subject: every dropdown
 // option renders as a button, showModal captures its modal node + close
@@ -93,7 +93,7 @@ vi.mock("@decky/ui", async () => {
                 ),
             );
         },
-        // Steam modal structure (the v0.2.5 on-device fix): ModalRoot is
+        // Steam modal structure (the on-device fix): ModalRoot is
         // Steam's GenericDialogModal — it draws the dialog box and funnels
         // EVERY dismissal (Esc key, X close icon, background mousedown) into
         // the ONE closeModal callback. The mock exposes that funnel as the
@@ -329,7 +329,7 @@ describe("ModelSelect", () => {
 
         // The download starts, nothing persists, and the controlled dropdown
         // stays bound to the previously selected model while the download
-        // runs (§52 single-flight UI contract): the rendered label still
+        // runs (single-flight UI contract): the rendered label still
         // shows the persisted model, never the picked one.
         expect(onDownload).toHaveBeenCalledTimes(1);
         expect(onDownload).toHaveBeenCalledWith("whisper-large-v3-turbo-q5_0");
@@ -339,7 +339,7 @@ describe("ModelSelect", () => {
         expectSelectedLabel("Base (default) · 148 MB");
     });
 
-    // v0.2.6 honest completion (on-device finding): the old atomic
+    // Honest completion (on-device finding): the old atomic
     // complete-nulls-download-and-flips-installed path closed the modal
     // before any 100% frame painted, and the throttled progress stream let
     // faster downloads finish from a stale lower frame. Completion now holds
@@ -360,7 +360,7 @@ describe("ModelSelect", () => {
 
             // The title is rendered by the modal content (DialogHeader) — real
             // Steam never creates a header from the showModal strTitle, so the
-            // raw-div modal shipped in v0.2.5 had NO title element at all.
+            // raw-div modal shipped earlier had NO title element at all.
             expect(
                 screen.getByText("Large v3 Turbo Q5_0", { selector: "[data-modal-header]" }),
             ).not.toBeNull();
@@ -554,7 +554,7 @@ describe("ModelSelect", () => {
         expectSelectedLabel("Base (default) · 148 MB");
     });
 
-    it("renders the unavailable hint for an empty catalog (§57: reported, never assumed)", () => {
+    it("renders the unavailable hint for an empty catalog (reported, never assumed)", () => {
         const store = new ModelCatalogStore();
         renderSelect(store);
         expect(screen.getByText("The model catalog could not be loaded.")).not.toBeNull();

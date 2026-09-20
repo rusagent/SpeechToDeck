@@ -1,5 +1,5 @@
 /**
- * Boundary type-guard tests (spec §99): backend JSON and settings payloads are
+ * Boundary type-guard tests: backend JSON and settings payloads are
  * validated manually before use; no blind casts.
  */
 
@@ -52,7 +52,7 @@ const VALID_SETTINGS: PluginSettings = {
     outputMode: "direct-insert",
 };
 
-describe("isTranscriptReadyPayload (§67)", () => {
+describe("isTranscriptReadyPayload", () => {
     it("accepts a valid versioned payload", () => {
         expect(isTranscriptReadyPayload(structuredClone(VALID_PAYLOAD))).toBe(true);
     });
@@ -88,19 +88,19 @@ describe("isTranscriptReadyPayload (§67)", () => {
         expect(isTranscriptReadyPayload(undefined)).toBe(false);
     });
 
-    it("accepts the additive v0.2 clipboard field when valid and rejects it when not", () => {
+    it("accepts the additive clipboard field when valid and rejects it when not", () => {
         for (const clipboard of ["ok", "failed", "skipped"] as const) {
             expect(isTranscriptReadyPayload({ ...VALID_PAYLOAD, clipboard })).toBe(true);
         }
         expect(isTranscriptClipboardStatus("ok")).toBe(true);
         expect(isTranscriptClipboardStatus("maybe")).toBe(false);
-        // §99: an unknown clipboard outcome is a boundary violation.
+        // An unknown clipboard outcome is a boundary violation.
         expect(isTranscriptReadyPayload({ ...VALID_PAYLOAD, clipboard: "maybe" })).toBe(false);
         expect(isTranscriptReadyPayload({ ...VALID_PAYLOAD, clipboard: 1 })).toBe(false);
     });
 });
 
-describe("isRecordingLevelPayload + isDictationFlowReport (v0.2, §67/§99)", () => {
+describe("isRecordingLevelPayload + isDictationFlowReport", () => {
     it("accepts a valid recording_level vector", () => {
         expect(
             isRecordingLevelPayload({
@@ -149,9 +149,9 @@ describe("isRecordingLevelPayload + isDictationFlowReport (v0.2, §67/§99)", ()
             true,
         );
         // Regression (on-device 2026-09-18): the backend never emitted
-        // `backendRunning` — its v0.2 dictationFlow is clipboard-only — so the
+        // `backendRunning` — its dictationFlow is clipboard-only — so the
         // guard rejected every real get_status payload and the panel lost its
-        // status feed. The field is additive-optional (§99), validated only
+        // status feed. The field is additive-optional, validated only
         // when present.
         expect(isDictationFlowReport({ clipboard: "unavailable" })).toBe(true);
         expect(isDictationFlowReport({ clipboard: "xclip" })).toBe(true);
@@ -185,7 +185,7 @@ describe("isRecordingLevelPayload + isDictationFlowReport (v0.2, §67/§99)", ()
     });
 });
 
-describe("isSpeechCapabilities and status (§57/§30)", () => {
+describe("isSpeechCapabilities and status", () => {
     it("accepts a full capability report", () => {
         expect(
             isSpeechCapabilities({
@@ -211,7 +211,7 @@ describe("isSpeechCapabilities and status (§57/§30)", () => {
         ).toBe(false);
     });
 
-    it("accepts the additive backendVersion only as a string, and accepts its absence (§99)", () => {
+    it("accepts the additive backendVersion only as a string, and accepts its absence", () => {
         const base = {
             speechRuntimeAvailable: true,
             microphoneAvailable: true,
@@ -232,7 +232,7 @@ describe("isSpeechCapabilities and status (§57/§30)", () => {
     });
 });
 
-describe("isRuntimeStatusReport + isCdpDiagnosticsReport (v0.1.6, §67/§99)", () => {
+describe("isRuntimeStatusReport + isCdpDiagnosticsReport", () => {
     const base = {
         protocolVersion: 1,
         runtime: {
@@ -265,7 +265,7 @@ describe("isRuntimeStatusReport + isCdpDiagnosticsReport (v0.1.6, §67/§99)", (
         expect(isCdpDiagnosticsReport(payload.cdpDiagnostics)).toBe(true);
     });
 
-    it("rejects a malformed cdpDiagnostics field (§99)", () => {
+    it("rejects a malformed cdpDiagnostics field", () => {
         expect(
             isRuntimeStatusReport({
                 ...base,
@@ -277,12 +277,12 @@ describe("isRuntimeStatusReport + isCdpDiagnosticsReport (v0.1.6, §67/§99)", (
 
     it("accepts the verbatim on-device get_status payload (2026-09-18 boundary failure)", () => {
         // Production defect: SharedJSContext logged "dropped get_status payload:
-        // boundary guard failed" because the real v0.2.0 backend emits
+        // boundary guard failed" because the real shipped backend emits
         // dictationFlow.clipboard only, while the guard required a
         // dictationFlow.backendRunning boolean the backend never sent. The
         // captured payload (tests/fixtures/status/get_status_real.json, origin
         // in its _captureOrigin key) must pass the guard as-is — unknown extra
-        // keys like _captureOrigin are ignored (§99).
+        // keys like _captureOrigin are ignored.
         const payload: unknown = JSON.parse(
             readFileSync(join(process.cwd(), "tests/fixtures/status/get_status_real.json"), "utf8"),
         );
@@ -290,12 +290,12 @@ describe("isRuntimeStatusReport + isCdpDiagnosticsReport (v0.1.6, §67/§99)", (
     });
 });
 
-describe("isPluginSettings (§54)", () => {
-    it("accepts the §54 defaults", () => {
+describe("isPluginSettings", () => {
+    it("accepts the documented defaults", () => {
         expect(isPluginSettings(structuredClone(VALID_SETTINGS))).toBe(true);
     });
 
-    it("accepts any well-formed curated catalog model id (ADR-011)", () => {
+    it("accepts any well-formed curated catalog model id", () => {
         expect(
             isPluginSettings({
                 ...VALID_SETTINGS,
@@ -316,8 +316,8 @@ describe("isPluginSettings (§54)", () => {
         expect(isPluginSettings({ ...VALID_SETTINGS, language: 1 })).toBe(false);
     });
 
-    it("v0.2.5: tolerates the removed legacy keys (§99 superset, never rejected)", () => {
-        // A v0.2.4 device document carries maxRecordingSeconds/vadEnabled;
+    it("tolerates the removed legacy keys (superset accepted, never rejected)", () => {
+        // A real device document carries maxRecordingSeconds/vadEnabled;
         // the slimmed guard validates the fields this document owns and
         // ignores the legacy superset instead of failing the load.
         expect(
@@ -326,7 +326,7 @@ describe("isPluginSettings (§54)", () => {
     });
 });
 
-describe("isRuntimeCapabilities (§57)", () => {
+describe("isRuntimeCapabilities", () => {
     it("accepts a complete boolean report", () => {
         expect(
             isRuntimeCapabilities({
@@ -360,7 +360,7 @@ describe("isRuntimeCapabilities (§57)", () => {
     });
 });
 
-describe("isDictationErrorCode (§68)", () => {
+describe("isDictationErrorCode", () => {
     it("accepts every listed code and rejects unknown strings", () => {
         for (const code of DICTATION_ERROR_CODES) {
             expect(isDictationErrorCode(code)).toBe(true);
@@ -370,7 +370,7 @@ describe("isDictationErrorCode (§68)", () => {
     });
 });
 
-describe("model catalog guards (§99, ADR-011)", () => {
+describe("model catalog guards", () => {
     const VALID_MODEL = {
         id: "distil-small-en",
         engine: "whisper",

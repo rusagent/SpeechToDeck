@@ -1,6 +1,6 @@
 /**
- * i18n contract tests (spec §108/§68): EN and DE dictionaries are complete
- * and identical in key coverage, and every stable §68 error code maps to
+ * i18n contract tests: EN and DE dictionaries are complete
+ * and identical in key coverage, and every stable error code maps to
  * non-empty UI text in both locales.
  */
 
@@ -33,7 +33,7 @@ describe("i18n dictionaries", () => {
 
     it("contains no em-dash in any locale string (owner decision: regular dashes)", () => {
         // Sweep guard for the 2026-09-19 owner demand; covers both the
-        // general dictionaries and the §68 error texts.
+        // general dictionaries and the error texts.
         for (const [locale, dictionary] of Object.entries(MESSAGES)) {
             for (const [key, value] of Object.entries(dictionary)) {
                 expect(value, `${key} (${locale})`).not.toContain("—");
@@ -46,7 +46,7 @@ describe("i18n dictionaries", () => {
         }
     });
 
-    it("maps every §68 error code to UI text in both locales", () => {
+    it("maps every stable error code to UI text in both locales", () => {
         for (const code of DICTATION_ERROR_CODES) {
             for (const locale of ["en", "de"] as const) {
                 const text = translateError(locale, code);
@@ -54,7 +54,7 @@ describe("i18n dictionaries", () => {
                 expect(text).not.toBe(code); // mapped text, not the raw code
             }
         }
-        // v0.2.5: the cancellation code reads as a cancel, never as a failure.
+        // The cancellation code reads as a cancel, never as a failure.
         expect(translateError("en", "MODEL_DOWNLOAD_CANCELLED")).not.toContain("failed");
     });
 
@@ -66,7 +66,7 @@ describe("i18n dictionaries", () => {
     });
 
     it("labels the model language groups with locale-invariant native endonyms", () => {
-        // ADR-011 (v0.2.6): a language group is labeled in its own language
+        // A language group is labeled in its own language
         // in BOTH UI locales — only the key must exist everywhere (parity
         // gate above).
         const keys = [

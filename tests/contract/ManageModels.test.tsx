@@ -20,7 +20,7 @@ import { openManageModelsModal } from "../../src/presentation/settings/ManageMod
 import { ModelCatalogStore, type CatalogModel } from "../../src/application/ports/ModelCatalogPort";
 import type { Locale } from "../../src/presentation/i18n/messages";
 
-// §80 renders through @decky/ui components that expect the Steam UI
+// The modal renders through @decky/ui components that expect the Steam UI
 // environment. The stubs keep the modal's own logic (installed list, guard,
 // confirm, lock, refresh) the subject: ConfirmModal captures its props and
 // exposes OK/Cancel probes; showModal captures the opened modal node and its

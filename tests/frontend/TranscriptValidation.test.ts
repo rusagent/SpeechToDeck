@@ -1,7 +1,7 @@
 /**
- * Transcript validation tests — the §78 function is the oracle, verbatim:
- * trim, empty rejection, NUL rejection, 16 KiB UTF-8 exclusive limit, and
- * Unicode preservation.
+ * Transcript validation tests — the validation function is the oracle,
+ * verbatim: trim, empty rejection, NUL rejection, 16 KiB UTF-8 exclusive
+ * limit, and Unicode preservation.
  */
 
 import { describe, expect, it } from "vitest";
@@ -14,7 +14,7 @@ import {
     validateTranscript,
 } from "../../src/domain/DictationError";
 
-describe("validateTranscript (spec §78)", () => {
+describe("validateTranscript", () => {
     it("returns the trimmed transcript", () => {
         expect(validateTranscript("  hello world \n")).toBe("hello world");
     });

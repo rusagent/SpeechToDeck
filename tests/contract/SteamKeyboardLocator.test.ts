@@ -1,9 +1,9 @@
 /**
- * SteamKeyboardLocator contract tests (spec §17/§60).
+ * SteamKeyboardLocator contract tests.
  *
  * Decision points: Steam window signature requirement (fail closed),
  * multi-evidence DOM detection on the fixture model, and the bounded
- * discovery budget — no endless polling loop (§17/§61).
+ * discovery budget — no endless polling loop.
  */
 
 import { describe, expect, it } from "vitest";
@@ -65,8 +65,8 @@ describe("SteamKeyboardLocator", () => {
         }
     });
 
-    it("matches the REAL scanned keyboard DOM (v0.2.2 kb-deep.out) and still fails closed", () => {
-        // v0.2.2 on-device regression ([steam.capability] supported=false
+    it("matches the REAL scanned keyboard DOM and still fails closed", () => {
+        // On-device regression ([steam.capability] supported=false
         // profileId=none): the real container carries only the CSS-module
         // class token in a DIV.*.Panel parent — no button-role key controls —
         // so the old key-control requirement never matched real hardware.
@@ -81,10 +81,10 @@ describe("SteamKeyboardLocator", () => {
             };
             expect(DefaultSteamKeyboardProfile.matches(context)).toBe(true);
             expect(DefaultSteamKeyboardProfile.locateMountPoint(fixture.root)).toBe(fixture.root);
-            // Paste/native facets stay honestly unrecognized (§57/§105).
+            // Paste/native facets stay honestly unrecognized.
             expect(DefaultSteamKeyboardProfile.locatePasteAction(fixture.root)).toBeNull();
 
-            // Fail closed (§59/§2.4): no keyboard, unrelated markup, and a
+            // Fail closed: no keyboard, unrelated markup, and a
             // class-token carrier outside the verified Panel parentage are
             // all rejected — the token alone is never decisive.
             expect(DefaultSteamKeyboardProfile.matches({ ...context, keyboardDom: null })).toBe(
@@ -167,7 +167,7 @@ describe("SteamKeyboardLocator", () => {
             expect(delays.length).toBeGreaterThan(1); // bounded retries happened
             const totalSlept = delays.reduce((sum, ms) => sum + ms, 0);
             expect(delays.every((ms) => ms <= 200)).toBe(true); // capped backoff
-            expect(delays[0]).toBe(50); // §17: immediate attempt, then short backoff
+            expect(delays[0]).toBe(50); // immediate attempt, then short backoff
             expect(totalSlept).toBeGreaterThan(0);
         } finally {
             clearKeyboardFixtures();

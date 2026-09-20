@@ -1,5 +1,5 @@
 /**
- * Frontend bundle contract (spec §112 Packaging; decky-loader load path).
+ * Frontend bundle contract (decky-loader load path).
  *
  * Decision point: Decky Loader loads dist/index.js as an ES MODULE
  * (package.json "type": "module") and consumes only `m.default()` as the

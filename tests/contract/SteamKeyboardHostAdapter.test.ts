@@ -1,10 +1,10 @@
 /**
- * SteamKeyboardHostAdapter contract tests (spec §13-§18, §89, §105/§106).
+ * SteamKeyboardHostAdapter contract tests.
  *
- * Decision points: §104 hook preconditions fail closed; the §18 mount
+ * Decision points: hook install preconditions fail closed; the mount
  * contract (plugin-owned node only, Steam children untouched, exact
- * cleanup); a fresh context id per keyboard appearance (§7.2); repeated
- * open/close cycles restore everything (Spike A analogue in jsdom); and §106
+ * cleanup); a fresh context id per keyboard appearance; repeated
+ * open/close cycles restore everything (spike analogue in jsdom); and
  * exception containment at the Steam callback boundary.
  */
 
@@ -72,7 +72,7 @@ describe("SteamKeyboardHostAdapter", () => {
 
         await expect(adapter.start()).rejects.toBeInstanceOf(DictationError);
         await expect(adapter.start()).rejects.toMatchObject({ code: "STEAM_KEYBOARD_NOT_FOUND" });
-        expect(stubs.manager.SetVirtualKeyboardVisible).toBe(originalVisible); // not patched (§104)
+        expect(stubs.manager.SetVirtualKeyboardVisible).toBe(originalVisible); // not patched
     });
 
     it("mounts the mic into a plugin-owned node and keeps Steam children intact", async () => {
@@ -93,7 +93,7 @@ describe("SteamKeyboardHostAdapter", () => {
             expect(fixture.steamChildren.map((child) => child.outerHTML)).toEqual(childrenBefore);
             expect(adapter.currentContext()).toMatchObject({
                 visible: true,
-                // v0.1.6: the context token comes from the registry window
+                // The context token comes from the registry window
                 // entry (WindowName "SP"), not the plugin's own window.
                 windowToken: "SP",
             });
@@ -130,11 +130,11 @@ describe("SteamKeyboardHostAdapter", () => {
             const secondId = events[2]!.slice("open:".length);
             expect(firstId).toMatch(/^vk-/);
             expect(closedId).toBe(firstId);
-            expect(secondId).not.toBe(firstId); // every appearance gets a new context (§7.2)
+            expect(secondId).not.toBe(firstId); // every appearance gets a new context
 
             // Repeat appearance with no intervening hidden notification: the
             // stale context is closed explicitly so the closed→opened
-            // sequence stays complete (§7.2, review note a).
+            // sequence stays complete (review note).
             await openKeyboard(stubs);
             expect(events).toHaveLength(5);
             expect(events[3]).toBe(`close:${secondId}`);
@@ -160,7 +160,7 @@ describe("SteamKeyboardHostAdapter", () => {
                 expect(ownedNodes()).toHaveLength(1);
                 stubs.manager.SetVirtualKeyboardHidden();
                 await flushMicrotasks();
-                expect(ownedNodes()).toHaveLength(0); // only the owned node is removed (§18)
+                expect(ownedNodes()).toHaveLength(0); // only the owned node is removed
                 expect(adapter.currentContext()).toBeNull();
             }
             expect(fixture.steamChildren).toHaveLength(3); // keyboard never damaged
@@ -185,7 +185,7 @@ describe("SteamKeyboardHostAdapter", () => {
             expect(stubs.manager.SetVirtualKeyboardHidden).not.toBe(originalHidden);
 
             await adapter.stop();
-            await adapter.stop(); // §83 idempotency
+            await adapter.stop(); // idempotency
             expect(stubs.manager.SetVirtualKeyboardVisible).toBe(originalVisible);
             expect(stubs.manager.SetVirtualKeyboardHidden).toBe(originalHidden);
             expect(adapter.currentContext()).toBeNull();
@@ -212,7 +212,7 @@ describe("SteamKeyboardHostAdapter", () => {
             adapter.mountMicrophoneControl(MIC_PROPS);
             await openKeyboard(stubs);
 
-            expect(events).toEqual([]); // fail closed, no guess-and-continue (§89)
+            expect(events).toEqual([]); // fail closed, no guess-and-continue
             expect(rendered).toHaveLength(0);
             expect(adapter.currentContext()).toBeNull();
 
@@ -245,7 +245,7 @@ describe("SteamKeyboardHostAdapter", () => {
         }
     });
 
-    it("contains exceptions from renderer and listeners at the Steam boundary (§106)", async () => {
+    it("contains exceptions from renderer and listeners at the Steam boundary", async () => {
         const stubs = installSteamWindowStubs();
         const originalVisible = stubs.manager.SetVirtualKeyboardVisible;
         const brokenRenderer = {
@@ -283,7 +283,7 @@ describe("SteamKeyboardHostAdapter", () => {
         }
     });
 
-    // ── v0.1.6: registry-based mount (live-probe-driven redirect) ──
+    // ── registry-based mount (live-probe-driven redirect) ──
 
     it("mounts the live-verified real-signature keyboard via catch-up at start", async () => {
         const stubs = installSteamWindowStubs();
@@ -371,7 +371,7 @@ describe("SteamKeyboardHostAdapter", () => {
         }
     });
 
-    it("catch-up closes a context whose keyboard went hidden without a hide event (§7.2/§12)", async () => {
+    it("catch-up closes a context whose keyboard went hidden without a hide event", async () => {
         const stubs = installSteamWindowStubs();
         const adapter = makeAdapter();
         const fixture = mountRealSignatureKeyboard();

@@ -1,7 +1,7 @@
 /**
- * KeyboardBridgeBootstrap contract tests (v0.1.7, Task 5a).
+ * KeyboardBridgeBootstrap contract tests.
  *
- * Decision points (owner-approved Task 5 coverage):
+ * Decision points (owner-approved coverage):
  * - the injected source is VALID JavaScript and self-installs in a window
  *   (new Function compile smoke + execution in jsdom);
  * - installation is IDEMPOTENT via `__stdKbBridgeLoaded` (the 30 s re-injection
@@ -9,13 +9,13 @@
  * - exactly ONE mic host exists while the keyboard container is visible and
  *   none while hidden;
  * - presses queue capped events; focus capture + one-payload insertion deliver
- *   the COMPLETE text with exactly one input event (§2.2/§22);
+ *   the COMPLETE text with exactly one input event;
  * - the poll expression reports the bridge facts and drains the event queue.
  *
  * jsdom limitation (documented): `document.execCommand` and layout are not
  * implemented, so the contenteditable insertion branch and fixed positioning
  * math are not exercised here — and jsdom's always-0 offsetWidth IS the
- * on-device CEF condition (v0.1.8): the host must mount on the class token
+ * on-device CEF condition: the host must mount on the class token
  * alone, and the poll's `v` field reports the same token (no offsetWidth
  * stubs anywhere).
  */
@@ -200,7 +200,7 @@ describe("KeyboardBridgeBootstrap focus capture and one-payload insertion", () =
 
         expect(bridgeWindow.__stdMicTeardown?.()).toBe(true);
         expect(bridgeWindow.__stdKbBridgeLoaded).toBe(false);
-        expect(bridgeWindow.__stdKbEvaluate).toBeNull(); // §83: no stale evaluate handle
+        expect(bridgeWindow.__stdKbEvaluate).toBeNull(); // no stale evaluate handle
         expect(micHost()).toBeNull();
         expect(document.querySelectorAll("#std-mic-style")).toHaveLength(0);
         expect(bridgeWindow.__stdMicEvents).toEqual([]);
@@ -221,7 +221,7 @@ describe("poll, insert and state expressions", () => {
         installBootstrap();
         // The container has the class token but ZERO dimensions (jsdom
         // offsetWidth 0 — the on-device CEF condition): `v` must report the
-        // token alone (v0.1.8 poll alignment), never a width.
+        // token alone (poll alignment), never a width.
         makeVisibleContainer();
         bridgeWindow.__stdMicEvents?.push({ t: 1, kind: "press" }, { t: 2, kind: "press" });
 
@@ -231,7 +231,7 @@ describe("poll, insert and state expressions", () => {
         expect(first.b).toBe(true);
         expect(first.ev).toHaveLength(2);
         // The expression runs __stdKbEvaluate BEFORE the JSON: the host mounts
-        // synchronously here (the observer has not delivered yet), the §61
+        // synchronously here (the observer has not delivered yet), the
         // self-heal for a missed observer event.
         expect(micHost()).not.toBeNull();
 

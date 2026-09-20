@@ -22,7 +22,7 @@ export class FakeSettingsPort implements SettingsPort {
     }
 
     async save(): Promise<void> {
-        // Persistence is backend-owned (§55); the frontend port shape is
+        // Persistence is backend-owned; the frontend port shape is
         // satisfied here without recording.
     }
 }

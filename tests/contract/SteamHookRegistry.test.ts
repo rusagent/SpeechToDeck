@@ -1,8 +1,8 @@
 /**
- * SteamHookRegistry contract tests (spec §15/§16).
+ * SteamHookRegistry contract tests.
  *
- * Decision points: the §15 wrapper contract (args/this/return/exception
- * preserved), restore-only-own-wrapper ownership (§16), and idempotent
+ * Decision points: the lifecycle wrapper contract (args/this/return/exception
+ * preserved), restore-only-own-wrapper ownership, and idempotent
  * cleanup — a Steam-update or double-unload regression here breaks other
  * plugins and the Steam keyboard itself.
  */
@@ -82,7 +82,7 @@ describe("SteamHookRegistry", () => {
 
         hook?.dispose();
 
-        // §16: another plugin's modification stays installed.
+        // Another plugin's modification stays installed.
         expect(target.method).toBe(foreignWrapper);
     });
 

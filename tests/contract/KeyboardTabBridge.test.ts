@@ -1,15 +1,15 @@
 /**
- * KeyboardTabBridge contract tests (v0.1.7, Task 5b/5d).
+ * KeyboardTabBridge contract tests.
  *
- * Decision points (owner-approved Task 5 coverage):
+ * Decision points (owner-approved coverage):
  * - the poll loop drains press events to the press callback (two presses in
- *   one batch → two callbacks; the §10 machine deduplicates downstream);
+ *   one batch → two callbacks; the state machine deduplicates downstream);
  * - visibility drives the keyboard context lifecycle with a FRESH context id
- *   per appearance (§7.2);
- * - the capability facts are observed, never assumed (§57): transport round
+ *   per appearance;
+ * - the capability facts are observed, never assumed: transport round
  *   trip, in-window bootstrap flag, container presence;
  * - executor failures drive a BOUNDED exponential backoff, and a context
- *   whose document stays unreachable is closed (§12 stays truthful);
+ *   whose document stays unreachable is closed (suppression stays truthful);
  * - insertion/state/teardown operations are contained and fail as values.
  */
 
@@ -66,7 +66,7 @@ class ScriptedTransport {
 }
 
 function isPoll(call: RecordedCall): boolean {
-    // The poll leads with the __stdKbEvaluate self-heal call (§61, v0.1.8) and
+    // The poll leads with the __stdKbEvaluate self-heal call and
     // wraps the payload in JSON.stringify — no other expression contains both.
     return call.code.includes("JSON.stringify({");
 }
@@ -151,7 +151,7 @@ afterEach(() => {
     vi.useRealTimers();
 });
 
-describe("KeyboardTabBridge capability facts (§57 observed, never assumed)", () => {
+describe("KeyboardTabBridge capability facts (observed, never assumed)", () => {
     it("settles transport, bootstrap and container facts with the first poll", async () => {
         const harness = createHarness();
         await harness.bridge.start();
@@ -206,7 +206,7 @@ describe("KeyboardTabBridge press channel and keyboard lifecycle", () => {
         await harness.bridge.stop();
     });
 
-    it("creates a fresh context per appearance and closes it on v:false (§7.2)", async () => {
+    it("creates a fresh context per appearance and closes it on v:false", async () => {
         const harness = createHarness();
         await harness.bridge.start();
         expect(harness.bridge.currentContext()).toBeNull();
@@ -239,7 +239,7 @@ describe("KeyboardTabBridge press channel and keyboard lifecycle", () => {
     });
 });
 
-describe("KeyboardTabBridge poll-driven self-heal (§61, v0.1.8 on-device regression)", () => {
+describe("KeyboardTabBridge poll-driven self-heal (on-device regression)", () => {
     it("mounts the mic host and OPENS the context through one real inject+poll tick while offsetWidth stays 0", async () => {
         // REAL in-tab evaluation: the fake executeInTab transport evaluates
         // every code string against the jsdom document. jsdom's offsetWidth is
@@ -300,7 +300,7 @@ describe("KeyboardTabBridge poll-driven self-heal (§61, v0.1.8 on-device regres
     });
 });
 
-describe("KeyboardTabBridge transport failure containment (§106/§61)", () => {
+describe("KeyboardTabBridge transport failure containment", () => {
     it("backs off boundedly after failures instead of tight error loops", async () => {
         const harness = createHarness({ backoffBaseMs: 500, backoffMaxMs: 2000 });
         harness.transport.failAll();
@@ -329,7 +329,7 @@ describe("KeyboardTabBridge transport failure containment (§106/§61)", () => {
         await harness.bridge.stop();
     });
 
-    it("closes an open context after sustained transport failure (§12 stays truthful)", async () => {
+    it("closes an open context after sustained transport failure (suppression stays truthful)", async () => {
         const harness = createHarness({ backoffBaseMs: 10, backoffMaxMs: 20 });
         await harness.bridge.start();
 
@@ -431,7 +431,7 @@ describe("KeyboardTabBridge insertion and visual operations", () => {
         await harness.bridge.stop();
     });
 
-    it("sends the full in-window teardown on stop (§83) exactly once", async () => {
+    it("sends the full in-window teardown on stop exactly once", async () => {
         const harness = createHarness();
         await harness.bridge.start();
         await harness.bridge.stop();
@@ -448,7 +448,7 @@ describe("KeyboardTabBridge insertion and visual operations", () => {
     });
 });
 
-describe("parsePollPayload boundary guard (§99)", () => {
+describe("parsePollPayload boundary guard", () => {
     it("accepts only the exact bridge payload shape", () => {
         expect(parsePollPayload(42)).toBeNull();
         expect(parsePollPayload("not json")).toBeNull();

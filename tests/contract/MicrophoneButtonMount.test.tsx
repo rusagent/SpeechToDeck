@@ -1,8 +1,8 @@
 /**
- * MicrophoneButtonMount contract tests (spec §18/§66/§75/§102): the React
+ * MicrophoneButtonMount contract tests: the React
  * root lifecycle inside the plugin-owned node, store-driven visual truth via
  * useSyncExternalStore, exact cleanup across repeated cycles, and the
- * presenter's §75-true active/busy pushing with §66 change filtering.
+ * presenter's model-true active/busy pushing with change filtering.
  */
 
 import { act, cleanup, fireEvent } from "@testing-library/react";
@@ -32,7 +32,7 @@ function recordingState(): DictationState {
 }
 
 describe("createMicrophoneControlRenderer", () => {
-    it("renders a live §75-true button from the store and cleans up exactly", async () => {
+    it("renders a live model-true button from the store and cleans up exactly", async () => {
         const store = new FakeStateStore(readyState());
         const renderer = createMicrophoneControlRenderer(() => store, "en");
         const host = document.createElement("div");
@@ -162,14 +162,14 @@ function hostRecordingMounts(): { keyboardHost: FakeKeyboardHost; mounts: MountR
 }
 
 describe("MicrophoneControlPresenter", () => {
-    it("mounts on usable states, pushes §75-true flags, hides when unavailable", () => {
+    it("mounts on usable states, pushes model-true flags, hides when unavailable", () => {
         const store = new FakeStateStore({ kind: "booting" });
         const { keyboardHost, mounts } = hostRecordingMounts();
         const onPress = vi.fn();
         const presenter = new MicrophoneControlPresenter(store, keyboardHost, onPress);
 
         presenter.start();
-        expect(mounts[0]!.props).toBeNull(); // booting → the mic does not appear (§105)
+        expect(mounts[0]!.props).toBeNull(); // booting → the mic does not appear
 
         store.set(readyState());
         expect(mounts[0]!.props).toMatchObject({ visible: true, active: false, busy: false });
@@ -186,12 +186,12 @@ describe("MicrophoneControlPresenter", () => {
         expect(mounts[0]!.disposed).toBe(false);
 
         store.set({ kind: "unavailable", reason: "MODEL_NOT_INSTALLED" });
-        expect(mounts[0]!.disposed).toBe(true); // hidden again (§105)
+        expect(mounts[0]!.disposed).toBe(true); // hidden again
 
         presenter.dispose();
     });
 
-    it("does not re-mount when the visual state did not meaningfully change (§66)", () => {
+    it("does not re-mount when the visual state did not meaningfully change", () => {
         const store = new FakeStateStore(readyState());
         const { keyboardHost } = hostRecordingMounts();
         const mountSpy = vi.spyOn(keyboardHost, "mountMicrophoneControl");
@@ -209,7 +209,7 @@ describe("MicrophoneControlPresenter", () => {
     });
 });
 
-describe("recording timer (§20/§66)", () => {
+describe("recording timer", () => {
     afterEach(() => {
         vi.useRealTimers();
     });
@@ -274,7 +274,7 @@ describe("recording timer (§20/§66)", () => {
         expect(host.querySelector("button")!.textContent).toMatch(/^\d{2}:\d{2}$/);
     });
 
-    it("maps an error state to the localized §68 message flash", () => {
+    it("maps an error state to the localized message flash", () => {
         const store = new FakeStateStore({
             kind: "error",
             error: new DictationError("TRANSCRIPTION_FAILED"),
