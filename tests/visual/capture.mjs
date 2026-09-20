@@ -1,7 +1,7 @@
 /**
  * Captures the visual-harness screenshots and overflow probes.
  *
- * Screenshots follow the wave-visual-read capture limits: JPEG quality 42,
+ * Screenshots follow fixed visual-capture limits: JPEG quality 42,
  * device scale 1, clipped to the owned surface (the 410px QAM column),
  * long edge ≤ 800px, height ≤ 450px. Files land in .tmp/ui-visual/
  * (gitignored); only the harness SOURCE under tests/visual/ is committed.
@@ -195,7 +195,7 @@ function overflowProbe(width, query) {
 // the full 854px browserview width with the dialog box drawn by ModalRoot
 // centered inside — so a 410px QAM column crop cannot contain it. The honest
 // representation captures the whole overlay window at a representative 640px
-// width (within the wave-visual-read long-edge limit): the ModalRoot dialog
+// width (within the long-edge capture limit): the ModalRoot dialog
 // box on the dimmed page, plus Steam's X close icon above it. The geometry
 // pass doubles as the sentinel that the modal actually opened.
 //
@@ -232,7 +232,7 @@ function modalShot(name, query, { width = 640, height = 450, region = "downloadM
 
 // Store listing asset: the real settings panel (EN, top sections) at 2x
 // device scale, JPEG quality 75 (store assets are not bound by the
-// wave-visual-read review limits; target < 150KB). Committed under assets/.
+// visual review capture limits; target < 150KB). Committed under assets/.
 function storeShot() {
     const query = "case=panel&locale=en";
     const height = 450;
@@ -276,7 +276,7 @@ function storeShot() {
 // Panel clips (QAM column: top of the decluttered panel, EN + DE).
 shot("panel-en-top", "case=panel&locale=en");
 shot("panel-de-top", "case=panel&locale=de");
-// Honest boot-load failed state (install-wedge lane): the panel's
+// Honest boot-load failed state (torn loader install): the panel's
 // early-return view with alert, hint and Retry — no panel sections render.
 shot("panel-load-failed-en", "case=panel&load=failed&locale=en", { height: 400 });
 // Setup progress, REAL panel with the dedicated store preset per state:
@@ -311,7 +311,7 @@ shot("panel-speech-en", "case=panel&catalog=ready&locale=en", {
     sectionTitle: "Speech",
 });
 modalShot("panel-modal-en", "case=panel&catalog=modal&locale=en");
-// In-app model cleanup (owner request): the REAL manage modal opened through
+// In-app model cleanup: the REAL manage modal opened through
 // the production openManageModelsModal path over the canned catalog — the
 // installed list with names + sizes, the selected model's disabled delete,
 // the Delete-all-inactive action and the Close control (fullscreen-overlay

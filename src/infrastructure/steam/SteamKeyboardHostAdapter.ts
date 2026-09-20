@@ -9,10 +9,10 @@
  * position in the owning window's document and mount the React control
  * through an injected renderer, and restore all hooks on unload.
  *
- * Redirect (owner decision): the mount is frontend-only through the
+ * Design note: the mount is frontend-only through the
  * window-store registry — no CDP dependency. The registry window instances
  * are TRANSIENT (live-probed: they exist while the keyboard is in use), so
- * enumeration re-runs on every lifecycle hook and on a slow owner-approved
+ * enumeration re-runs on every lifecycle hook and on a slow
  * panel-lifetime poll; a
  * catch-up scan mounts into keyboards that appeared before their manager was
  * hookable. The still-open question is the exact document accessor from an
@@ -57,8 +57,8 @@ import type {
 } from "./SteamInternalTypes";
 import { RandomIdGenerator } from "../system/RandomIdGenerator";
 
-/** Owner-approved slow re-enumeration cadence (see header). */
-export const DEFAULT_REGISTRY_POLL_MS = 5000;
+/** Slow re-enumeration cadence (see header). */
+const DEFAULT_REGISTRY_POLL_MS = 5000;
 
 /** Discovery snapshot the paste mechanism discovery consumes. */
 export interface SteamKeyboardDiscovery {

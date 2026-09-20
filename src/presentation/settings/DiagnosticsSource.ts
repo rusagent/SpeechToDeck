@@ -3,7 +3,7 @@
  * root (no Decky/Steam imports).
  *
  * The read-only Diagnostics section was removed from the panel
- * (owner declutter), which orphaned the capability/cross-view loaders — the
+ * (a deliberate decluttering), which orphaned the capability/cross-view loaders — the
  * interface is trimmed to the two members the panel still consumes: the
  * setup-progress hydration and the explicit runtime restart behind the
  * setup retry button (grep-proven zero callers for the rest; the

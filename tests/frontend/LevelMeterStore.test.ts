@@ -9,7 +9,7 @@
  * the magma floor colors) as an empty-looking strip. The mapping is now
  * perceptual: each bar is the frame's peakDbfs normalized over the -60..0
  * dBFS range (FLOOR_DBFS), and min/max extrema no longer drive magnitude.
- * Expected values below are the owner-specified dB→level pairs as literals.
+ * Expected values below are the specified dB→level pairs as literals.
  */
 
 import { describe, expect, it } from "vitest";

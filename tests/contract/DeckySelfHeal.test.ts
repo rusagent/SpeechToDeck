@@ -1,5 +1,5 @@
 /**
- * DeckySelfHeal contract tests (install-wedge self-heal).
+ * DeckySelfHeal contract tests (self-heal after a torn loader install).
  *
  * Named production defect: loader v3.2.9 UI reinstalls can orphan the
  * frontend→backend call channel — the settings load never settles (no coded
@@ -8,8 +8,7 @@
  * full-deadline timeouts, gates clear), exactly ONCE per frontend module
  * session, and re-arm on the loader's re-import broadcast. Oracle: the
  * recorded transport call (route + args) and the listener fan-out of the
- * injected FakeDeckyTransport. New owner-approved decision point (lane
- * acceptance 4a-d).
+ * injected FakeDeckyTransport.
  */
 
 import { beforeEach, describe, expect, it } from "vitest";

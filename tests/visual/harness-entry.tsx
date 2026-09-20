@@ -85,7 +85,7 @@ export interface HarnessParams {
     /** Model-catalog wiring for the panel case (default `none`). */
     readonly catalog?: HarnessCatalogVariant;
     /**
-     * Panel boot-load variant (install-wedge lane): `failed` mounts
+     * Panel boot-load variant (torn loader install): `failed` mounts
      * the REAL panel's honest failed state (alert + hint + Retry) through an
      * outright load rejection — the same early-return view a wedged
      * (never-settling) boot load shows after its 10 s deadline, without
@@ -124,7 +124,7 @@ export const CAPTURED_CASES: readonly HarnessParams[] = [
         dictation: "idle",
         scroll: null,
     },
-    // Honest boot-load failed state (install-wedge lane): the panel
+    // Honest boot-load failed state (torn loader install): the panel
     // early-returns with alert + hint + Retry; no panel sections render.
     {
         caseId: "panel",
@@ -264,7 +264,7 @@ export const CAPTURED_CASES: readonly HarnessParams[] = [
         catalog: "modal",
         scroll: null,
     },
-    // In-app model cleanup (owner request): the REAL manage modal over the
+    // In-app model cleanup: the REAL manage modal over the
     // canned catalog (four installed models — three general, one German
     // specialist). The selected model ("base") renders its delete disabled;
     // the other rows carry their localized Delete action.

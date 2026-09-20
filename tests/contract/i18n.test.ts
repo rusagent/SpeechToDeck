@@ -31,8 +31,8 @@ describe("i18n dictionaries", () => {
         }
     });
 
-    it("contains no em-dash in any locale string (owner decision: regular dashes)", () => {
-        // Sweep guard for the 2026-09-19 owner demand; covers both the
+    it("contains no em-dash in any locale string (regular dashes only)", () => {
+        // Sweep guard for the no-em-dash rule; covers both the
         // general dictionaries and the error texts.
         for (const [locale, dictionary] of Object.entries(MESSAGES)) {
             for (const [key, value] of Object.entries(dictionary)) {

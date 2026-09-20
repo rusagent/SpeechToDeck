@@ -148,7 +148,7 @@ describe("isRecordingLevelPayload + isDictationFlowReport", () => {
         expect(isDictationFlowReport({ backendRunning: false, clipboard: "unavailable" })).toBe(
             true,
         );
-        // Regression (on-device 2026-09-18): the backend never emitted
+        // Regression (observed on device): the backend never emitted
         // `backendRunning` — its dictationFlow is clipboard-only — so the
         // guard rejected every real get_status payload and the panel lost its
         // status feed. The field is additive-optional, validated only
@@ -275,7 +275,7 @@ describe("isRuntimeStatusReport + isCdpDiagnosticsReport", () => {
         expect(isCdpDiagnosticsReport({ cdpAvailable: true, reason: 42 })).toBe(false);
     });
 
-    it("accepts the verbatim on-device get_status payload (2026-09-18 boundary failure)", () => {
+    it("accepts the verbatim on-device get_status payload (past boundary failure)", () => {
         // Production defect: SharedJSContext logged "dropped get_status payload:
         // boundary guard failed" because the real shipped backend emits
         // dictationFlow.clipboard only, while the guard required a

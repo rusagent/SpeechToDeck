@@ -4,7 +4,7 @@
  * Loads the settings document through the SettingsPort (backend-owned
  * persistence) and saves through the same port on every change. The panel
  * sections render as nested titled panel sections. Declutter
- * (owner list): the Microphone/Available chip row, the Maximum Recording
+ * (deliberate list): the Microphone/Available chip row, the Maximum Recording
  * Duration slider, the VAD toggle, the runtime-health row and the whole
  * Diagnostics section are gone — the panel reads as Dictation card / (setup
  * when needed) / Runtime (Enabled) / Speech (Model, with
@@ -16,7 +16,7 @@
  * resolves nor rejects within 10 s (a wedged backend callable) leaves the
  * loading state with a failed message and a Retry control instead of an
  * eternal spinner; the deadline is measured on the injected monotonic clock.
- * Install-wedge self-heal: the panel reports each settled boot-load
+ * Self-heal after a torn loader install: the panel reports each settled boot-load
  * outcome to the optional `selfHeal` port — two consecutive full-deadline
  * timeouts (the wedged-callable signature) make the composition-root side
  * reload the plugin backend once, the hint names it, and the loader's
@@ -59,7 +59,7 @@ export interface SettingsPanelProps {
     readonly clock: ClockPort;
     readonly locale?: Locale;
     /**
-     * Additive dictation card wiring (owner pivot): stores + press/copy
+     * Additive dictation card wiring: stores + press/copy
      * handlers composed by the composition root. The card renders only when
      * provided (additive surface — never a fake control).
      */
@@ -84,7 +84,7 @@ export interface SettingsPanelProps {
         readonly deleteModel: (modelId: string) => Promise<void>;
     };
     /**
-     * Additive install-wedge self-heal wiring: the panel reports
+     * Additive self-heal wiring (after a torn loader install): the panel reports
      * settled boot-load outcomes; the bound port (composed in the
      * composition root) owns the gates — dictation session, model download —
      * and the loader route access. `reportLoadOutcome` returns whether the
@@ -381,7 +381,7 @@ export function SettingsPanel({
                         />
                     </PanelSectionRow>
                 ) : null}
-                {/* In-app model cleanup (owner request): the affordance
+                {/* In-app model cleanup: the affordance
                     renders only over a LOADED catalog (reported, never
                     assumed) and opens the manage modal through the
                     production path. */}

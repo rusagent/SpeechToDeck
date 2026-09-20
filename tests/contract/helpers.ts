@@ -1,7 +1,7 @@
 /**
  * Shared contract-test doubles for the output ports and the Decky transport.
- * These live beside the contract tests; the core fakes under
- * tests/frontend/fakes/ are owned by the core lane and stay untouched.
+ * These live beside the contract tests; the shared fakes under
+ * tests/frontend/fakes/ are separate and stay untouched.
  */
 
 import { MAX_TRANSCRIPT_UTF8_BYTES } from "../../src/domain/DictationError";

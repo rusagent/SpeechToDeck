@@ -1,5 +1,5 @@
 /**
- * ManageModels (in-app model cleanup, owner request): lists the INSTALLED
+ * ManageModels (in-app model management): lists the INSTALLED
  * catalog models (display name + size — the payload already carries
  * sizeBytes) under a Delete action each. The selected model's delete is
  * visibly disabled — the backend rejects it anyway (active-model protection,
@@ -74,7 +74,7 @@ export interface ManageModelsModalProps {
     readonly onClose: () => void;
 }
 
-export function ManageModelsModalBody({
+function ManageModelsModalBody({
     store,
     locale,
     selectedModelId,

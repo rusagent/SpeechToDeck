@@ -13,7 +13,8 @@ const MODEL_ID_RE = /^[a-z0-9][a-z0-9._-]{0,63}$/;
 /**
  * Plugin settings document.
  *
- * `maxRecordingSeconds` and `vadEnabled` left the document (owner declutter).
+ * `maxRecordingSeconds` and `vadEnabled` left the document (deliberate
+ * decluttering).
  * The backend tolerates both legacy keys on load and never writes them back;
  * the daemon receives fixed constants instead.
  */

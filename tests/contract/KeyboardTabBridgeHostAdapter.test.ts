@@ -1,7 +1,7 @@
 /**
  * SteamKeyboardTabBridgeHostAdapter contract tests.
  *
- * Decision points (owner-approved coverage):
+ * Decision points:
  * - poll visibility reaches consumers as keyboard-opened/keyboard-closed port
  *   events (the controller's existing subscription stays authoritative);
  * - the model-true visual maps onto the in-window __stdMicState pushes

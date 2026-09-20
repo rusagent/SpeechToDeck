@@ -2,15 +2,15 @@
  * SteamWindowRegistry — enumeration of per-window virtual keyboard
  * managers from the SharedJSContext window-store registry.
  *
- * Live evidence (deck hardware 2026-09-17/18, live SharedJSContext probe
- * findings): `window.SteamUIStore.m_WindowStore`
+ * Live evidence (verified against a live device with a SharedJSContext
+ * probe): `window.SteamUIStore.m_WindowStore`
  * holds maps (m_mapAppWindows, m_mapDesiredWindows, m_mapDesiredWindowInstances,
  * m_mapOverlayPopupByPID) whose window-instance objects expose
  * `m_VirtualKeyboardManager` + `m_BrowserWindow` — but the instances are
  * TRANSIENT: they appear while the keyboard is in use and vanish afterwards.
  * Enumeration is therefore cheap, repeatable and lazy (no busy loops —
  * the adapter drives re-enumeration from lifecycle hooks and a slow panel-
- * lifetime poll, both owner-approved).
+ * lifetime poll).
  *
  * Every accessor is shape-checked before use: nothing is
  * assumed from typings. The walk records which store keys and document

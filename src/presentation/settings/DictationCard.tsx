@@ -1,5 +1,5 @@
 /**
- * DictationCard (owner pivot) — the QAM panel's dictation surface.
+ * DictationCard — the QAM panel's dictation surface.
  *
  * Layout, top of the plugin panel: a BIG microphone button driven by the
  * SAME application state union and `MicrophoneButtonModel` semantics as the

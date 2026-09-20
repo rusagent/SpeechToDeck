@@ -1,5 +1,5 @@
 /**
- * DictationCard contract tests (owner pivot): the card renders the
+ * DictationCard contract tests: the card renders the
  * REAL state union through MicrophoneButtonModel semantics, a level strip
  * built ONLY from real received frames (published through the real store),
  * and the transcript/clipboard block with the copy-again action. The press
@@ -31,7 +31,7 @@ const RECORDING: DictationState = {
 };
 const READY: DictationState = { kind: "ready" };
 // On-device press failure class: the coded envelope came back, but the
-// card showed only the generic mic label (2026-09-18 defect).
+// card showed only the generic mic label.
 const ERROR: DictationState = {
     kind: "error",
     error: new DictationError("RUNTIME_UNAVAILABLE"),

@@ -1,5 +1,5 @@
 /**
- * DeckySelfHeal — deterministic recovery for the loader install wedge.
+ * DeckySelfHeal — deterministic recovery after a torn loader install.
  *
  * Loader v3.2.9 can orphan the frontend→backend call channel during a UI
  * reinstall; the visible symptom is a settings load that never settles (no
@@ -103,7 +103,7 @@ export class DeckySelfHeal {
             plugin: SELF_HEAL_PLUGIN_NAME,
         });
         // Fire-and-forget: the loader answers the CALL itself; a rejection
-        // (or a wedge that outlives it) leaves the panel's honest failed
+        // (or a stall that outlives it) leaves the panel's honest failed
         // state with Retry — never a faked success.
         void this.transport
             .call(LOADER_RELOAD_ROUTE, SELF_HEAL_PLUGIN_NAME)

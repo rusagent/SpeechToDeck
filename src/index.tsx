@@ -48,7 +48,7 @@ import { extractSession } from "./domain/DictationState";
 // evaluates `m.default()`); the composition root is internal wiring.
 
 /**
- * Install-wedge self-heal gate: a download counts as in flight
+ * Self-heal gate after a torn loader install: a download counts as in flight
  * until its settle path clears it — EXCEPT the held final 100% completion
  * frame, which is settled state the modal still renders, never a
  * live download.
@@ -86,7 +86,7 @@ class PluginCompositionRoot implements Disposable {
         readonly cancel: () => void;
         readonly deleteModel: (modelId: string) => Promise<void>;
     };
-    /** Install-wedge self-heal wiring for the plugin panel. */
+    /** Self-heal wiring for the plugin panel after a torn loader install. */
     readonly selfHeal: {
         readonly reportLoadOutcome: (outcome: SettingsLoadOutcome) => boolean;
         readonly onImportPlugin: (listener: () => void) => () => void;
@@ -149,7 +149,7 @@ class PluginCompositionRoot implements Disposable {
             },
         };
 
-        // Dictation card (owner pivot): the big button presses the SAME
+        // Dictation card: the big button presses the SAME
         // controller through the panel entry (same mutex and state machine);
         // the level/transcript stores are the adapter's guarded UI side-channels;
         // the copy is the panel execCommand path (primary while the backend
@@ -193,7 +193,7 @@ class PluginCompositionRoot implements Disposable {
                     });
                 });
             },
-            // In-app model cleanup (owner request): the id is the only input
+            // In-app model cleanup: the id is the only input
             // — the backend resolves the artifact path from its strict
             // manifest. The manage modal awaits the result and owns the
             // inline error presentation, so the coded rejection is logged
@@ -211,7 +211,7 @@ class PluginCompositionRoot implements Disposable {
             },
         };
 
-        // Install-wedge self-heal: the panel reports boot-load
+        // Loader-install self-heal: the panel reports boot-load
         // outcomes through the two-method port below. The gates are read
         // HERE, fresh at report time, over the composed stores — the reload
         // never fires during an active dictation session (any sessionful

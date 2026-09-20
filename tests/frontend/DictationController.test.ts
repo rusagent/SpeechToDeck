@@ -438,7 +438,7 @@ describe("speech failures during a session", () => {
     });
 });
 
-describe("stale error auto-clear on runtime ready (on-device 2026-09-19)", () => {
+describe("stale error auto-clear on runtime ready (observed on device)", () => {
     // On-device defect: a press during a daemon restart window left a
     // standing recoverable error on the card even after the runtime was
     // ready again; nothing ever cleared it.
@@ -550,7 +550,7 @@ describe("state store and dispose", () => {
     });
 });
 
-describe("panel dictation flow (owner pivot)", () => {
+describe("panel dictation flow", () => {
     it("panel press starts a clipboard-flow session with every keyboard capability false (on-device regression)", async () => {
         // On device the probe reported `[steam.capability] supported=false
         // profileId=none` and the old keyboard gating made every QAM press
@@ -659,7 +659,7 @@ describe("panel dictation flow (owner pivot)", () => {
     });
 });
 
-describe("on-device event ordering (deck 2026-09-18): transcript precedes the stop acknowledgement", () => {
+describe("on-device event ordering: transcript precedes the stop acknowledgement", () => {
     it("keyboard flow: outcome during stopping still inserts exactly once and settles ready", async () => {
         const rig = createTestRig();
         await startReady(rig);

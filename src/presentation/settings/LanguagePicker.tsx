@@ -15,7 +15,7 @@ import { translate } from "../i18n/messages";
 import type { Locale, MessageKey } from "../i18n/messages";
 import { FieldHint } from "./FieldHint";
 
-export const LANGUAGE_SENTINELS = {
+const LANGUAGE_SENTINELS = {
     system: "system",
     auto: "auto",
 } as const;

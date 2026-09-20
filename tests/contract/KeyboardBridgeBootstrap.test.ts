@@ -1,7 +1,7 @@
 /**
  * KeyboardBridgeBootstrap contract tests.
  *
- * Decision points (owner-approved coverage):
+ * Decision points:
  * - the injected source is VALID JavaScript and self-installs in a window
  *   (new Function compile smoke + execution in jsdom);
  * - installation is IDEMPOTENT via `__stdKbBridgeLoaded` (the 30 s re-injection
@@ -28,7 +28,7 @@ import {
     buildPollExpression,
     buildStateExpression,
     buildTeardownExpression,
-} from "../../src/infrastructure/steam/keyboardBridgeBootstrap";
+} from "../../src/infrastructure/steam/KeyboardBridgeBootstrap";
 
 interface BridgeWindow {
     __stdKbBridgeLoaded?: boolean;

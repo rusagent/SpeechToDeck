@@ -1,5 +1,5 @@
 /**
- * ManageModels tests (in-app model cleanup, owner request).
+ * ManageModels tests (in-app model management).
  *
  * Named decision points: (1) the destructive confirmation must name the
  * model, its freed size and the re-download path BEFORE anything is deleted

@@ -37,7 +37,7 @@ harness-entry); the driver screenshots the full window and crops the exact
 pixels 1:1 onto the page from its origin, but does not reliably honor
 page-side scroll offsets. Section shots (`scroll=<Section>`) clip to the
 titled section so it fills the frame. Writes JPEG screenshots
-(wave-visual-read limits: quality 42, 1x, ≤410px column, height ≤450px,
+(capture limits: quality 42, 1x, ≤410px column, height ≤450px,
 ≤80KB) to `.tmp/ui-visual/` and prints the numeric `data-overflow-x`
 probe for 390px and 768px page widths.
 

@@ -3,7 +3,7 @@
  *
  * Named production defect (on-device session): the old row-based
  * picker reused ONE button as Download when idle and Cancel while
- * downloading, so the owner's tap rhythm cancelled every second download and
+ * downloading, so a rapid tap rhythm cancelled every second download and
  * the backend mapped each cancel to MODEL_DOWNLOAD_FAILED — a pure UX
  * problem that read like repeated network failures. Oracle: the new
  * two-dropdown flow persists only installed selections, opens the download

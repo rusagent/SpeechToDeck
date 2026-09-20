@@ -225,7 +225,7 @@ describe("DeckySpeechAdapter", () => {
 
     it("keeps empty transcripts out of the panel store but still dispatches them", () => {
         // The empty-speech outcome travels to the machine (it settles the
-        // stop flow back to ready — deck 2026-09-18 lock finding), but an
+        // stop flow back to ready — observed on device), but an
         // empty text must not render a transcript block or trigger the card's
         // auto-copy (copyTextToClipboard rejects empty text → "failed" noise).
         const transport = new FakeDeckyTransport();
@@ -331,7 +331,7 @@ describe("DeckySpeechAdapter", () => {
     });
 
     it("deletes through delete_model with the id alone and flips the store's install state", async () => {
-        // In-app model cleanup (owner request): the id is the ONLY input —
+        // In-app model cleanup: the id is the ONLY input —
         // the backend resolves the artifact path from its strict manifest.
         // Success marks the model not installed (immediate honest feedback;
         // the authoritative refresh stays with the caller's list_models

@@ -1,7 +1,7 @@
 /**
  * KeyboardBridgeInserter contract tests.
  *
- * Decision points (owner-approved coverage):
+ * Decision points:
  * - the bridge one-payload path is PRIMARY: success short-circuits the
  *   clipboard+paste fallback (no clipboard write, no paste);
  * - the fallback runs ONLY when the bridge insertion declines or the

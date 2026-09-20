@@ -152,7 +152,7 @@ describe("ModelCatalogStore", () => {
         expect(store.getSnapshot().failure).toBeNull();
     });
 
-    // In-app model cleanup (owner request): a successful delete_model marks
+    // In-app model cleanup: a successful delete_model marks
     // the model not installed for immediate honest feedback while the
     // authoritative list_models refresh is still in flight.
     it("marks the deleted model not installed and leaves the rest untouched", () => {

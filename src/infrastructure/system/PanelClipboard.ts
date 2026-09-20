@@ -9,7 +9,7 @@
  * caller reports the outcome in the UI; nothing here logs the text.
  *
  * Whether this CEF clipboard is the exact clipboard the Steam keyboard's
- * Paste key reads is a live-verify item on device (research lane, Q4);
+ * Paste key reads still needs a live check on device;
  * the backend xclip leg reports its own independent outcome.
  */
 

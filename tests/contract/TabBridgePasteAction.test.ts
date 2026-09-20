@@ -1,7 +1,7 @@
 /**
  * TabBridgePasteActionAdapter contract tests (fallback final step).
  *
- * Decision points (owner-approved coverage):
+ * Decision points:
  * - the single native paste is invoked in the keyboard document ONLY on the
  *   still-current context (fail-closed otherwise);
  * - a declined in-window paste is a controlled PASTE_ACTION_UNAVAILABLE error,

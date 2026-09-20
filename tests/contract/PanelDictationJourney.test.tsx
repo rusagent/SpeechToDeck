@@ -1,5 +1,5 @@
 /**
- * Panel dictation journey (owner pivot): ONE test drives the shipped
+ * Panel dictation journey: ONE test drives the shipped
  * flow end to end over the REAL frontend stack — decky envelope unwrap →
  * boundary guards → state machine → panel card render → system
  * clipboard (the paste leg's input; the physical paste is the user's
@@ -8,8 +8,8 @@
  * The transport mimics the loader's observable semantics exactly: a single
  * FIFO socket carrying coded `{"ok": ...}` envelopes plus backend events,
  * where an event emitted INSIDE a callable's window is dispatched before
- * that callable's response. That ordering is the on-device deck finding of
- * 2026-09-18 (transcript_ready always precedes the stop acknowledgement;
+ * that callable's response. That ordering is the on-device finding
+ * (transcript_ready always precedes the stop acknowledgement;
  * rejecting it in `stopping` wedged the card in "transcribing" forever).
  */
 
@@ -103,7 +103,7 @@ class ScriptedLoaderTransport implements DeckyTransport {
     }
 }
 
-/** Exact backend payload shapes (deck 2026-09-18, vulkan daemon). */
+/** Exact backend payload shapes (captured from a live vulkan daemon). */
 const GET_CAPABILITIES = {
     speechRuntimeAvailable: true,
     microphoneAvailable: true,
@@ -269,7 +269,7 @@ describe("panel dictation journey: press → levels → stop → transcript → 
 
 describe("panel dictation journey: empty speech must never lock the mic", () => {
     it("settles back to ready with the button pressable again when nothing was said", async () => {
-        // The owner's deck scenario (2026-09-18): press, say NOTHING, stop.
+        // Live-device scenario: press, say NOTHING, stop.
         // The daemon reports empty speech (CLI exit 3) and — since the
         // empty-outcome fix — the backend emits an EMPTY transcript_ready
         // inside the stop callable window instead of staying silent.

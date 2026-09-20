@@ -268,8 +268,8 @@ export function transition(current: DictationState, event: DictationEvent): Tran
                 // INSIDE the stop_recording callable window, so over the FIFO
                 // decky socket the outcome event always precedes the callable
                 // resolution — the machine is still in `stopping` when it
-                // arrives (on-device deck 2026-09-18: rejecting it there lost
-                // the transcript forever and wedged the card in transcribing).
+                // arrives (verified against a live device: rejecting it there
+                // lost the transcript forever and wedged the card in transcribing).
                 case "transcribing":
                 case "stopping": {
                     if (!sameSession(current, event.sessionId)) {

@@ -436,7 +436,7 @@ describe("purity", () => {
     });
 });
 
-describe("on-device outcome ordering (deck 2026-09-18): outcome lands during stopping", () => {
+describe("on-device outcome ordering: outcome lands during stopping", () => {
     // The real backend emits transcript_ready INSIDE the stop_recording
     // callable window, before the callable response travels back over the
     // single FIFO decky socket — so the frontend processes the outcome event

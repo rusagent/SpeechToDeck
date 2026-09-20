@@ -55,7 +55,7 @@ export const SPEECH_CALLABLES = {
     deleteModel: "delete_model",
 } as const;
 
-export const SPEECH_EVENTS = {
+const SPEECH_EVENTS = {
     speechStatus: "speech_status",
     transcriptReady: "transcript_ready",
     speechError: "speech_error",
@@ -339,7 +339,7 @@ export class DeckySpeechAdapter implements SpeechPort {
         // speech renders no transcript block and must not trigger the
         // card's auto-copy (empty text can never copy successfully). The
         // machine event below always dispatches: the EMPTY outcome is what
-        // settles the stop flow back to ready (deck 2026-09-18 lock).
+        // settles the stop flow back to ready (verified against a live device).
         if (payload.text.trim().length > 0) {
             this.panelTranscript.publish({
                 sessionId: payload.sessionId,

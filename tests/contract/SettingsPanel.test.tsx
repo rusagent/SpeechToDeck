@@ -4,7 +4,7 @@
  * Named production defects: (review finding) the panel passed the
  * controller's unbound `subscribe`/`getSnapshot` methods to
  * useSyncExternalStore and threw on first mount; (declutter) the
- * owner's panel carried dead weight — microphone chip, duration slider, VAD
+ * panel carried dead weight — microphone chip, duration slider, VAD
  * toggle, runtime-health row, whole Diagnostics section — which this suite
  * proves removed, with Speech reading Language → Model; (load-timeout fix)
  * a wedged backend settings load left the eternal "Loading settings…"
@@ -208,9 +208,9 @@ describe("SettingsPanel", () => {
         expect(screen.getAllByText(/Language/).length).toBeGreaterThan(0);
         expect(screen.getAllByText(/Output mode/).length).toBeGreaterThan(0);
 
-        // Removed rows and the whole Diagnostics section stay gone (declutter
-        // owner request; the Compute backend select followed later — owner
-        // decision that the Vulkan/CPU choice is an internal concern, the
+        // Removed rows and the whole Diagnostics section stay gone (a
+        // deliberate decluttering; the Compute backend select followed later —
+        // the Vulkan/CPU choice is an internal concern, the
         // setting stays "auto" and is simply never rendered).
         expect(screen.queryByText(/Compute backend/)).toBeNull();
         expect(screen.queryByText(/Runtime health/)).toBeNull();
@@ -342,7 +342,7 @@ describe("SettingsPanel", () => {
     });
 
     it("renders the Manage models affordance below the Model select and opens the manage modal", async () => {
-        // In-app model cleanup (owner request): the affordance renders only
+        // In-app model cleanup: the affordance renders only
         // over a LOADED catalog and opens the modal through the production
         // openManageModelsModal path (its internals are covered by
         // ManageModels.test.tsx).

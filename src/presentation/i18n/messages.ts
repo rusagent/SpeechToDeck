@@ -31,8 +31,8 @@ export const EN_MESSAGES = {
     "setting.loadFailed": "Backend is not responding.",
     "setting.loadFailedHint":
         "Close and reopen this panel. If it persists, reload the plugin and open it again.",
-    // Install-wedge self-heal: shown in the failed state after the
-    // one-time loader reload fired (two consecutive load-deadline timeouts).
+    // Self-heal after a torn loader install: shown in the failed state after
+    // the one-time loader reload fired (two consecutive load-deadline timeouts).
     "setting.loadFailedReloading": "Reloading the plugin backend …",
 
     "option.model.tiny": "Tiny (fastest)",
@@ -67,7 +67,7 @@ export const EN_MESSAGES = {
     "model.modal.close": "Close",
     "model.modal.failed": "Download failed",
     "model.catalog.unavailable": "The model catalog could not be loaded.",
-    // In-app model cleanup (owner request): the manage modal under the
+    // In-app model cleanup: the manage modal under the
     // Model select. Honest wording: deletion is local and reversible by
     // re-downloading; the selected model can never be deleted.
     "model.manage.open": "Manage models",
@@ -183,7 +183,7 @@ export const DE_MESSAGES: Record<MessageKey, string> = {
     "model.modal.close": "Schließen",
     "model.modal.failed": "Download fehlgeschlagen",
     "model.catalog.unavailable": "Die Modell-Liste konnte nicht geladen werden.",
-    // In-app model cleanup (owner request): the manage modal under the
+    // In-app model cleanup: the manage modal under the
     // Model select. Honest wording: deletion is local and reversible by
     // re-downloading; the selected model can never be deleted.
     "model.manage.open": "Modelle verwalten",

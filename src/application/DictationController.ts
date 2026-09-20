@@ -64,12 +64,12 @@ export type TimeoutHandle = ReturnType<typeof setTimeout>;
 /**
  * Boot watchdog budget: no startup wait is unbounded. When the loader's
  * plugin registration is torn, every backend callable hangs and the card
- * would sit in `booting` forever with a dead button (deck 2026-09-18).
- * Generous enough
+ * would sit in `booting` forever with a dead button (verified against a
+ * live device). Generous enough
  * for a real cold start (settings load, hook install, backend init); tests
  * inject manual scheduling and never wait.
  */
-export const STARTUP_WATCHDOG_MS = 10_000;
+const STARTUP_WATCHDOG_MS = 10_000;
 
 /**
  * Scheduling seam for the boot watchdog, made injectable so tests fire
@@ -82,7 +82,7 @@ export interface StartupTimerSeam {
     cancel(handle: TimeoutHandle): void;
 }
 
-export const defaultStartupTimer: StartupTimerSeam = {
+const defaultStartupTimer: StartupTimerSeam = {
     timeoutMs: STARTUP_WATCHDOG_MS,
     schedule: (handler, timeoutMs) => setTimeout(handler, timeoutMs),
     cancel: (handle) => clearTimeout(handle),
@@ -147,7 +147,7 @@ export class DictationController implements Disposable, StateStore<DictationStat
 
         // The whole startup sequence is bounded. When the loader's
         // plugin registration is torn, every callable below hangs and the card
-        // would sit in `booting` forever with a dead button (deck 2026-09-18);
+        // would sit in `booting` forever with a dead button;
         // expiry reports the existing SPEECH_RUNTIME_UNAVAILABLE path instead.
         this.startupExpired = false;
         this.startupWatchdog = this.startupTimer.schedule(() => {
@@ -424,7 +424,7 @@ export class DictationController implements Disposable, StateStore<DictationStat
     }
 
     /**
-     * On-device 2026-09-19: a press during a daemon restart window (settings
+     * Verified on a live device: a press during a daemon restart window (settings
      * changes restart the daemon, ~4 s unavailability) left a standing
      * recoverable error on the card even after the runtime reported ready
      * again. A `runtime_status` ready report clears that staleness through

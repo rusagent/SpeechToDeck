@@ -10,7 +10,7 @@
  *
  * - injects the self-installing bootstrap (idempotently, immediately at start
  *   and re-injected every `reinjectMs` — the SP document can be replaced);
- * - polls ONLY while `isEnabled` (the owner-approved 250 ms cadence) with
+ * - polls ONLY while `isEnabled` (a 250 ms cadence) with
  *   ONE self-contained expression returning visibility,
  *   container presence, the in-window bootstrap flag, and drained press
  *   events — the single capability channel, no extra probe;
@@ -47,28 +47,28 @@ import {
     buildPollExpression,
     buildStateExpression,
     buildTeardownExpression,
-} from "./keyboardBridgeBootstrap";
-import type { MicBridgeVisualState } from "./keyboardBridgeBootstrap";
+} from "./KeyboardBridgeBootstrap";
+import type { MicBridgeVisualState } from "./KeyboardBridgeBootstrap";
 
 /** Exact CDP tab title of the Big Picture keyboard document (probe evidence). */
 export const SP_KEYBOARD_TAB_TITLE = "Steam Big Picture Mode";
 
-/** Default poll cadence (owner-approved for the tab bridge). */
-export const DEFAULT_TAB_BRIDGE_POLL_MS = 250;
+/** Default poll cadence for the tab bridge. */
+const DEFAULT_TAB_BRIDGE_POLL_MS = 250;
 
 /** Bootstrap re-injection cadence — SP document replacement healing. */
-export const DEFAULT_TAB_BRIDGE_REINJECT_MS = 30_000;
+const DEFAULT_TAB_BRIDGE_REINJECT_MS = 30_000;
 
 /** Bounded backoff: first retry delay and hard cap. */
-export const DEFAULT_TAB_BRIDGE_BACKOFF_BASE_MS = 1_000;
-export const DEFAULT_TAB_BRIDGE_BACKOFF_MAX_MS = 30_000;
+const DEFAULT_TAB_BRIDGE_BACKOFF_BASE_MS = 1_000;
+const DEFAULT_TAB_BRIDGE_BACKOFF_MAX_MS = 30_000;
 
 /**
  * `start()` awaits one inject+poll cycle so the startup capability report is
  * built on settled facts; a hanging transport cannot hold the startup
  * sequence longer than this bound.
  */
-export const DEFAULT_TAB_BRIDGE_START_SETTLE_MS = 5_000;
+const DEFAULT_TAB_BRIDGE_START_SETTLE_MS = 5_000;
 
 /**
  * Consecutive transport failures with an open context before the context is

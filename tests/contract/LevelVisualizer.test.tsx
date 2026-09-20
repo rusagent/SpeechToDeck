@@ -1,7 +1,7 @@
 /**
- * LevelVisualizer contract tests (owner feature).
+ * LevelVisualizer contract tests.
  *
- * Decision points (owner-approved net-new coverage, context pack):
+ * Decision points:
  * 1. Every style renders the SAME real-frame window behind the pinned journey
  *    contract — [data-level-strip], 24×[data-level-bar], [data-level-value]
  *    0..1 — fed ONLY by real LevelMeterStore publications (no synthetic

@@ -1,9 +1,9 @@
 /**
- * LevelVisualizer (owner feature) — the dictation card's live level
+ * LevelVisualizer — the dictation card's live level
  * strip with three user-selectable styles over the SAME real-frame window:
  *
- * - `heatmap` (default): a scrolling time-column heat map styled after the
- *   owner's spectrogram reference — a magma/fire palette (deep purple floor →
+ * - `heatmap` (default): a scrolling time-column heat map in a
+ *   magma/fire palette (deep purple floor →
  *   magenta → red-orange → amber → near-white yellow core) where each column
  *   is one real frame, the newest stays on the right, and amplitude maps to
  *   color temperature with a soft glow on hot columns. Faint horizontal
@@ -35,7 +35,7 @@ export type VisualizerStyle = "heatmap" | "classic" | "mirror";
 /** Frontend-local storage key (a presentation preference, not a backend setting). */
 export const LEVEL_STYLE_STORAGE_KEY = "speechtodeck.levelStyle";
 
-/** Default when nothing (or garbage) is stored: the owner's headline style. */
+/** Default when nothing (or garbage) is stored: the headline style. */
 const DEFAULT_STYLE: VisualizerStyle = "heatmap";
 
 const STYLE_VALUES: readonly VisualizerStyle[] = ["heatmap", "classic", "mirror"];
@@ -47,7 +47,7 @@ const STYLE_LABEL_KEYS: Record<VisualizerStyle, MessageKey> = {
 };
 
 /** Manual guard for the value read back across the localStorage boundary. */
-export function isVisualizerStyle(value: unknown): value is VisualizerStyle {
+function isVisualizerStyle(value: unknown): value is VisualizerStyle {
     return typeof value === "string" && (STYLE_VALUES as readonly string[]).includes(value);
 }
 
@@ -84,7 +84,7 @@ function clamp01(value: number): number {
 type RgbChannels = readonly [number, number, number];
 
 /**
- * Magma-style color ramp matching the owner's spectrogram reference: deep
+ * Magma-style color ramp matching the `heatmap` style: deep
  * purple-black floor → violet → magenta → red-orange → amber → near-white
  * yellow core. Piecewise-linear in RGB; `amplitude` is clamped to 0..1.
  */

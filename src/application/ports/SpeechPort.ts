@@ -214,7 +214,7 @@ export function isSpeechCapabilities(value: unknown): value is SpeechCapabilitie
     );
 }
 
-export function isTranscriptionMetrics(value: unknown): value is TranscriptionMetrics {
+function isTranscriptionMetrics(value: unknown): value is TranscriptionMetrics {
     if (!isRecord(value)) {
         return false;
     }

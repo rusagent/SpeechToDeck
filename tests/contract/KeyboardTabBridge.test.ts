@@ -1,7 +1,7 @@
 /**
  * KeyboardTabBridge contract tests.
  *
- * Decision points (owner-approved coverage):
+ * Decision points:
  * - the poll loop drains press events to the press callback (two presses in
  *   one batch → two callbacks; the state machine deduplicates downstream);
  * - visibility drives the keyboard context lifecycle with a FRESH context id
