@@ -22,11 +22,16 @@ DEFAULTS_PAYLOAD = {
     "computeBackend": "auto",
     "modelId": "base",
     "language": "system",
-    "outputMode": "direct-insert",
 }
 
-# Device document from an older release (the keys the owner's deck carries).
-LEGACY_V024_PAYLOAD = DEFAULTS_PAYLOAD | {"maxRecordingSeconds": 110, "vadEnabled": True}
+# Device document from an older release (the keys the owner's deck carries:
+# v0.2.4 removed maxRecordingSeconds/vadEnabled; v0.2.3 removed outputMode
+# when the in-keyboard insertion feature was dropped).
+LEGACY_V024_PAYLOAD = DEFAULTS_PAYLOAD | {
+    "maxRecordingSeconds": 110,
+    "vadEnabled": True,
+    "outputMode": "direct-insert",
+}
 
 
 def make_repo(tmp_path: Path) -> tuple[JsonSettingsRepository, Path]:
@@ -78,7 +83,6 @@ def test_save_is_atomic_and_private(tmp_path: Path) -> None:
     [
         {"surpriseField": 1},
         {"computeBackend": "quantum"},
-        {"outputMode": "telepathy"},
         {"enabled": "yes"},
         {"modelId": "Base"},
         {"language": "not a language!!"},
@@ -95,10 +99,10 @@ def test_invalid_fields_rejected_deliberately(tmp_path: Path, mutation: dict[str
 
 
 def test_legacy_v024_keys_tolerated_on_load_and_never_written_back(tmp_path: Path) -> None:
-    """v0.2.5 decision point: the two removed settings must not lock existing
+    """v0.2.5 decision point: the removed settings must not lock existing
     devices out of their settings.json — load tolerates them (ignored, values
-    like 110/true included), and the next save drops them from the file while
-    every kept field survives unchanged."""
+    like 110/true/"direct-insert" included), and the next save drops them
+    from the file while every kept field survives unchanged."""
 
     async def scenario() -> None:
         repo, path = make_repo(tmp_path)
@@ -108,12 +112,14 @@ def test_legacy_v024_keys_tolerated_on_load_and_never_written_back(tmp_path: Pat
         # The wire snapshot no longer carries the legacy keys at all.
         assert "maxRecordingSeconds" not in settings.to_payload()
         assert "vadEnabled" not in settings.to_payload()
+        assert "outputMode" not in settings.to_payload()
         assert settings.model_id == "base"
 
         await repo.save(settings)
         persisted = json.loads(path.read_text(encoding="utf-8"))
         assert "maxRecordingSeconds" not in persisted
         assert "vadEnabled" not in persisted
+        assert "outputMode" not in persisted
         assert persisted["modelId"] == "base"
         assert persisted["language"] == "system"
 
@@ -128,10 +134,10 @@ def test_unknown_field_rejected(tmp_path: Path) -> None:
 
 
 def test_missing_field_rejected(tmp_path: Path) -> None:
-    payload = {k: v for k, v in DEFAULTS_PAYLOAD.items() if k != "outputMode"}
+    payload = {k: v for k, v in DEFAULTS_PAYLOAD.items() if k != "language"}
     with pytest.raises(SettingsInvalidError) as excinfo:
         settings_from_payload(payload)
-    assert "outputMode" in str(excinfo.value.detail)
+    assert "language" in str(excinfo.value.detail)
 
 
 def test_future_schema_version_fails_closed(tmp_path: Path) -> None:

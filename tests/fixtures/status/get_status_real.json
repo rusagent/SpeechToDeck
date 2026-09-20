@@ -1,12 +1,5 @@
 {
-    "_captureOrigin": "Real get_status payload captured on-device 2026-09-18 (~20:5x CEST) via a read-only backend.composition.compose(plugin_root=/home/deck/homebrew/plugins/SpeechToDeck).get_status() run over SSH beside the live plugin (Steam Deck, v0.2.0 install; data dir /home/deck/homebrew/data/SpeechToDeck). Fresh compose, so runtime.running is false and counters are zero — shape ground truth, not live counter state. Privacy: the report contains no text-bearing fields (verified by sweep before saving); clipboard is \"unavailable\" because bin/xclip is not installed. Everything except the \"_captureOrigin\" key is the verbatim captured payload.",
-    "cdpDiagnostics": {
-        "cdpAvailable": false,
-        "keyboardSeen": false,
-        "keyboardVisible": false,
-        "reason": "not-probed",
-        "spTargetSeen": false
-    },
+    "_captureOrigin": "Real get_status payload captured on-device 2026-09-18 (~20:5x CEST) via a read-only backend.composition.compose(plugin_root=/home/deck/homebrew/plugins/SpeechToDeck).get_status() run over SSH beside the live plugin (Steam Deck, v0.2.0 install; data dir /home/deck/homebrew/data/SpeechToDeck). Fresh compose, so runtime.running is false and counters are zero — shape ground truth, not live counter state. Privacy: the report contains no text-bearing fields (verified by sweep before saving); clipboard is \"unavailable\" because bin/xclip is not installed. The captured cdpDiagnostics field was removed after the CDP diagnostics feature was dropped from the backend; every remaining key is the verbatim captured payload.",
     "dictationFlow": {
         "clipboard": "unavailable"
     },

@@ -43,8 +43,6 @@ from backend.domain.session import SpeechSessionCoordinator
 from backend.infrastructure.clipboard.xclip_writer import XclipClipboardWriter
 from backend.infrastructure.model.model_manifest import ModelManifest, load_model_manifest
 from backend.infrastructure.model.model_store import ModelHttpFetcher, UrllibModelFetcher
-from backend.infrastructure.process.cdp_client import CdpClient
-from backend.infrastructure.process.cdp_diagnostics import CdpDiagnostics
 from backend.infrastructure.process.daemon_supervisor import SpeechDaemonSupervisor
 from backend.infrastructure.process.level_socket_client import LevelSocketClient
 from backend.infrastructure.process.process_environment import (
@@ -81,16 +79,6 @@ _RUNTIME_FIELDS = (
     "compute_backend",
     "language",
 )
-
-# Last-resort cdpDiagnostics report before the first bounded probe completed
-# (never assume availability; the frontend guard renders "unknown").
-CDP_REPORT_NOT_PROBED: dict[str, object] = {
-    "cdpAvailable": False,
-    "spTargetSeen": False,
-    "keyboardSeen": False,
-    "keyboardVisible": False,
-    "reason": "not-probed",
-}
 
 # Startup download resilience (on-device finding: one transient network
 # error killed startup permanently): bounded automatic retries for the
@@ -170,7 +158,6 @@ class Application:
         setup_progress: SetupProgressReporter,
         level_client: LevelSocketClient,
         clipboard_writer: ClipboardWriter | None = None,
-        cdp_diagnostics: CdpDiagnostics | None = None,
         backend_version: str | None = None,
     ) -> None:
         self.paths = paths
@@ -185,10 +172,6 @@ class Application:
         self.manifest = manifest
         self.resolver = resolver
         self.setup_progress = setup_progress
-        # Optional cross-view diagnostics: read-only CDP probe behind
-        # the user's "Allow Remote CEF Debugging" toggle. Never functional
-        # surface — unavailability degrades into the get_status report.
-        self.cdp_diagnostics = cdp_diagnostics
         # Additive presentation surface: the audio.sock level
         # stream runs ONLY while a recording session is active and is fully
         # contained — it can never affect the dictation flow.
@@ -200,8 +183,6 @@ class Application:
         # package.json at composition (read_backend_version). None omits the
         # field from the capability report.
         self._backend_version = backend_version
-        self._cdp_report: dict[str, object] = dict(CDP_REPORT_NOT_PROBED)
-        self._cdp_task: asyncio.Task[None] | None = None
         self._started = False
         self._disposed = False
         # Last startup failure for the `get_status` report: stable error
@@ -234,7 +215,6 @@ class Application:
             self._started = True
             ensure_directories(self.paths)
             settings = await self.settings_repository.load()
-            self._schedule_cdp_probe()
             try:
                 await self.monitor.start()
             except OSError as exc:
@@ -372,27 +352,6 @@ class Application:
         await setup.fail(str(exc.code))
         await self._publish_runtime_unavailable(exc.message)
 
-    # ── optional CDP diagnostics (read-only, fully contained) ────────────────
-
-    def _schedule_cdp_probe(self) -> None:
-        """One bounded probe run in the background; results surface in
-        `get_status`. Failure can never affect functional surface."""
-        if self.cdp_diagnostics is None or self._disposed:
-            return
-        if self._cdp_task is not None and not self._cdp_task.done():
-            return
-        self._cdp_task = asyncio.create_task(self._run_cdp_probe(), name="cdp-diagnostics")
-
-    async def _run_cdp_probe(self) -> None:
-        assert self.cdp_diagnostics is not None
-        try:
-            self._cdp_report = await self.cdp_diagnostics.probe()
-        except asyncio.CancelledError:
-            raise
-        except Exception as exc:
-            LOGGER.info("cdp diagnostics probe crashed: %s", type(exc).__name__)
-            self._cdp_report = {**CDP_REPORT_NOT_PROBED, "reason": "probe-failed"}
-
     async def dispose(self) -> None:
         """Disposal order; every step idempotent.
 
@@ -407,8 +366,6 @@ class Application:
             if self._disposed:
                 return
             self._disposed = True
-            if self._cdp_task is not None and not self._cdp_task.done():
-                self._cdp_task.cancel()
             # 1-2. stop accepting sessions; cancel any active recording.
             await self.speech.shutdown()
             await self._stop_level_stream()
@@ -445,8 +402,6 @@ class Application:
                 raise RuntimeUnavailableError("plugin is disabled by settings")
             await self._shutdown_runtime()
             await self._startup_runtime(settings)
-            # Fresh cross-view facts after an explicit restart action.
-            self._schedule_cdp_probe()
 
     async def migrate_settings(self) -> Settings:
         """Plugin migration hook: run the settings migration chain forward once."""
@@ -507,10 +462,6 @@ class Application:
             },
             "speech": self.speech.get_status(),
             "modelDownloadInProgress": self.models.download_in_progress(),
-            # Optional cross-view diagnostics (additive field):
-            # read-only facts behind the user's CEF-debugging toggle. The
-            # frontend guard ignores the field when an older backend omits it.
-            "cdpDiagnostics": dict(self._cdp_report),
             # Additive dictation-flow facts (optional field) for the
             # panel's diagnostics row: the backend clipboard leg reports its
             # writer availability; "unavailable" means the frontend
@@ -805,11 +756,6 @@ def compose(
     )
     monitor = RuntimeStatusMonitor(watcher, publisher)
 
-    # Optional cross-view diagnostics transport: stdlib CDP client
-    # over the user-controlled "Allow Remote CEF Debugging" endpoint. The
-    # production keyboard mount never depends on it.
-    cdp_diagnostics = CdpDiagnostics(CdpClient())
-
     return Application(
         paths=paths,
         publisher=publisher,
@@ -825,6 +771,5 @@ def compose(
         setup_progress=setup_progress,
         level_client=level_client,
         clipboard_writer=clipboard_writer,
-        cdp_diagnostics=cdp_diagnostics,
         backend_version=read_backend_version(plugin_root),
     )

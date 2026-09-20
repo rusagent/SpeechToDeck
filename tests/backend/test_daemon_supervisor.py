@@ -190,7 +190,6 @@ def test_generated_daemon_config_maps_language_and_model(tmp_path: Path) -> None
         compute_backend="cpu",
         model_id="tiny",
         language="de",
-        output_mode="direct-insert",
     )
     toml = daemon_config_toml(
         settings,
@@ -258,7 +257,6 @@ def test_daemon_config_effective_language_matrix() -> None:
             compute_backend="cpu",
             model_id="m",
             language=language,
-            output_mode="direct-insert",
         )
         toml = daemon_config_toml(
             settings,
@@ -620,7 +618,6 @@ def test_start_with_explicit_cpu_backend_runs_avx2_binary(tmp_path: Path) -> Non
             compute_backend="cpu",
             model_id="base",
             language="system",
-            output_mode="direct-insert",
         )
         await supervisor.start(settings)
         assert supervisor.selected_backend == "cpu"

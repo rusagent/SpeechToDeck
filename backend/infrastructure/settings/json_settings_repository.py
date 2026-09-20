@@ -2,8 +2,10 @@
 
 The backend owns persistence; the frontend never writes settings files
 directly. Writes are atomic (serialize → tmp file → flush → fsync →
-rename). Unknown fields are rejected deliberately; schema versions migrate
-upward through an explicit chain and fail closed on gaps.
+rename). Unknown fields are rejected deliberately; removed legacy fields
+(`maxRecordingSeconds`, `vadEnabled`, `outputMode`) are tolerated on load
+and dropped on the next save. Schema versions migrate upward through an
+explicit chain and fail closed on gaps.
 """
 
 from __future__ import annotations
@@ -35,7 +37,6 @@ _WIRE_FIELDS = (
     "computeBackend",
     "modelId",
     "language",
-    "outputMode",
 )
 _KNOWN_FIELDS = frozenset(_WIRE_FIELDS)
 
@@ -44,11 +45,12 @@ _KNOWN_FIELDS = frozenset(_WIRE_FIELDS)
 # their persisted settings.json (e.g. maxRecordingSeconds 110 / vadEnabled
 # true), so load TOLERATES them — stripped before validation, never
 # rejected, and never written back (the wire snapshot no longer carries
-# them).
-_LEGACY_FIELDS = frozenset({"maxRecordingSeconds", "vadEnabled"})
+# them). The same applies to `outputMode`: the output is clipboard-only
+# since the in-keyboard insertion feature was removed, and v0.2.2 device
+# files carry "outputMode": "direct-insert".
+_LEGACY_FIELDS = frozenset({"maxRecordingSeconds", "vadEnabled", "outputMode"})
 
 _COMPUTE_BACKENDS = frozenset({"auto", "vulkan", "cpu"})
-_OUTPUT_MODES = frozenset({"direct-insert", "clipboard-only"})
 
 _MODEL_ID_RE = re.compile(r"^[a-z0-9][a-z0-9._-]{0,63}$")
 # "system" | "auto" | explicit language code (e.g. "en", "pt-BR").
@@ -94,13 +96,6 @@ def _validate_fields(raw: dict[str, object]) -> Settings:
             detail=f"got {compute_backend!r}",
         )
 
-    output_mode = _require_str(raw, "outputMode")
-    if output_mode not in _OUTPUT_MODES:
-        raise SettingsInvalidError(
-            "outputMode must be direct-insert or clipboard-only",
-            detail=f"got {output_mode!r}",
-        )
-
     model_id = _require_str(raw, "modelId")
     if _MODEL_ID_RE.fullmatch(model_id) is None:
         raise SettingsInvalidError("modelId has an invalid format", detail=f"got {model_id!r}")
@@ -115,7 +110,6 @@ def _validate_fields(raw: dict[str, object]) -> Settings:
         compute_backend=compute_backend,  # type: ignore[arg-type]  # validated above
         model_id=model_id,
         language=language,
-        output_mode=output_mode,  # type: ignore[arg-type]  # validated above
     )
 
 
@@ -152,10 +146,10 @@ def _apply_migrations(raw: dict[str, object]) -> dict[str, object]:
 def settings_from_payload(raw: object) -> Settings:
     """Validate a wire payload (post-migration shape) into Settings.
 
-    Legacy keys (`maxRecordingSeconds`, `vadEnabled`) are tolerated on load:
-    they are stripped before the unknown-field check, so a settings file
-    from an older release loads unchanged instead of being rejected — and
-    since the
+    Legacy keys (`maxRecordingSeconds`, `vadEnabled`, `outputMode`) are
+    tolerated on load: they are stripped before the unknown-field check, so
+    a settings file from an older release loads unchanged instead of being
+    rejected — and since the
     resulting wire snapshot omits them, the next save drops them (never
     written back).
     """
@@ -202,7 +196,6 @@ class JsonSettingsRepository:
                 compute_backend="auto",
                 model_id="base",
                 language="system",
-                output_mode="direct-insert",
             )
         except OSError as exc:
             raise SettingsInvalidError(

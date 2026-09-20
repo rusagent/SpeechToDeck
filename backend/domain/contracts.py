@@ -12,7 +12,6 @@ from typing import Literal, Protocol, runtime_checkable
 from backend.domain.errors import PROTOCOL_VERSION, SpeechError
 
 ComputeBackend = Literal["auto", "vulkan", "cpu"]
-OutputMode = Literal["direct-insert", "clipboard-only"]
 
 # Every cross-boundary payload carries protocolVersion.
 PROTOCOL_VERSION_V1: int = PROTOCOL_VERSION
@@ -59,6 +58,9 @@ class Settings:
     `maxRecordingSeconds` and `vadEnabled` are no longer part of the
     settings document. The settings repository still tolerates both keys on
     load — existing device files carry them — and never writes them back.
+    The same applies to `outputMode`: the output is clipboard-only since the
+    in-keyboard insertion feature was removed, so the key is tolerated on
+    load and dropped on the next save.
     """
 
     schema_version: int
@@ -66,7 +68,6 @@ class Settings:
     compute_backend: ComputeBackend
     model_id: str
     language: str
-    output_mode: OutputMode
 
     def to_payload(self) -> dict[str, object]:
         """Wire (camelCase) representation of the settings."""
@@ -76,7 +77,6 @@ class Settings:
             "computeBackend": self.compute_backend,
             "modelId": self.model_id,
             "language": self.language,
-            "outputMode": self.output_mode,
         }
 
 
@@ -86,7 +86,6 @@ DEFAULT_SETTINGS = Settings(
     compute_backend="auto",
     model_id="base",
     language="system",
-    output_mode="direct-insert",
 )
 
 

@@ -197,15 +197,16 @@ def test_facade_fails_closed_against_unpinned_runtime(tmp_path: Path) -> None:
 
             settings = await plugin.get_settings()
             assert settings["modelId"] == "base"  # shipped default
-            # The update payload carries no maxRecordingSeconds — the
-            # field left the document and the backend ignores it on merge.
-            updated = await plugin.update_settings({"outputMode": "clipboard-only"})
-            assert updated["outputMode"] == "clipboard-only"
+            # Legacy keys (maxRecordingSeconds et al.) left the document and
+            # are ignored on merge; a plain field update round-trips.
+            updated = await plugin.update_settings({"language": "de"})
+            assert updated["language"] == "de"
             assert "maxRecordingSeconds" not in updated
             persisted = json.loads((data_dir / "settings.json").read_text(encoding="utf-8"))
-            assert persisted["outputMode"] == "clipboard-only"
+            assert persisted["language"] == "de"
             assert "maxRecordingSeconds" not in persisted
             assert "vadEnabled" not in persisted
+            assert "outputMode" not in persisted
 
             # Runtime down (unpinned) → the runtime guard fires first.
             missing = await plugin.start_recording("session-1")
@@ -419,9 +420,14 @@ def test_update_settings_drives_runtime_lifecycle(tmp_path: Path) -> None:
 
             assert await wait_until(new_model_in_daemon_log, timeout=5.0)
 
-            # Irrelevant change (frontend-only field): no restart.
+            # Runtime-irrelevant update (no effective value change): no
+            # restart. Every remaining wire field is either lifecycle-owned
+            # or runtime-relevant, so the storm guard fires on value
+            # equality — an update that changes nothing restarts nothing.
             starting_before = len(starting_events(publisher))
-            await app.update_settings({"outputMode": "clipboard-only"})
+            current = await app.get_settings()
+            current.pop("schemaVersion")  # backend-owned; never client-set
+            await app.update_settings(current)
             assert len(starting_events(publisher)) == starting_before
             assert app.supervisor.is_running()
         finally:
