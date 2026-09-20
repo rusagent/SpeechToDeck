@@ -209,7 +209,7 @@ describe("SettingsPanel", () => {
         expect(screen.getAllByText(/Output mode/).length).toBeGreaterThan(0);
 
         // Removed rows and the whole Diagnostics section stay gone (declutter
-        // owner declutter; the Compute backend select followed later — owner
+        // owner request; the Compute backend select followed later — owner
         // decision that the Vulkan/CPU choice is an internal concern, the
         // setting stays "auto" and is simply never rendered).
         expect(screen.queryByText(/Compute backend/)).toBeNull();

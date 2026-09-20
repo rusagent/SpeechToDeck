@@ -1,11 +1,11 @@
 #!/usr/bin/env node
-// Artifact manifest validation (CI gate "artifact manifest validation", spec §97).
+// Artifact manifest validation (CI gate "artifact manifest validation").
 //
-// Validates defaults/models.json against the model manifest schema (spec §50)
+// Validates defaults/models.json against the model manifest schema
 // and defaults/runtime-manifest.json against the runtime artifact integrity
-// schema (spec §53). The script uses Node only — no third-party dependencies.
+// schema. The script uses Node only — no third-party dependencies.
 //
-// Gate policy (spec §129: done means the CI gate list is green):
+// Gate policy (done means the CI gate list is green):
 // - models.json violations are always hard failures with a nonzero exit
 //   code. A model entry without a real, verified digest can never pass this
 //   gate; digests are never guessed or computed from anything other than the
@@ -37,7 +37,7 @@ const MODEL_ID_RE = /^[a-z0-9][a-z0-9._-]*$/;
 const LANGUAGE_CODE_RE = /^[a-z]{2,8}(-[a-z0-9]{1,8})*$/;
 const MAX_DESCRIPTION_CHARS = 200;
 const MAX_MODEL_SIZE_BYTES = 2147483648;
-// Curated v1 model set (spec §48).
+// Curated v1 model set.
 const REQUIRED_MODEL_IDS = ["tiny", "base", "small"];
 const ALLOWED_ENGINES = new Set(["whisper"]);
 const ALLOWED_MODEL_FIELDS = new Set([
@@ -157,7 +157,7 @@ function validateModels() {
         if (typeof model.filename !== "string" || model.filename.length === 0) {
             fail(`${label}.filename: must be a non-empty string`);
         } else if (/[\\/]/.test(model.filename) || model.filename.includes("..")) {
-            // Model files live in the plugin data directory only (spec §109: reject path traversal).
+            // Model files live in the plugin data directory only (reject path traversal).
             fail(
                 `${label}.filename: must be a plain file name, got ${JSON.stringify(model.filename)}`,
             );
@@ -260,7 +260,7 @@ function validateRuntimeManifest() {
         }
 
         // A runtime artifact is "unpinned" while its sha256 is still empty
-        // (spec §53; acquisition procedure in bin/README.md).
+        // (acquisition procedure in bin/README.md).
         const pinned =
             typeof artifact.sha256 === "string" &&
             artifact.sha256.length > 0 &&
@@ -300,7 +300,7 @@ function validateRuntimeManifest() {
         }
 
         if (pinned) {
-            // Once pinned, every provenance field must be filled (spec §53).
+            // Once pinned, every provenance field must be filled.
             for (const field of ["version", "source", "license"]) {
                 if (typeof artifact[field] !== "string" || artifact[field].length === 0) {
                     fail(

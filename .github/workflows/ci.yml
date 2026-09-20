@@ -1,4 +1,4 @@
-# CI pipeline implementing the gate list from docs/spec/spec-v1.0.md §97.
+# CI pipeline implementing the project's gate list.
 #
 # All gates run unconditionally: their inputs (src/, tests/, backend/,
 # main.py, scripts/validate-package.mjs) are permanent parts of this
@@ -6,7 +6,7 @@
 # Actions (hashFiles is step-only) and were removed after run 35155004723
 # failed at startup.
 #
-# No release artifact is produced while any required gate fails (§97).
+# No release artifact is produced while any required gate fails.
 
 name: CI
 
@@ -68,7 +68,7 @@ jobs:
                   node-version: 24
                   cache: pnpm
             - run: pnpm install --frozen-lockfile
-            # §98 strict flags: strict, noImplicitAny, noUncheckedIndexedAccess,
+            # Strict flags: strict, noImplicitAny, noUncheckedIndexedAccess,
             # exactOptionalPropertyTypes (all set in tsconfig.json).
             - run: pnpm typecheck
 
@@ -146,7 +146,7 @@ jobs:
                   cache: pnpm
             - run: pnpm install --frozen-lockfile
             # Contract tests are TypeScript (boundary validation across the
-            # Decky event protocol, §67, §99) and run under vitest.
+            # Decky event protocol) and run under vitest.
             - run: pnpm exec vitest run tests/contract
 
     # ── Artifact and package gates ────────────────────────────────────────────
@@ -160,7 +160,7 @@ jobs:
                   node-version: 24
             # Default policy: models.json violations fail hard; the unpinned
             # runtime artifact prints a loud RUNTIME_UNPINNED diagnostic and
-            # stays green (product code fails closed at startup, §129).
+            # stays green (product code fails closed at startup).
             # Release packaging must add --strict, which fails on unpinned.
             - run: node scripts/validate-manifests.mjs
 

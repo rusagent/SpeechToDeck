@@ -4,7 +4,7 @@
 #   tag push `v*` or workflow_dispatch(channel)
 #     → gates       same checks as the ci.yml core jobs; the artifact manifest
 #                   gate runs with --strict, so a release cannot be cut while
-#                   the native runtime artifact is unpinned (bin/README.md, §53)
+#                   the native runtime artifact is unpinned (bin/README.md)
 #     → package     toolchain build inside ghcr.io/steamdeckhomebrew/builder
 #                   (entrypoint: pnpm i --frozen-lockfile, pnpm run build,
 #                   assemble to /out), then scripts/build-package.mjs produces
@@ -69,7 +69,7 @@ jobs:
             - run: pnpm typecheck
             - run: pnpm test
             - run: pnpm build
-            # §53: release packaging requires the strict manifest gate (fails
+            # Release packaging requires the strict manifest gate (fails
             # hard on an unpinned runtime artifact).
             - run: node scripts/validate-manifests.mjs --strict
             - run: node scripts/validate-licenses.mjs

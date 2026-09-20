@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// Package structure validation (CI gate; spec §97/§112 + Decky store contract).
+// Package structure validation (CI gate + Decky store contract).
 //
 // Validates a built plugin package against the shipped layout the Decky
 // packager produces (decky CLI `decky plugin build -s <dir>` inside

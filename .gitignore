@@ -14,11 +14,11 @@ coverage/
 .ruff_cache/
 .pytest_cache/
 
-# Partial model downloads (ModelStore download algorithm, spec §51)
+# Partial model downloads (ModelStore download algorithm)
 *.part
 
 # Model binaries and runtime artifacts are never committed to git; they are
-# downloaded at runtime and checksummed against defaults/ manifests (§50/§53).
+# downloaded at runtime and checksummed against defaults/ manifests.
 *.bin
 # recorded level-frame fixtures for the audio.sock parser tests
 !tests/fixtures/levels/*.bin

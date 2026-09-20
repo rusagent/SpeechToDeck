@@ -1,9 +1,9 @@
 #!/usr/bin/env node
-// Third-party license validation (CI gate "third-party license validation", spec §97).
+// Third-party license validation (CI gate "third-party license validation").
 //
 // Checks that every runtime dependency declared in package.json is covered by
 // THIRD_PARTY_NOTICES.md. Dev-only tooling does not ship in the plugin package
-// (spec §112) and is therefore not checked here; bundled native artifacts are
+// and is therefore not checked here; bundled native artifacts are
 // covered through the license field in defaults/runtime-manifest.json, which
 // scripts/validate-manifests.mjs requires to be non-empty.
 //

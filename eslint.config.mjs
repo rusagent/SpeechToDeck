@@ -1,7 +1,7 @@
 import tseslint from "typescript-eslint";
 
 // Flat config (ESLint 9+). Steam private-API code must live exclusively under
-// src/infrastructure/steam/ (spec §3.3); boundary rules can be tightened there
+// src/infrastructure/steam/; boundary rules can be tightened there
 // once that package exists.
 export default tseslint.config(
     {
@@ -14,7 +14,7 @@ export default tseslint.config(
         },
     },
     {
-        // Spec §98: `any` is tolerated only at the Steam private-API boundary and
+        // `any` is tolerated only at the Steam private-API boundary and
         // must be converted immediately into typed internal representations.
         files: ["src/infrastructure/steam/**/*.ts", "src/infrastructure/steam/**/*.tsx"],
         rules: {

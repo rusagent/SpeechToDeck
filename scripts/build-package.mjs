@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// Package builder (release pipeline "package" step; spec §112 + store contract).
+// Package builder (release pipeline "package" step + store contract).
 //
 // Assembles the verified Decky package layout from a source tree and writes a
 // deterministic, dependency-free zip with a single top-level directory named
@@ -87,7 +87,7 @@ function listFilesRecursive(root, relative = "") {
             files.push(relPosix);
         }
     }
-    // Reproducibility (§111): readdirSync order is filesystem-dependent, so
+    // Reproducibility: readdirSync order is filesystem-dependent, so
     // sort the accumulated relPosix paths before selection — the zip entry
     // order and the SHA256SUMS.txt digest stay machine-independent.
     return files.sort();

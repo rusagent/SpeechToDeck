@@ -1,6 +1,6 @@
 import deckyPlugin from "@decky/rollup";
 
-// Decky loads the plugin frontend from dist/index.js (spec §112 Packaging) as
+// Decky loads the plugin frontend from dist/index.js (packaging contract) as
 // an ES MODULE: the loader evaluates `const m = await import(url);
 // let plugin = m.default();` and provides NO globals of its own. The official
 // build contract (decky-plugin-template: `export default deckyPlugin({})`,

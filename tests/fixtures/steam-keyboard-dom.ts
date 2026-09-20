@@ -1,5 +1,5 @@
 /**
- * Steam keyboard DOM fixtures (spec §89): models of known Steam keyboard
+ * Steam keyboard DOM fixtures: models of known Steam keyboard
  * markup structures. These exercise the default compatibility profile's
  * multi-evidence locators — semantic attributes as primary evidence, roles
  * and structure as confirmation, minified classes only as decoration.
