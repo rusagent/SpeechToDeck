@@ -1,4 +1,4 @@
-"""In-app model deletion (owner request): the `delete_model` callable chain.
+"""In-app model deletion: the `delete_model` callable chain.
 
 Covers the whole backend path of the feature: the Application active-model
 guard (the settings seam), the ModelService manifest resolve + in-flight

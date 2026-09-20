@@ -9,13 +9,13 @@ no transcript was ever produced (3 recordings started, 0 transcribed).
 `PIPEWIRE_RUNTIME_DIR` (which libpipewire resolves before `XDG_RUNTIME_DIR`)
 while keeping the voxtype-state override intact.
 
-Second on-device pass (deck 2026-09-18 22:19): the installed first fix never
+Second on-device pass: the installed first fix never
 reached the daemon — the Decky-loader-spawned plugin process itself carries
 NO `XDG_RUNTIME_DIR` (daemon env proved it: the key was absent while the new
 code was running). The session dir therefore falls back to the XDG-standard
 `/run/user/<uid>`, forwarded only when that directory really exists.
 
-Third on-device pass (deck 2026-09-19, cold boot): the backend process was
+Third on-device pass (cold boot): the backend process was
 spawned as ROOT, so its own `os.getuid()` resolved `/run/user/0` (missing)
 and the key was omitted again. The uid now comes from the plugin data
 directory's OWNER (`os.stat(data_dir).st_uid`, injectable as
@@ -50,7 +50,7 @@ def test_env_value_wins_for_audio_dir(tmp_path: Path, monkeypatch: pytest.Monkey
 def test_data_dir_owner_uid_wins_over_process_uid(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """Cold-boot defect (deck 2026-09-19): the backend ran as ROOT while the
+    """Cold-boot defect: the backend ran as ROOT while the
     daemon runs as the data dir's owner (deck, 1000). The session dir must
     resolve from the OWNER's uid, never the backend process's own."""
     monkeypatch.delenv("XDG_RUNTIME_DIR", raising=False)

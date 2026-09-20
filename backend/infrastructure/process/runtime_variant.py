@@ -121,7 +121,10 @@ def load_pinned_runtime_artifacts(manifest_path: Path) -> dict[str, PinnedArtifa
             problems.append(f"{label}.sha256 must be 64 lowercase hex characters")
         source = values.get("source", "")
         if source and not source.startswith("https://"):
-            problems.append(f"{label}.source must be an https URL (§53: never download latest)")
+            problems.append(
+                f"{label}.source must be a version-pinned https URL; "
+                "downloading a latest release is rejected"
+            )
 
         if not problems and variant in VALID_VARIANTS and variant not in by_variant:
             by_variant[variant] = PinnedArtifact(
@@ -217,7 +220,7 @@ class RuntimeVariantResolver:
         """Explicit auto policy: probe vulkan, fall back to avx2."""
         if await self._probe(self, config_path):
             return "vulkan"
-        LOGGER.info("vulkan probe failed; auto policy falls back to the avx2 binary (§47)")
+        LOGGER.info("vulkan probe failed; auto policy falls back to the avx2 binary")
         return "cpu"
 
     def _artifact(self, variant: str) -> PinnedArtifact:

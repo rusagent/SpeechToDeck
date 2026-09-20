@@ -17,7 +17,7 @@ class ErrorCode(StrEnum):
 
     Only codes the backend can produce are declared here. Frontend-only codes
     (STEAM_KEYBOARD_*, PASTE_*, CLIPBOARD_*, KEYBOARD_CONTEXT_CHANGED) belong
-    to the frontend lane.
+    to the frontend.
     """
 
     MICROPHONE_UNAVAILABLE = "MICROPHONE_UNAVAILABLE"
@@ -90,11 +90,6 @@ class CodedSpeechError(SpeechError):
 
     def _code(self) -> ErrorCode:  # pragma: no cover - overridden
         raise NotImplementedError
-
-
-class MicrophoneUnavailableError(CodedSpeechError):
-    def _code(self) -> ErrorCode:
-        return ErrorCode.MICROPHONE_UNAVAILABLE
 
 
 class RuntimeStartError(CodedSpeechError):
@@ -180,13 +175,6 @@ class SessionConflictError(CodedSpeechError):
 class StaleSessionError(CodedSpeechError):
     def _code(self) -> ErrorCode:
         return ErrorCode.STALE_SESSION
-
-
-class EmptyTranscriptError(CodedSpeechError):
-    """Dedicated transcript error. Empty speech is not a runtime error."""
-
-    def _code(self) -> ErrorCode:
-        return ErrorCode.EMPTY_TRANSCRIPT
 
 
 class InvalidTranscriptError(CodedSpeechError):

@@ -486,13 +486,12 @@ def test_orphan_prevention_via_process_group_kill(tmp_path: Path) -> None:
 
 @pytest.mark.skipif(sys.platform != "linux", reason="PR_SET_PDEATHSIG is Linux-only")
 def test_pdeathsig_ends_daemon_when_backend_process_is_sigkilled(tmp_path: Path) -> None:
-    """Loader dispose hole (mature-plugin adopt; audit 2026-09-17): the
-    loader kills only the plugin process (KillMode=process; SIGKILL after the
-    5 s dispose window), so graceful `_unload` teardown never runs. A backend
-    stand-in starts the REAL supervisor (production `_spawn` wiring) and is
-    SIGKILLed; the kernel-level PDEATHSIG from `daemon_preexec` must end the
-    daemon — the fixture's SIGTERM handler (stop semantics) deleted its state
-    file."""
+    """The loader kills only the plugin process (KillMode=process; SIGKILL
+    after the 5 s dispose window), so graceful `_unload` teardown never runs.
+    A backend stand-in starts the REAL supervisor (production `_spawn` wiring)
+    and is SIGKILLed; the kernel-level PDEATHSIG from `daemon_preexec` must
+    end the daemon — the fixture's SIGTERM handler (stop semantics) deleted
+    its state file."""
 
     async def scenario() -> None:
         paths = await prepare_pinned(tmp_path)
@@ -523,7 +522,7 @@ def test_pdeathsig_ends_daemon_when_backend_process_is_sigkilled(tmp_path: Path)
             "    paths = PluginPaths(plugin_root=Path(plugin_root), data_dir=Path(data_dir))\n"
             "    ensure_directories(paths)\n"
             "\n"
-            "    async def probe(resolver, config_path):  # §47 decision, deterministic\n"
+            "    async def probe(resolver, config_path):  # auto-policy stand-in, deterministic\n"
             "        return False  # cpu\n"
             "\n"
             "    supervisor = SpeechDaemonSupervisor(\n"
@@ -632,7 +631,7 @@ def test_start_with_explicit_cpu_backend_runs_avx2_binary(tmp_path: Path) -> Non
     asyncio.run(scenario())
 
 
-# ── private executable copy (on-device ETXTBSY fix, deck 2026-09-18) ────────
+# ── private executable copy (on-device ETXTBSY fix) ─────────────────────────
 
 
 def exec_copy_dir(paths: PluginPaths) -> Path:

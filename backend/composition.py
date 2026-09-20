@@ -694,7 +694,7 @@ class Application:
         return {"cancelled": cancelled}
 
     async def delete_model(self, model_id: str) -> dict[str, object]:
-        """Delete one installed model file (in-app model cleanup, owner request).
+        """Delete one installed model file (in-app model cleanup).
 
         Active-model protection: the selected model is never deletable — the
         settings document keeps referencing it and the runtime needs it. The

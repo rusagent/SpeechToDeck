@@ -106,7 +106,7 @@ class ModelService:
         LOGGER.info("model downloaded id=%s", info.id)
 
     async def delete_model(self, model_id: str) -> dict[str, object]:
-        """Delete one installed model file (in-app model cleanup, owner request).
+        """Delete one installed model file (in-app model cleanup).
 
         The path never crosses the boundary as input: the id resolves against
         the strict manifest and the store derives `<data_dir>/models/<filename>`

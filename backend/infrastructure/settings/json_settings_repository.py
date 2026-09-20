@@ -39,8 +39,8 @@ _WIRE_FIELDS = (
 )
 _KNOWN_FIELDS = frozenset(_WIRE_FIELDS)
 
-# `maxRecordingSeconds` and `vadEnabled` left the settings document
-# (owner declutter). Devices updated from earlier releases carry both keys in
+# `maxRecordingSeconds` and `vadEnabled` left the settings document.
+# Devices updated from earlier releases carry both keys in
 # their persisted settings.json (e.g. maxRecordingSeconds 110 / vadEnabled
 # true), so load TOLERATES them — stripped before validation, never
 # rejected, and never written back (the wire snapshot no longer carries

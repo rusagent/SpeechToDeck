@@ -193,8 +193,8 @@ def test_cdp_flow_routes_ids_sessions_and_records_calls() -> None:
             session = await client.attach("SP")
             assert session == "SESSION-1"
 
-            receipt = await client.evaluate(session, "!!window.__stdKeyboardHostLoaded")
-            assert receipt is False  # receipt_value lever defaults to False
+            result = await client.evaluate(session, "!!window.__stdKeyboardHostLoaded")
+            assert result is False  # result_value lever defaults to False
             await client.add_script_to_evaluate_on_new_document(session, "/* bootstrap */")
             await client.add_binding(session, "stdMicPressBinding")
             await client.insert_text(session, "one bulk payload")

@@ -236,8 +236,8 @@ def daemon_config_toml(
       a 24 h runaway-recording valve (`DEFAULT_MAX_RECORDING_SECONDS`),
       emitted as a FIXED constant — recording is practically unlimited
       (upstream has no true unlimited mode: 0 auto-stops within ~100 ms).
-      The setting was removed from the settings document (owner
-      declutter), so no user value reaches this key;
+      The setting was removed from the settings document, so no user
+      value reaches this key;
     - `[whisper] model` — absolute path to OUR downloaded ggml file (upstream
       accepts ids or absolute .bin paths; the absolute path keeps downloads
       and checksums under our ModelStore control);
@@ -258,7 +258,7 @@ def daemon_config_toml(
     - `[vad] enabled` — FIXED to false — the silero VAD model is not
       bundled, voxtype warns and continues without it, so a `true` line only
       configured a feature that never initialized (the settings toggle stays
-      removed, owner declutter);
+      removed);
     - `[output] mode = "file"` + `file_path` + `file_mode = "overwrite"` —
       atomic per-recording transcript writes with the `.done` sidecar;
     - `[output.notification]` all off and `[osd] enabled = false` (upstream
@@ -443,7 +443,7 @@ class SpeechDaemonSupervisor:
         digest = await asyncio.to_thread(hash_binary, resolved.binary)
         if digest != resolved.artifact.sha256:
             raise RuntimeStartError(
-                "runtime binary does not match the pinned digest (§53)",
+                "runtime binary does not match the pinned digest",
                 detail=f"expected {resolved.artifact.sha256[:12]}… got {digest[:12]}…",
             )
         exec_path = await asyncio.to_thread(
@@ -585,7 +585,7 @@ class SpeechDaemonSupervisor:
                 available=False,
                 state="unavailable",
                 exit_code=self.last_exit_code,
-                detail="restart policy exhausted; explicit restart required (§70)",
+                detail="restart policy exhausted; explicit restart required",
             )
             return
 
@@ -595,7 +595,7 @@ class SpeechDaemonSupervisor:
                 available=False,
                 state="unavailable",
                 exit_code=self.last_exit_code,
-                detail="restart skipped: session activity pending (§70)",
+                detail="restart skipped: session activity pending",
             )
             return
 

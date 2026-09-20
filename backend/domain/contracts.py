@@ -33,9 +33,9 @@ EVENT_SETUP_PROGRESS = "setup_progress"
 EVENT_RECORDING_LEVEL = "recording_level"
 
 # Recording-length bound for the daemon. The maximum-recording-duration and
-# VAD settings were removed from the settings document (owner declutter); the
-# daemon still needs both, so the supervisor emits this shipped cap and VAD
-# enabled as fixed constants (daemon_supervisor.daemon_config_toml) and the
+# VAD settings were removed from the settings document; the daemon still
+# needs both, so the supervisor emits this shipped cap and VAD enabled as
+# fixed constants (daemon_supervisor.daemon_config_toml) and the
 # transcription watchdog budgets from it.
 # The cap is a 24 h runaway-recording VALVE, not a UX limit — recording is
 # practically unlimited. Upstream has no true unlimited mode:
@@ -134,13 +134,6 @@ class SpeechRuntime(Protocol):
     async def stop_recording(self) -> None: ...
 
     async def cancel_recording(self) -> None: ...
-
-
-@runtime_checkable
-class SettingsRepository(Protocol):
-    async def load(self) -> Settings: ...
-
-    async def save(self, settings: Settings) -> None: ...
 
 
 @runtime_checkable

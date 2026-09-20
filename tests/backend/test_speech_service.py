@@ -431,8 +431,8 @@ def test_empty_transcript_writes_no_clipboard() -> None:
 
     assert writer.texts == []  # nothing copied
     # The empty outcome event still travels (the frontend machine consumes
-    # it to leave the stop flow; deck 2026-09-18 lock finding) — but the
-    # clipboard leg is skipped, never attempted with empty text.
+    # it to leave the stop flow) — but the clipboard leg is skipped, never
+    # attempted with empty text.
     ready = harness.publisher.payloads(READY)
     assert len(ready) == 1
     assert ready[0]["text"] == ""

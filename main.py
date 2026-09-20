@@ -1,7 +1,7 @@
 """Decky plugin entrypoint: deliberately thin facade.
 
-Exposes exactly the backend callables (plus the owner-requested `delete_model`
-in-app model cleanup route) and delegates every concern to the composed
+Exposes exactly the backend callables (plus the in-app `delete_model`
+model-management callable) and delegates every concern to the composed
 application (backend/composition.py). The application is composed lazily on
 first use under a lock: the Decky loader runs `_migration` before `_main`
 (observed on device), so no hook may assume `_main` has

@@ -125,7 +125,7 @@ def _loader_ssl_context() -> ssl.SSLContext | None:
 
 
 def resolve_download_tls_context() -> tuple[ssl.SSLContext, str]:
-    """TLS context for model downloads plus its audit source label.
+    """TLS context for model downloads plus its provenance label.
 
     Selection: the loader's certifi context when running under the Decky
     loader, else the first existing system CA bundle, else the default

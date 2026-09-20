@@ -68,7 +68,7 @@ def ensure_executable_copy(source: Path, target_dir: Path, *, source_digest: str
             with contextlib.suppress(OSError):
                 tmp.unlink(missing_ok=True)
             raise RuntimeStartError(
-                "executable copy does not match the verified source digest (§53)",
+                "executable copy does not match the verified source digest",
                 detail=f"expected {source_digest[:12]}… got {copied[:12]}…",
             )
         # Atomic publish: a daemon executing the previous target inode keeps

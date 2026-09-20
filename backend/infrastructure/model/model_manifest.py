@@ -110,8 +110,7 @@ def _validate(models_raw: object) -> tuple[ModelInfo, ...]:
             errors.append(f"{label}.sha256: must be a string")
         elif len(sha256) == 0:
             errors.append(
-                f"{label}.sha256 is empty: model artifacts must ship with a real "
-                "SHA-256 digest (spec §50)"
+                f"{label}.sha256 is empty: model artifacts must ship with a real SHA-256 digest"
             )
         elif SHA256_RE.fullmatch(sha256) is None:
             errors.append(f"{label}.sha256: must be 64 lowercase hex characters")
@@ -190,7 +189,7 @@ def _validate(models_raw: object) -> tuple[ModelInfo, ...]:
 
     for required_id in REQUIRED_MODEL_IDS:
         if required_id not in seen_ids:
-            errors.append(f"curated v1 model set (spec §48) is missing {required_id!r}")
+            errors.append(f"curated v1 model set is missing {required_id!r}")
 
     if errors:
         raise ManifestInvalidError(

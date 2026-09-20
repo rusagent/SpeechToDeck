@@ -244,14 +244,14 @@ def test_transport_failure_is_transient_with_reason_and_host() -> None:
     asyncio.run(scenario())
 
 
-# ── TLS context selection (mature-plugin adopt; audit 2026-09-17) ──────────
+# ── TLS context selection ───────────────────────────────────────────────────
 #
 # On device the plugin runs as a fork of the frozen Decky loader whose
 # bundled OpenSSL does not resolve the OS CA store: downloads failed with
 # CERTIFICATE_VERIFY_FAILED. The production selection takes the loader's
 # certifi context via the loader's bare-name module aliasing, else the
-# explicit system CA chain. Verification is never disabled (audit: the
-# shipped CssLoader verify_ssl=False pattern is explicitly rejected).
+# explicit system CA chain. Verification is never disabled (a
+# verify_ssl=False-style context is explicitly rejected).
 
 
 class _FakeLoaderHelpers:
@@ -283,7 +283,7 @@ def test_loader_context_is_chosen_when_loader_module_is_aliased(
     context, source = model_store.resolve_download_tls_context()
 
     assert context is loader_context
-    assert "loader" in source  # the audit label reports the loader context
+    assert "loader" in source  # the provenance label reports the loader context
     assert context.verify_mode == ssl.CERT_REQUIRED  # verification never disabled
 
 

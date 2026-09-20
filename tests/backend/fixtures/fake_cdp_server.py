@@ -94,7 +94,7 @@ class FakeCdpServer:
     """One fake endpoint: HTTP discovery plus a browser WebSocket.
 
     Records every CDP call as ``(sessionId, method, params)`` and exposes
-    levers the tests drive: ``receipt_value`` (the ``__stdKeyboardHostLoaded``
+    levers the tests drive: ``result_value`` (the ``__stdKeyboardHostLoaded``
     probe answer), ``targets``, ``fail_attach``, ``drop_socket``.
     """
 
@@ -110,7 +110,7 @@ class FakeCdpServer:
         self.bindings: list[str] = []
         self.insert_texts: list[str] = []
         self.targets: list[dict[str, Any]] = list(SCAN_TARGETS)
-        self.receipt_value = False
+        self.result_value = False
         self.keyboard_present = True
         self.keyboard_visible = False
         self.fail_attach = False
@@ -298,7 +298,7 @@ class FakeCdpServer:
                     + "}"
                 )
                 return {"result": {"type": "string", "value": value}}, None
-            value = self.receipt_value if "__stdKeyboardHostLoaded" in expression else True
+            value = self.result_value if "__stdKeyboardHostLoaded" in expression else True
             return {"result": {"type": "boolean", "value": value}}, None
         if method == "Page.addScriptToEvaluateOnNewDocument":
             source = params.get("source")

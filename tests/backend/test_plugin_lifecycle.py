@@ -267,9 +267,9 @@ def test_callable_after_unload_fails_closed(
 def test_composition_under_decky_wires_emit_transport(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """Audit must-fix 1: under the loader, composition wires the real event
-    transport (DeckyEventPublisher over the module-level `decky_plugin.emit`),
-    so setup_progress/model events reach the frontend instead of only logs."""
+    """Under the loader, composition wires the real event transport
+    (DeckyEventPublisher over the module-level `decky_plugin.emit`), so
+    setup_progress/model events reach the frontend instead of only logs."""
 
     async def scenario() -> None:
         decky = _FakeDeckyModule(tmp_path / "decky-data")
@@ -315,8 +315,8 @@ def test_composition_without_decky_keeps_logging_publisher_default(
 def test_data_dir_resolution_uses_loader_persistent_data_global(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """Audit must-fix 2: the data dir is `DECKY_PLUGIN_RUNTIME_DIR` (loader
-    mapping `$DECKY_HOME/data/<plugin>`); `DECKY_PLUGIN_HOME` never existed."""
+    """The data dir is `DECKY_PLUGIN_RUNTIME_DIR` (loader mapping
+    `$DECKY_HOME/data/<plugin>`); `DECKY_PLUGIN_HOME` never existed."""
 
     decky = _FakeDeckyModule(tmp_path / "decky-data")
     monkeypatch.delenv("SPEECHTODECK_DATA_DIR", raising=False)
