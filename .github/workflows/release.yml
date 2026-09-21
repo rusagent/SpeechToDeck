@@ -1,27 +1,3 @@
-# Automated release pipeline: GitHub release + Decky store distribution.
-#
-# Flow:
-#   tag push `v*` or workflow_dispatch(channel)
-#     → gates       same checks as the ci.yml core jobs; the artifact manifest
-#                   gate runs with --strict, so a release cannot be cut while
-#                   the native runtime artifact is unpinned (bin/README.md)
-#     → package     toolchain build inside ghcr.io/steamdeckhomebrew/builder
-#                   (entrypoint: pnpm i --frozen-lockfile, pnpm run build,
-#                   assemble to /out), then scripts/build-package.mjs produces
-#                   the contract-conformant zip(s) + SHA256SUMS.txt; --dev adds
-#                   the URL-install dev zip for preview/*-pre.*/*-rc* builds
-#     → validate    scripts/validate-package.mjs against every produced zip
-#     → github-release  zips + checksums; prerelease for preview / pre / rc
-#     → store-pr    OPTIONAL: only when vars.STORE_PR_ENABLED == 'true' AND the
-#                   DB_PR_PAT secret exists. Updates the plugin submodule in the
-#                   DB_FORK_REPO fork and opens an HONEST PR to
-#                   SteamDeckHomebrew/decky-plugin-database. The automation fills
-#                   nothing it cannot know: it never declares AI usage and never
-#                   claims testing; it inserts a visible AUTHOR REVIEW REQUIRED
-#                   checklist for the plugin author to complete.
-#
-# No release artifact is produced while any gate fails.
-
 name: Release
 
 on:
@@ -37,8 +13,6 @@ on:
                     - stable
                     - preview
 
-# package.json deliberately carries no `packageManager` field (the Decky
-# builder container ships a global pnpm 9), so the version is pinned here.
 env:
     PNPM_VERSION: "10.33.2"
 
@@ -50,8 +24,6 @@ concurrency:
     cancel-in-progress: false
 
 jobs:
-    # ── Release gates (mirror of the ci.yml core jobs) ───────────────────────
-
     gates:
         runs-on: ubuntu-latest
         steps:
@@ -69,8 +41,6 @@ jobs:
             - run: pnpm typecheck
             - run: pnpm test
             - run: pnpm build
-            # Release packaging requires the strict manifest gate (fails
-            # hard on an unpinned runtime artifact).
             - run: node scripts/validate-manifests.mjs --strict
             - run: node scripts/validate-licenses.mjs
             - uses: actions/setup-python@v5
@@ -84,8 +54,6 @@ jobs:
                   .venv/bin/ruff check .
                   .venv/bin/mypy
                   .venv/bin/pytest tests/backend
-
-    # ── Package (toolchain build in the official builder image) ──────────────
 
     package:
         needs: gates
@@ -107,14 +75,6 @@ jobs:
                   echo "prerelease=$PRERELEASE" >> "$GITHUB_OUTPUT"
                   echo "Building prerelease=$PRERELEASE"
             - name: Toolchain build in the Decky builder image
-              # The builder image entrypoint runs `pnpm i --frozen-lockfile`,
-              # `pnpm run build` and assembles its output tree into /out
-              # (excluding src/, __pycache__, node_modules). The image ships no
-              # decky CLI binary (observed), so the contract-conformant zip is
-              # produced from its output by scripts/build-package.mjs below.
-              # /out mounts OUTSIDE the workspace: the entrypoint rsyncs
-              # /plugin/ into /out, and nesting the destination inside the
-              # source would make rsync self-copy.
               run: |
                   mkdir -p "$RUNNER_TEMP/builder-out"
                   docker run --rm \
@@ -122,8 +82,6 @@ jobs:
                       -v "$RUNNER_TEMP/builder-out:/out" \
                       ghcr.io/steamdeckhomebrew/builder:latest
             - name: Build release zips + SHA256 checksums
-              # --dev adds the URL-install dev zip for preview releases
-              # (the `-d` equivalent of the decky CLI).
               run: |
                   DEV_FLAG=""
                   if [ "${{ steps.meta.outputs.prerelease }}" = "true" ]; then
@@ -138,8 +96,6 @@ jobs:
                   name: release-packages
                   path: .tmp/release/
                   if-no-files-found: error
-
-    # ── Validate the produced archive against the store contract ────────────
 
     validate:
         needs: package
@@ -159,8 +115,6 @@ jobs:
                       node scripts/validate-package.mjs "$zip" || status=1
                   done
                   exit $status
-
-    # ── GitHub release (zips + checksums) ────────────────────────────────────
 
     github-release:
         needs: [package, validate]
@@ -183,8 +137,6 @@ jobs:
                       TAG="$GITHUB_REF_NAME"
                       TARGET_ARGS=""
                   else
-                      # workflow_dispatch from a branch: release package.json's
-                      # version at this commit.
                       TAG="v$(node -p "require('./package.json').version")"
                       TARGET_ARGS="--target $GITHUB_SHA"
                   fi
@@ -208,13 +160,8 @@ jobs:
                       --title "SpeechToDeck v$VERSION" \
                       --notes-file release-notes.md
 
-    # ── Store PR (OPTIONAL, opt-in, honest content only) ─────────────────────
-
     store-pr:
         needs: [package, validate, github-release]
-        # Double gate: repository variable (opt-in) and a tag
-        # push (a store PR always points at a tagged commit). The DB_PR_PAT
-        # secret is checked inside the step so a missing secret skips cleanly.
         if: vars.STORE_PR_ENABLED == 'true' && startsWith(github.ref, 'refs/tags/v')
         runs-on: ubuntu-latest
         steps:
@@ -239,9 +186,6 @@ jobs:
                   REPO: ${{ github.repository }}
               run: |
                   set -euo pipefail
-                  # Name and description are read from plugin.json (single
-                  # source of truth); separate substitutions keep any future
-                  # value safe from word splitting.
                   PLUGIN_NAME="$(node -p 'JSON.parse(require("fs").readFileSync("plugin.json", "utf8")).name')"
                   DESCRIPTION="$(node -p 'JSON.parse(require("fs").readFileSync("plugin.json", "utf8")).publish.description')"
                   VERSION="$(node -p "require('./package.json').version")"
@@ -254,7 +198,6 @@ jobs:
                   git -C db config user.email "41898282+github-actions[bot]@users.noreply.github.com"
                   git -C db checkout -b "$BRANCH"
 
-                  # Addition (new submodule entry) or update (move the gitlink).
                   ADDITION=true
                   if git -C db cat-file -e "HEAD:$SUBMODULE" 2>/dev/null; then
                       ADDITION=false

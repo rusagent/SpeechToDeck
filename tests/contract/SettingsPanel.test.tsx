@@ -1,17 +1,3 @@
-/**
- * SettingsPanel render tests.
- *
- * Named production defects: (review finding) the panel passed the
- * controller's unbound `subscribe`/`getSnapshot` methods to
- * useSyncExternalStore and threw on first mount; (declutter) the
- * panel carried dead weight — microphone chip, duration slider, VAD
- * toggle, runtime-health row, whole Diagnostics section — which this suite
- * proves removed, with Speech reading Language → Model; (load-timeout fix)
- * a wedged backend settings load left the eternal "Loading settings…"
- * spinner — the panel must leave the loading state after 10 s on the
- * injected monotonic clock and offer Retry.
- */
-
 import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { ReactNode } from "react";
@@ -35,9 +21,6 @@ import { LevelMeterStore } from "../../src/application/ports/LevelMeterPort";
 import { ModelCatalogStore } from "../../src/application/ports/ModelCatalogPort";
 import type { DictationState } from "../../src/domain/DictationState";
 
-// The panel renders through @decky/ui components that expect the Steam UI
-// environment; the stubs below keep the panel's own logic (loading state,
-// sections, store subscription) the subject under a plain-DOM shim.
 vi.mock("@decky/ui", async () => {
     const React = await import("react");
     const h = React.createElement;
@@ -51,9 +34,6 @@ vi.mock("@decky/ui", async () => {
             h("label", { "data-toggle": props.label }, `${props.label}: ${String(props.checked)}`),
         SliderField: (props: { label: string; value: number }) =>
             h("label", { "data-slider": props.label }, `${props.label}: ${String(props.value)}`),
-        // Semi-controlled Steam semantics: with `controlled: true` the
-        // displayed value derives from selectedOption (the ModelSelect/
-        // LanguagePicker revert oracle); without it, from internal state.
         DropdownItem: (props: {
             label: string;
             rgOptions?: {
@@ -90,8 +70,6 @@ vi.mock("@decky/ui", async () => {
                 { disabled: props.disabled === true, onClick: props.onClick },
                 props.children ?? props.label,
             ),
-        // Field wraps label and children in separate nodes like the Steam UI
-        // field, so label and value are individually queryable.
         Field: (props: { label: string; children?: Children }) =>
             h(
                 "div",
@@ -99,9 +77,6 @@ vi.mock("@decky/ui", async () => {
                 h("span", { "data-field-label": props.label }, props.label),
                 h("span", { "data-field-value": props.label }, props.children),
             ),
-        // Manage-models affordance + modal host stubs (in-app model cleanup):
-        // DialogButton forwards disabled; showModal captures the opened node
-        // (the manage modal's internals are covered by ManageModels.test.tsx).
         DialogButton: (props: { onClick?: () => void; disabled?: boolean; children?: Children }) =>
             h(
                 "button",
@@ -120,7 +95,6 @@ vi.mock("@decky/ui", async () => {
 
 afterEach(cleanup);
 
-// The test-only export from the mock (typed through the module shape).
 const deckyUi = await import("@decky/ui");
 const showModalNodes = (deckyUi as unknown as { __showModalNodes: ReactNode[] }).__showModalNodes;
 
@@ -144,12 +118,10 @@ function recordingState(): DictationState {
     };
 }
 
-/** Timeless clock for call sites that never reach the load deadline. */
 function stubClock(): ClockPort {
     return { nowMonotonicMs: () => 0 };
 }
 
-/** Controllable monotonic clock for the load-deadline tests. */
 function fakeClock(): { clock: ClockPort; elapse: (ms: number) => void } {
     let now = 0;
     return {
@@ -160,11 +132,6 @@ function fakeClock(): { clock: ClockPort; elapse: (ms: number) => void } {
     };
 }
 
-/**
- * Settings port whose load() hands the resolver to the test: the load stays
- * pending until `resolveLoad` fires, and the call count proves Retry really
- * restarted the load.
- */
 function gatedSettingsPort(): {
     port: SettingsPort;
     resolveLoad: (value: PluginSettings) => void;
@@ -181,9 +148,6 @@ function gatedSettingsPort(): {
                 }),
             save: async () => undefined,
         },
-        // The newest resolver is the live load: after a Retry the first
-        // attempt's promise is already cancelled, so FIFO would resolve a
-        // dead promise and the panel would wait forever.
         resolveLoad: (value: PluginSettings) => resolvers.pop()?.(value),
         loadCalls: () => calls,
     };
@@ -203,15 +167,9 @@ describe("SettingsPanel", () => {
         expect(container.querySelector('[data-panel-title="SpeechToDeck"]')).not.toBeNull();
         expect(screen.getByText("Loading settings…")).not.toBeNull();
 
-        // Sections: runtime, speech. Kept rows only.
         expect(await screen.findByText(/Enable plugin/)).not.toBeNull();
         expect(screen.getAllByText(/Language/).length).toBeGreaterThan(0);
 
-        // Removed rows and the whole Diagnostics section stay gone (a
-        // deliberate decluttering; the Compute backend select followed later —
-        // the Vulkan/CPU choice is an internal concern, the
-        // setting stays "auto" and is simply never rendered; Output mode left
-        // with the clipboard-only product decision).
         expect(screen.queryByText(/Compute backend/)).toBeNull();
         expect(screen.queryByText(/Runtime health/)).toBeNull();
         expect(screen.queryByText(/Maximum recording duration/)).toBeNull();
@@ -221,11 +179,6 @@ describe("SettingsPanel", () => {
         expect(container.querySelector('[data-panel-title="Diagnostics"]')).toBeNull();
     });
 
-    // Rework: the Speech section reads Model → (conditional) Language.
-    // The picker renders ONLY while the selected model does not pin a
-    // language itself (unloaded catalog, unknown id, or general model); a
-    // language-specific selection hides it. The persisted `language` value is
-    // never rewritten.
     it("orders the Speech section Model → Language for a general catalog model", async () => {
         const store = new ModelCatalogStore();
         store.setModels([
@@ -303,9 +256,6 @@ describe("SettingsPanel", () => {
     });
 
     it("keeps the Language picker for an unknown model id and restores its prior value", async () => {
-        // An older backend catalog without the persisted model id counts as
-        // "not in the catalog": the picker stays, still bound to the
-        // persisted language (never cleared).
         const store = new ModelCatalogStore();
         store.setModels([
             {
@@ -343,10 +293,6 @@ describe("SettingsPanel", () => {
     });
 
     it("renders the Manage models affordance below the Model select and opens the manage modal", async () => {
-        // In-app model cleanup: the affordance renders only
-        // over a LOADED catalog and opens the modal through the production
-        // openManageModelsModal path (its internals are covered by
-        // ManageModels.test.tsx).
         const store = new ModelCatalogStore();
         store.setModels([
             {
@@ -377,7 +323,6 @@ describe("SettingsPanel", () => {
         await screen.findByText(/Enable plugin/);
 
         const manage = screen.getByRole("button", { name: "Manage models" });
-        // Below the Model select, inside the Speech section.
         const speechSection = container.querySelector('[data-panel-title="Speech"]');
         expect(speechSection).not.toBeNull();
         expect(speechSection?.contains(manage)).toBe(true);
@@ -393,7 +338,7 @@ describe("SettingsPanel", () => {
 
     it("hides the Manage models affordance while the catalog is unavailable", async () => {
         const modelCatalog = {
-            store: new ModelCatalogStore(), // never loaded: no models
+            store: new ModelCatalogStore(),
             load: async () => undefined,
             download: () => undefined,
             cancel: () => undefined,
@@ -461,11 +406,9 @@ describe("SettingsPanel", () => {
         const runtimeSection = container.querySelector('[data-panel-title="Runtime"]');
         expect(setupBlock).not.toBeNull();
         expect(runtimeSection).not.toBeNull();
-        // Above the sections: the setup block precedes the Runtime section.
         expect(
             setupBlock!.compareDocumentPosition(runtimeSection!) & Node.DOCUMENT_POSITION_FOLLOWING,
         ).toBeTruthy();
-        // Overall percent for download @37% of step 1: 25 + 37/4 = 34.
         expect(screen.getByText("34%")).not.toBeNull();
     });
 
@@ -510,7 +453,6 @@ describe("SettingsPanel", () => {
         const backend = new DeckyBackendClient(transport);
         const diagnostics: DiagnosticsSource = {
             hydrateSetupProgress: async () => undefined,
-            // Same callable path the composition root wires for diagnostics.
             restartRuntime: async () => {
                 await backend.call("restart_runtime");
             },
@@ -531,17 +473,12 @@ describe("SettingsPanel", () => {
     });
 
     it("renders the hydrated failure from the status report without live events", async () => {
-        // On-device finding: the setup failure fired before the panel
-        // mounted and the plain settings UI showed nothing. Hydration through
-        // the real adapter chain reconstructs the failed view, the retry
-        // button drives restart_runtime, and a live event later replaces the
-        // synthesized snapshot.
         const transport = new FakeDeckyTransport();
         transport.callResponses.set("get_status", FAILED_GET_STATUS_REPORT);
         transport.callResponses.set("restart_runtime", { ok: true, restarted: true });
         const backend = new DeckyBackendClient(transport);
         const adapter = new DeckySpeechAdapter(backend);
-        adapter.subscribe(() => undefined); // live events reach the store
+        adapter.subscribe(() => undefined);
         const { container } = render(
             <SettingsPanel
                 settings={new FakeSettingsPort()}
@@ -557,14 +494,12 @@ describe("SettingsPanel", () => {
             />,
         );
 
-        // Hydrated failed view (no live setup_progress ever emitted).
         expect(await screen.findByText("MODEL_DOWNLOAD_FAILED")).not.toBeNull();
         expect(container.querySelector('[data-setup-progress="failed"]')).not.toBeNull();
 
         fireEvent.click(await screen.findByRole("button", { name: "Retry" }));
         expect(transport.calls.map((call) => call.route)).toContain("restart_runtime");
 
-        // A live setup_progress event replaces the synthesized snapshot.
         await act(async () => {
             transport.emit("setup_progress", SETUP_SNAPSHOTS.download);
         });
@@ -574,8 +509,6 @@ describe("SettingsPanel", () => {
     });
 });
 
-// Load-timeout decision points (the eternal-spinner defect): the deadline is
-// measured on the injected monotonic clock, the timer only wakes the check.
 describe("SettingsPanel settings-load timeout", () => {
     afterEach(() => {
         cleanup();
@@ -650,8 +583,6 @@ describe("SettingsPanel settings-load timeout", () => {
         });
         expect(screen.getByText(/Enable plugin/)).not.toBeNull();
 
-        // Well past the original deadline: the success retired the wakeup,
-        // so the panel never flips into the failed state.
         await act(async () => {
             elapse(60_000);
             vi.advanceTimersByTime(60_000);
@@ -661,7 +592,6 @@ describe("SettingsPanel settings-load timeout", () => {
     });
 
     it("renders a late success normally when the load resolves after the timeout fired", async () => {
-        // Pinned behavior: data arriving late wins over the failed state.
         vi.useFakeTimers();
         const gate = gatedSettingsPort();
         const { clock, elapse } = fakeClock();
@@ -680,13 +610,6 @@ describe("SettingsPanel settings-load timeout", () => {
     });
 });
 
-// Self-heal decision points (install wedge): the panel reports each
-// settled boot-load outcome to the optional port; two consecutive
-// full-deadline timeouts are the wedged signature that arms the one-time
-// loader reload (the hint then names it), a coded rejection never triggers
-// it, and the loader's re-import broadcast re-arms the load while the panel
-// sits in the failed state. The reload trigger/latch itself is covered by
-// DeckySelfHeal.test.ts over the transport seam.
 describe("SettingsPanel settings-load self-heal", () => {
     type LoadOutcome = "timeout" | "rejected" | "success";
 
@@ -716,9 +639,6 @@ describe("SettingsPanel settings-load self-heal", () => {
                 }
             },
             selfHeal: {
-                // Mirrors the adapter's streak semantics (the module latch
-                // itself is covered by DeckySelfHeal.test.ts): the trigger
-                // fires on the SECOND consecutive timeout report or never.
                 reportLoadOutcome: (outcome) => {
                     reports.push(outcome);
                     if (outcome !== "timeout") {
@@ -769,7 +689,6 @@ describe("SettingsPanel settings-load self-heal", () => {
             elapse(10_000);
             vi.advanceTimersByTime(10_000);
         });
-        // First full-deadline timeout: honest failed state, generic hint.
         expect(heal.reports).toEqual(["timeout"]);
         expect(screen.getByText("Backend is not responding.")).not.toBeNull();
         expect(screen.queryByText("Reloading the plugin backend …")).toBeNull();
@@ -783,7 +702,6 @@ describe("SettingsPanel settings-load self-heal", () => {
         expect(heal.reports).toEqual(["timeout", "timeout"]);
         expect(screen.getByText("Reloading the plugin backend …")).not.toBeNull();
         expect(screen.queryByText(GENERIC_HINT)).toBeNull();
-        // Still the honest failed state with Retry — never a fake progress view.
         expect(screen.getByText("Backend is not responding.")).not.toBeNull();
         expect(screen.getByRole("button", { name: "Retry" })).not.toBeNull();
     });
@@ -793,7 +711,7 @@ describe("SettingsPanel settings-load self-heal", () => {
             load: () => Promise.reject(new Error("backend says no")),
             save: async () => undefined,
         };
-        const heal = fakeSelfHeal(true); // would fire on a second timeout report
+        const heal = fakeSelfHeal(true);
         render(
             <SettingsPanel
                 settings={port}
@@ -833,7 +751,6 @@ describe("SettingsPanel settings-load self-heal", () => {
             heal.emitImport();
         });
 
-        // Fresh backend is up: the failed state cleared and the load restarts.
         expect(screen.queryByText("Backend is not responding.")).toBeNull();
         expect(screen.getByText("Loading settings…")).not.toBeNull();
         expect(gate.loadCalls()).toBe(2);
@@ -844,7 +761,6 @@ describe("SettingsPanel settings-load self-heal", () => {
         expect(screen.getByText(/Enable plugin/)).not.toBeNull();
         expect(heal.reports).toEqual(["timeout", "success"]);
 
-        // Outside a failure the re-import subscription is gone: no restart.
         act(() => {
             heal.emitImport();
         });

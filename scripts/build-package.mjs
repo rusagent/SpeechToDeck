@@ -1,43 +1,11 @@
 #!/usr/bin/env node
-// Package builder (release pipeline "package" step + store contract).
-//
-// Assembles the verified Decky package layout from a source tree and writes a
-// deterministic, dependency-free zip with a single top-level directory named
-// exactly `plugin.json` `name`:
-//
-//   <name>/dist/index.js     (loader entry; required)
-//   <name>/backend/          (Python backend)
-//   <name>/bin/              (native runtime artifact; kept as a directory)
-//   <name>/models.json       (defaults/ FLATTENED into the plugin root)
-//   <name>/runtime-manifest.json
-//   <name>/{main.py,plugin.json,package.json,LICENSE,README.md,
-//           THIRD_PARTY_NOTICES.md,defaults.txt}
-//
-// Nothing outside that list ships. `defaults/` is never shipped as a
-// directory; its files are flattened. Entries get fixed timestamps and
-// explicit unix modes (bin/ 0755) so builds are reproducible.
-//
-// The `ghcr.io/steamdeckhomebrew/builder:latest` entrypoint runs
-// `pnpm i --frozen-lockfile && pnpm run build` and assembles its output into
-// `/out` (excluding src/, __pycache__, node_modules); this script turns that
-// tree — or the repository root directly (CI, local dry runs) — into the
-// shipped zip(s). `--dev` additionally writes `<name>-dev.zip`, the
-// URL-install dev artifact for preview releases (equivalent of the decky CLI
-// `-d` dev zip; the builder image ships no decky CLI binary).
-//
-// Usage:
-//   node scripts/build-package.mjs --src <dir> --out <dir> [--dev]
-//
-// Output: <out>/<name>.zip (plus <name>-dev.zip with --dev) and
-// SHA256SUMS.txt covering every produced zip. Violations exit 1.
 
 import { createHash } from "node:crypto";
 import { existsSync, mkdirSync, readFileSync, readdirSync, statSync, writeFileSync } from "node:fs";
 import path from "node:path";
 
-// Deterministic zip metadata: 1980-01-01 00:00:00 (DOS epoch).
 const DOS_TIME = 0;
-const DOS_DATE = 0x21; // year 1980, month 1, day 1
+const DOS_DATE = 0x21;
 
 const REQUIRED_ROOT_FILES = ["main.py", "plugin.json", "package.json", "LICENSE", "README.md"];
 const OPTIONAL_ROOT_FILES = ["THIRD_PARTY_NOTICES.md", "defaults.txt"];
@@ -63,9 +31,6 @@ function parseArgs(argv) {
     return args;
 }
 
-// Store-contract exclusions (identical set to scripts/validate-package.mjs):
-// directories with these names never ship, nor do log files. This prunes
-// e.g. Python bytecode caches that appear inside backend/ during test runs.
 const EXCLUDED_SEGMENTS = new Set([
     "src",
     "tests",
@@ -87,16 +52,10 @@ function listFilesRecursive(root, relative = "") {
             files.push(relPosix);
         }
     }
-    // Reproducibility: readdirSync order is filesystem-dependent, so
-    // sort the accumulated relPosix paths before selection — the zip entry
-    // order and the SHA256SUMS.txt digest stay machine-independent.
     return files.sort();
 }
 
-// ── selection: the verified layout, from the source tree ────────────────────
-
 function selectEntries(src, pluginName) {
-    /** @type {{zipPath: string, absPath: string, executable: boolean}[]} */
     const entries = [];
     const addFile = (relPosix, zipPath, executable = false) => {
         const absPath = path.join(src, relPosix);
@@ -111,7 +70,6 @@ function selectEntries(src, pluginName) {
         }
     };
 
-    // dist/ (required entry dist/index.js) and backend/ ship whole.
     mustExist("dist/index.js");
     mustExist("backend/__init__.py");
     for (const relPosix of listFilesRecursive(src, "dist")) {
@@ -120,10 +78,9 @@ function selectEntries(src, pluginName) {
     for (const relPosix of listFilesRecursive(src, "backend")) {
         addFile(relPosix, relPosix);
     }
-    // bin/ ships whole (repo ships bin/README.md; releases add the runtime).
     if (existsSync(path.join(src, "bin"))) {
         for (const relPosix of listFilesRecursive(src, "bin")) {
-            addFile(relPosix, relPosix, true); // bin/ is 0755 in the store layout
+            addFile(relPosix, relPosix, true);
         }
     } else {
         console.error("package build: WARN: no bin/ directory (optional; runtime artifact)");
@@ -137,8 +94,6 @@ function selectEntries(src, pluginName) {
         if (existsSync(path.join(src, file))) addFile(file, file);
     }
 
-    // defaults/ flattening: prefer defaults/<file>, fall back to an already
-    // flattened root file (e.g. when packaging the builder image's /out tree).
     for (const file of REQUIRED_DEFAULTS_FILES) {
         if (existsSync(path.join(src, "defaults", file))) {
             addFile(path.join("defaults", file), file);
@@ -150,8 +105,6 @@ function selectEntries(src, pluginName) {
     }
     return entries;
 }
-
-// ── zip writing (stored entries, fixed metadata, no dependencies) ───────────
 
 const CRC_TABLE = (() => {
     const table = new Uint32Array(256);
@@ -175,7 +128,6 @@ function crc32(buffer) {
 
 function dosAttributes(executable, isDir) {
     const posix = isDir ? 0o40755 : executable ? 0o100755 : 0o100644;
-    // High 16 bits: unix mode; low bits: DOS attribute (0x10 = directory).
     return ((posix << 16) | (isDir ? 0x10 : 0)) >>> 0;
 }
 
@@ -189,7 +141,6 @@ function buildZip(pluginName, entries) {
         offset += header.length + nameBytes.length + body.length;
     };
 
-    // Explicit directory entry for the plugin root and shipped directories.
     const dirEntries = [...new Set(entries.map((entry) => path.dirname(entry.zipPath)))].filter(
         (dir) => dir !== ".",
     );
@@ -207,34 +158,34 @@ function buildZip(pluginName, entries) {
 
         const local = Buffer.alloc(30);
         local.writeUInt32LE(0x04034b50, 0);
-        local.writeUInt16LE(20, 4); // version needed
-        local.writeUInt16LE(0, 6); // flags
-        local.writeUInt16LE(0, 8); // method: stored
+        local.writeUInt16LE(20, 4);
+        local.writeUInt16LE(0, 6);
+        local.writeUInt16LE(0, 8);
         local.writeUInt16LE(DOS_TIME, 10);
         local.writeUInt16LE(DOS_DATE, 12);
         local.writeUInt32LE(crc, 14);
         local.writeUInt32LE(body.length, 18);
         local.writeUInt32LE(body.length, 22);
         local.writeUInt16LE(nameBytes.length, 26);
-        local.writeUInt16LE(0, 28); // extra length
+        local.writeUInt16LE(0, 28);
         pushRecord(local, nameBytes, body);
 
         const centralEntry = Buffer.alloc(46);
         centralEntry.writeUInt32LE(0x02014b50, 0);
-        centralEntry.writeUInt16LE(0x031e, 4); // version made by: unix, 3.0
-        centralEntry.writeUInt16LE(20, 6); // version needed
-        centralEntry.writeUInt16LE(0, 8); // flags
-        centralEntry.writeUInt16LE(0, 10); // method: stored
+        centralEntry.writeUInt16LE(0x031e, 4);
+        centralEntry.writeUInt16LE(20, 6);
+        centralEntry.writeUInt16LE(0, 8);
+        centralEntry.writeUInt16LE(0, 10);
         centralEntry.writeUInt16LE(DOS_TIME, 12);
         centralEntry.writeUInt16LE(DOS_DATE, 14);
         centralEntry.writeUInt32LE(crc, 16);
         centralEntry.writeUInt32LE(body.length, 20);
         centralEntry.writeUInt32LE(body.length, 24);
         centralEntry.writeUInt16LE(nameBytes.length, 28);
-        centralEntry.writeUInt16LE(0, 30); // extra length
-        centralEntry.writeUInt16LE(0, 32); // comment length
-        centralEntry.writeUInt16LE(0, 34); // disk number
-        centralEntry.writeUInt16LE(0, 36); // internal attrs
+        centralEntry.writeUInt16LE(0, 30);
+        centralEntry.writeUInt16LE(0, 32);
+        centralEntry.writeUInt16LE(0, 34);
+        centralEntry.writeUInt16LE(0, 36);
         centralEntry.writeUInt32LE(dosAttributes(entry.executable, isDir), 38);
         centralEntry.writeUInt32LE(localHeaderOffset, 42);
         central.push(centralEntry, nameBytes);
@@ -253,8 +204,6 @@ function buildZip(pluginName, entries) {
 
     return Buffer.concat([...chunks, centralDirectory, eocd]);
 }
-
-// ── main ────────────────────────────────────────────────────────────────────
 
 const args = parseArgs(process.argv.slice(2));
 if (!statSync(args.src).isDirectory()) fail(`--src ${args.src} is not a directory`);

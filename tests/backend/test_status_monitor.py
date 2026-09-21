@@ -1,9 +1,3 @@
-"""Event-driven status monitor tests, including malformed status words.
-
-The real daemon writes bare state words and DELETES the file on shutdown;
-missing file = stopped is a synthesized consumer state.
-"""
-
 from __future__ import annotations
 
 import asyncio
@@ -20,9 +14,9 @@ from conftest import FakeEventPublisher, make_paths, wait_until
 
 
 def write_status_file(paths: object, word: str) -> None:
-    paths.runtime_dir.mkdir(parents=True, exist_ok=True)  # type: ignore[attr-defined]
-    paths.native_runtime_dir.mkdir(parents=True, exist_ok=True)  # type: ignore[attr-defined]
-    paths.status_file.write_text(word, encoding="utf-8")  # type: ignore[attr-defined]
+    paths.runtime_dir.mkdir(parents=True, exist_ok=True)
+    paths.native_runtime_dir.mkdir(parents=True, exist_ok=True)
+    paths.status_file.write_text(word, encoding="utf-8")
 
 
 def test_parse_status_word_valid_and_malformed() -> None:
@@ -56,7 +50,6 @@ def test_monitor_emits_typed_events_and_survives_malformed_status(tmp_path: obje
                 timeout=2.0,
             )
 
-            # Malformed native status: surfaced, never fatal.
             paths.status_file.write_text("garbage-not-a-word{{{", encoding="utf-8")
             assert await wait_until(
                 lambda: any(
@@ -65,7 +58,6 @@ def test_monitor_emits_typed_events_and_survives_malformed_status(tmp_path: obje
                 timeout=2.0,
             )
 
-            # Recovery: the next valid word resumes the stream.
             write_status_file(paths, "transcribing")
             assert await wait_until(
                 lambda: any(
@@ -83,8 +75,6 @@ def test_monitor_emits_typed_events_and_survives_malformed_status(tmp_path: obje
 
 
 def test_streaming_state_maps_to_recording(tmp_path: object) -> None:
-    """Adapter mapping: upstream `streaming` (capture active) maps onto our
-    `recording` vocabulary instead of being dropped at the boundary."""
 
     async def scenario() -> None:
         paths = make_paths(tmp_path)
@@ -115,8 +105,6 @@ def test_missing_state_file_is_synthesized_as_stopped(tmp_path: object) -> None:
         watcher = StatusFileWatcher(paths.native_runtime_dir)
         monitor = RuntimeStatusMonitor(watcher, publisher)
         try:
-            # No state file at watch start: the daemon deleted it on shutdown
-            # (or never ran) — consumers synthesize "stopped".
             await monitor.start()
             assert await wait_until(
                 lambda: any(
@@ -126,8 +114,6 @@ def test_missing_state_file_is_synthesized_as_stopped(tmp_path: object) -> None:
                 timeout=2.0,
             )
 
-            # The daemon's shutdown deletion of the state file IS the
-            # stopped transition.
             write_status_file(paths, "recording")
             assert await wait_until(
                 lambda: any(
@@ -214,7 +200,6 @@ def test_no_events_after_stop(tmp_path: object) -> None:
         await monitor.stop()
         watcher.close()
 
-        # Writes after close must not crash anything (fd is gone).
         write_status_file(paths, "idle")
         await asyncio.sleep(0.1)
         assert publisher.payloads("runtime_status") == []

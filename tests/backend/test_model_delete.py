@@ -1,12 +1,3 @@
-"""In-app model deletion: the `delete_model` callable chain.
-
-Covers the whole backend path of the feature: the Application active-model
-guard (the settings seam), the ModelService manifest resolve + in-flight
-download rejection, and the ModelStore idempotent remove with freed bytes.
-Deterministic: fake fetcher, tmp data dir, no daemon — the delete path never
-starts the runtime.
-"""
-
 from __future__ import annotations
 
 import asyncio
@@ -34,9 +25,6 @@ TINY_DIGEST = hashlib.sha256(TINY_BYTES).hexdigest()
 SMALL_BYTES = b"small-model-bytes" * 256
 SMALL_DIGEST = hashlib.sha256(SMALL_BYTES).hexdigest()
 
-# Deliberately unpinned runtime manifest (test_composition.py shape): the
-# delete path never verifies or starts the runtime, and composition must not
-# depend on a pinned binary here.
 UNPINNED_MANIFEST_JSON = (
     '{"schemaVersion": 1, "artifacts": ['
     '{"id": "voxtype-avx2", "engine": "whisper", "arch": "x86_64", "variant": "cpu",'
@@ -59,7 +47,6 @@ def _model_entry(model_id: str, filename: str, digest: str, size: int) -> dict[s
 
 
 def manifest_payload() -> dict[str, object]:
-    """base + tiny + small: a selected model and two deletable ones."""
     return {
         "schemaVersion": 1,
         "models": [
@@ -71,7 +58,6 @@ def manifest_payload() -> dict[str, object]:
 
 
 class SlowStream:
-    """DownloadStream double over local bytes with a per-chunk delay."""
 
     def __init__(self, payload: bytes, delay: float) -> None:
         self.payload = payload
@@ -88,7 +74,6 @@ class SlowStream:
 
 
 class SlowFetcher:
-    """ModelHttpFetcher double: one slow stream, no network."""
 
     def __init__(self, payload: bytes, delay: float = 0.05) -> None:
         self.stream = SlowStream(payload, delay)
@@ -98,7 +83,6 @@ class SlowFetcher:
 
 
 def build_app(tmp_path: Path, model_fetcher: SlowFetcher | None = None) -> tuple[Application, Path]:
-    """Composed application over a controlled catalog + empty data dir."""
     root = tmp_path / "plugin-root"
     defaults = root / "defaults"
     defaults.mkdir(parents=True)
@@ -123,13 +107,11 @@ def test_delete_removes_file_reports_freed_bytes_and_clears_stale_part(tmp_path:
         app, models_dir = build_app(tmp_path)
         install(models_dir, "ggml-small.bin", SMALL_BYTES)
         install(models_dir, "ggml-tiny.bin", TINY_BYTES)
-        # A stale .part from an interrupted download must not survive a delete.
         (models_dir / "ggml-tiny.bin.part").write_bytes(b"stale-part")
 
         result = await app.delete_model("small")
         assert result == {"modelId": "small", "freedBytes": len(SMALL_BYTES)}
         assert not (models_dir / "ggml-small.bin").exists()
-        # The other installed artifact is untouched.
         assert (models_dir / "ggml-tiny.bin").is_file()
 
         result = await app.delete_model("tiny")
@@ -168,20 +150,16 @@ def test_selected_model_cannot_be_deleted_and_settings_stay_untouched(tmp_path: 
         install(models_dir, "ggml-base.bin", FAKE_BYTES)
         install(models_dir, "ggml-tiny.bin", TINY_BYTES)
         before = await app.get_settings()
-        assert before["modelId"] == "base"  # the shipped default selection
+        assert before["modelId"] == "base"
 
         with pytest.raises(SettingsInvalidError) as excinfo:
             await app.delete_model("base")
         assert excinfo.value.code is ErrorCode.SETTINGS_INVALID
 
-        # The guarded artifact is untouched and no settings write happened:
-        # the defaults were never persisted (load never saves implicitly) and
-        # the delete path must keep it that way.
         assert (models_dir / "ggml-base.bin").is_file()
         assert not app.paths.settings_file.exists()
         assert await app.get_settings() == before
 
-        # A non-selected delete succeeds and still writes no settings.
         result = await app.delete_model("tiny")
         assert result["freedBytes"] == len(TINY_BYTES)
         assert await app.get_settings() == before
@@ -199,8 +177,6 @@ def test_delete_of_a_model_with_download_in_flight_is_rejected(tmp_path: Path) -
 
         task = asyncio.get_running_loop().create_task(app.models.download_model("tiny"))
         try:
-            # Deterministic in-flight signal: the store id is set under the
-            # download lock, exactly what the delete guard reads.
             assert await wait_until(
                 lambda: app.models.store.downloading_model_id() == "tiny",
                 timeout=2.0,
@@ -210,8 +186,6 @@ def test_delete_of_a_model_with_download_in_flight_is_rejected(tmp_path: Path) -
                 await app.delete_model("tiny")
             assert excinfo.value.code is ErrorCode.MODEL_DOWNLOAD_FAILED
 
-            # The guard is per model: another installed model deletes fine
-            # while the single in-flight download runs.
             result = await app.delete_model("small")
             assert result == {"modelId": "small", "freedBytes": len(SMALL_BYTES)}
         finally:
@@ -223,19 +197,16 @@ def test_delete_of_a_model_with_download_in_flight_is_rejected(tmp_path: Path) -
 
 
 def test_facade_maps_delete_failures_to_the_coded_envelope(tmp_path: Path) -> None:
-    """A failed delete surfaces as the coded result, never an exception."""
 
     async def scenario() -> None:
         app, _models_dir = build_app(tmp_path)
         plugin = main.Plugin()
-        plugin._app = app  # type: ignore[attr-defined]  # test seam: skip compose
+        plugin._app = app
 
-        # The selected model: the active-model protection code.
         rejected = await plugin.delete_model("base")
         assert rejected["ok"] is False
         assert rejected["code"] == str(ErrorCode.SETTINGS_INVALID)
 
-        # An unknown id: the stable MODEL_NOT_INSTALLED code.
         unknown = await plugin.delete_model("nonexistent")
         assert unknown["ok"] is False
         assert unknown["code"] == str(ErrorCode.MODEL_NOT_INSTALLED)

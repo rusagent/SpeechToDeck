@@ -24,11 +24,6 @@ export const ALL_CAPABILITIES: SpeechCapabilities = {
     modelInstalled: true,
 };
 
-/**
- * In-memory SpeechPort fake. `startRecording`/`stopRecording` stay pending
- * until the test resolves or rejects them, modelling the acknowledgement
- * boundary (the acknowledgement gates the active indicator).
- */
 export class FakeSpeechPort implements SpeechPort {
     readonly trace: string[];
     readonly startCalls: string[] = [];
@@ -73,7 +68,6 @@ export class FakeSpeechPort implements SpeechPort {
     async cancelRecording(sessionId: string): Promise<void> {
         this.trace.push(`speech.cancelRecording:${sessionId}`);
         this.cancelCalls.push(sessionId);
-        // Cancellation resolves immediately and emits no transcript.
         this.pendingStarts.get(sessionId)?.resolve(undefined);
         this.pendingStops.get(sessionId)?.resolve(undefined);
     }
@@ -90,8 +84,6 @@ export class FakeSpeechPort implements SpeechPort {
             },
         };
     }
-
-    // ── test controls ──
 
     resolveStart(sessionId: string): void {
         const deferred = this.pendingStarts.get(sessionId);

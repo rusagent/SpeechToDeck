@@ -1,11 +1,3 @@
-"""Runtime variant resolution tests.
-
-Decision points: backend→variant mapping, the explicit auto-probe policy
-with its fallback and session cache, and fail-closed handling of unpinned or
-incomplete manifests and missing variant binaries. The real-probe test runs
-the actual fixture binary's `info variants --json` invocation.
-"""
-
 from __future__ import annotations
 
 import asyncio
@@ -51,7 +43,7 @@ def test_explicit_backends_map_to_variants_without_probe(tmp_path: Path) -> None
         vulkan = await resolver.resolve("vulkan", config_path=config_path)
         assert vulkan.variant == "vulkan"
         assert vulkan.binary == paths.bin_dir / "voxtype-vulkan"
-        assert probe_calls == []  # deterministic mappings never probe
+        assert probe_calls == []
 
     asyncio.run(scenario())
 
@@ -70,7 +62,6 @@ def test_auto_policy_probes_vulkan_and_caches_the_decision(tmp_path: Path) -> No
         assert second.variant == "vulkan"
         assert resolver.selected_backend == "vulkan"
         assert resolver.selected_binary_path == paths.bin_dir / "voxtype-vulkan"
-        # One probe per session; every later auto resolve reuses it.
         assert len(probe_calls) == 1
 
     asyncio.run(scenario())
@@ -82,7 +73,6 @@ def test_auto_policy_falls_back_to_avx2_when_probe_fails(tmp_path: Path) -> None
         pin_manifest(paths.plugin_root)
         resolver = make_resolver(paths, probe_decision="cpu")
         resolved = await resolver.resolve("auto", config_path=write_test_daemon_config(paths))
-        # The fallback is the explicit auto policy, not a hidden default.
         assert resolved.variant == "cpu"
         assert resolver.selected_backend == "cpu"
 
@@ -90,7 +80,6 @@ def test_auto_policy_falls_back_to_avx2_when_probe_fails(tmp_path: Path) -> None
 
 
 def test_real_probe_runs_the_fixture_inventory(tmp_path: Path) -> None:
-    """The default probe executes the vulkan binary's read-only inventory."""
     from backend.infrastructure.process.runtime_variant import DEFAULT_PROBE_TIMEOUT_S
 
     async def scenario() -> None:

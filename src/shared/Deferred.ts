@@ -1,9 +1,3 @@
-/**
- * A promise with externally callable resolve/reject handles.
- *
- * Used to bridge callback-style port interactions into awaited application
- * flows (and by test fakes) without polling or wall-clock sleeps.
- */
 export class Deferred<T> {
     readonly promise: Promise<T>;
 

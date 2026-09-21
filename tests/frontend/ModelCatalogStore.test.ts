@@ -1,11 +1,3 @@
-/**
- * ModelCatalogStore tests: the guarded catalog + download
- * state side-channel consumed by the ModelSelect dropdown + download modal
- * through `useSyncExternalStore`. The adapter owns payload validation; these
- * tests drive the publish methods with valid payloads only (guards are
- * covered in ProtocolGuards.test.ts).
- */
-
 import { describe, expect, it, vi } from "vitest";
 
 import {
@@ -60,7 +52,6 @@ describe("ModelCatalogStore", () => {
         store.publishProgress(progress("distil-small-en", 50, 200));
         expect(store.getSnapshot().download).toEqual({ modelId: "distil-small-en", percent: 25 });
 
-        // > 100% received is clamped; the renderer never shows 101%.
         store.publishProgress(progress("distil-small-en", 999, 200));
         expect(store.getSnapshot().download).toEqual({ modelId: "distil-small-en", percent: 100 });
 
@@ -68,11 +59,6 @@ describe("ModelCatalogStore", () => {
         expect(store.getSnapshot().download).toEqual({ modelId: "distil-small-en", percent: null });
     });
 
-    // Honest completion (on-device finding): the throttled progress
-    // stream plus the old complete-clears-download semantics meant faster
-    // downloads closed the modal from a stale lower frame. Completion now
-    // keeps a final percent-100 snapshot alongside the install flip so the
-    // modal can show the full bar during its completion hold.
     it("marks the completed model installed and keeps the final 100% download state", () => {
         const store = new ModelCatalogStore();
         store.setModels([...MODELS]);
@@ -87,9 +73,8 @@ describe("ModelCatalogStore", () => {
         const distil = store.getSnapshot().models.find((model) => model.id === "distil-small-en");
         const base = store.getSnapshot().models.find((model) => model.id === "base");
         expect(distil?.installed).toBe(true);
-        expect(base?.installed).toBe(true); // unchanged entry keeps its state
+        expect(base?.installed).toBe(true);
 
-        // The final frame exists even without a preceding progress payload.
         store.publishComplete({ protocolVersion: 1, modelId: "base", sizeBytes: 12 });
         expect(store.getSnapshot().download).toEqual({ modelId: "base", percent: 100 });
     });
@@ -100,7 +85,7 @@ describe("ModelCatalogStore", () => {
 
         const listener = vi.fn();
         store.subscribe(listener);
-        store.clearDownload(); // nothing in flight: no notification
+        store.clearDownload();
         expect(listener).not.toHaveBeenCalled();
 
         store.publishProgress(progress("base", 5, 100));
@@ -109,9 +94,6 @@ describe("ModelCatalogStore", () => {
         expect(listener).toHaveBeenCalledTimes(2);
     });
 
-    // Decision point (on-device finding): a failed download must carry
-    // its backend detail for the modal's error state, and the record must not
-    // leak into the next attempt.
     it("publishes the failure detail for a model and clears it when the next download starts", () => {
         const store = new ModelCatalogStore();
         store.setModels([...MODELS]);
@@ -124,19 +106,15 @@ describe("ModelCatalogStore", () => {
             modelId: "distil-small-en",
             detail: "HTTP 403 host=huggingface.co",
         });
-        // The attempt is settled: no progress row can stick.
         expect(store.getSnapshot().download).toBeNull();
         expect(listener).toHaveBeenCalledTimes(1);
 
-        // A failing detail is optional: the error state still renders.
         store.publishFailure("distil-small-en", null);
         expect(store.getSnapshot().failure?.detail).toBeNull();
 
-        // Starting the next download clears the stale failure record.
         store.clearFailure();
         expect(store.getSnapshot().failure).toBeNull();
 
-        // Clearing without a failure is a no-op.
         const before = store.getSnapshot();
         store.clearFailure();
         expect(store.getSnapshot()).toBe(before);
@@ -152,9 +130,6 @@ describe("ModelCatalogStore", () => {
         expect(store.getSnapshot().failure).toBeNull();
     });
 
-    // In-app model cleanup: a successful delete_model marks
-    // the model not installed for immediate honest feedback while the
-    // authoritative list_models refresh is still in flight.
     it("marks the deleted model not installed and leaves the rest untouched", () => {
         const store = new ModelCatalogStore();
         store.setModels([...MODELS]);
@@ -172,13 +147,10 @@ describe("ModelCatalogStore", () => {
         );
         expect(store.getSnapshot().models.find((model) => model.id === "distil-small-en")).toEqual(
             MODELS[1],
-        ); // untouched entry keeps its identity and state
-        // The backend rejects deleting a model with a download in flight, so
-        // a delete never touches that state either.
+        );
         expect(store.getSnapshot().download).toEqual({ modelId: "distil-small-en", percent: 5 });
         expect(listener).toHaveBeenCalledTimes(1);
 
-        // Marking an unknown id is a harmless no-op over the same rows.
         store.markDeleted("nonexistent");
         expect(store.getSnapshot().models).toHaveLength(2);
     });

@@ -1,20 +1,3 @@
-/**
- * Visual-harness entry (acceptance surface for the real presentation
- * components).
- *
- * Mounts the REAL presentation components — SettingsPanel and
- * MicrophoneButton — with the repository's existing fakes
- * (FakeSettingsPort, FakeStateStore) and realistic capability reports, on
- * a plain HTML page sized like the Deck QAM plugin column (~410px). The
- * `@decky/ui` primitives are resolved from the `DeckyUI` global exactly as
- * in the packaged plugin; outside Steam the committed stand-in
- * (decky-ui-standin.js) provides that global with the Deck visual language.
- *
- * Cases are selected via query parameters (`case`, `locale`, `state`,
- * `scroll`). The same mount function is exercised by the jsdom smoke test
- * (harness.test.tsx) for every captured state.
- */
-
 import * as React from "react";
 import { createRoot } from "react-dom/client";
 import { SettingsPanel } from "../../src/presentation/settings/SettingsPanel";
@@ -51,54 +34,24 @@ import {
 
 export type HarnessCaseId = "panel" | "mic" | "setup" | "dictation";
 
-/** Which `setup_progress` snapshot the setup case mounts (REAL component). */
 export type HarnessSetupVariant = keyof typeof SETUP_SNAPSHOTS | "hydrated-failed" | "none";
 
-/** Which dictation-card state the dictation case mounts (REAL component). */
 export type HarnessDictationVariant = "idle" | "recording" | "transcript";
 
-/**
- * Model-catalog wiring for the panel case: `ready` mounts
- * the REAL ModelSelect over a canned `list_models` snapshot matching the
- * committed defaults/models.json (General + one native-labeled group per
- * language); `modal` additionally opens the REAL download modal (via the
- * production openModelDownloadModal path) and then settles the download
- * through the production publishComplete path — install flip plus the held
- * final 100% frame — so the capture shows the REAL completion hold (full
- * bar, Cancel hidden) before the modal's short hold elapses and it closes.
- * `manage` opens the REAL manage modal (in-app model cleanup) over the same
- * canned catalog via the production openManageModelsModal path — the
- * installed list with sizes, the selected model's disabled delete and the
- * Delete all inactive action.
- */
 export type HarnessCatalogVariant = "none" | "ready" | "modal" | "manage";
 
 export interface HarnessParams {
     readonly caseId: HarnessCaseId;
     readonly locale: Locale;
-    /** Store state for the panel case: `ready` | `recording` | `error`. */
     readonly stateKind: "ready" | "recording" | "error";
-    /** Setup snapshot for the setup case. */
     readonly setup: HarnessSetupVariant;
-    /** Dictation-card state for the dictation case. */
     readonly dictation: HarnessDictationVariant;
-    /** Model-catalog wiring for the panel case (default `none`). */
     readonly catalog?: HarnessCatalogVariant;
-    /**
-     * Panel boot-load variant (torn loader install): `failed` mounts
-     * the REAL panel's honest failed state (alert + hint + Retry) through an
-     * outright load rejection — the same early-return view a wedged
-     * (never-settling) boot load shows after its 10 s deadline, without
-     * waiting the deadline out in the capture browser.
-     */
     readonly settingsLoad?: "failed";
-    /** Settings language for the panel case (default `"system"`). */
     readonly language?: string;
-    /** Optional `data-panel-title` of the section to scroll into view. */
     readonly scroll: string | null;
 }
 
-/** Every captured state; the smoke test mounts exactly these. */
 export const CAPTURED_CASES: readonly HarnessParams[] = [
     {
         caseId: "panel",
@@ -124,8 +77,6 @@ export const CAPTURED_CASES: readonly HarnessParams[] = [
         dictation: "idle",
         scroll: null,
     },
-    // Honest boot-load failed state (torn loader install): the panel
-    // early-returns with alert + hint + Retry; no panel sections render.
     {
         caseId: "panel",
         locale: "en",
@@ -151,7 +102,6 @@ export const CAPTURED_CASES: readonly HarnessParams[] = [
         dictation: "idle",
         scroll: null,
     },
-    // Setup progress: real panel with the dedicated store preset per state.
     {
         caseId: "setup",
         locale: "en",
@@ -192,8 +142,6 @@ export const CAPTURED_CASES: readonly HarnessParams[] = [
         dictation: "idle",
         scroll: null,
     },
-    // Hydrated failure: no live event at all — the panel shows the failed
-    // state because the real adapter rebuilt it from the status report.
     {
         caseId: "setup",
         locale: "en",
@@ -202,8 +150,6 @@ export const CAPTURED_CASES: readonly HarnessParams[] = [
         dictation: "idle",
         scroll: null,
     },
-    // Dictation card: idle big button, live recording with REAL
-    // received frames, and the settled transcript + clipboard block.
     {
         caseId: "dictation",
         locale: "en",
@@ -236,10 +182,6 @@ export const CAPTURED_CASES: readonly HarnessParams[] = [
         dictation: "transcript",
         scroll: null,
     },
-    // Model-select flow: the REAL ModelSelect over the full
-    // canned list_models snapshot matching defaults/models.json — the
-    // all-language grouped catalog (General + Deutsch/English/Français/
-    // 日本語), independent of the persisted language setting.
     {
         caseId: "panel",
         locale: "en",
@@ -249,12 +191,6 @@ export const CAPTURED_CASES: readonly HarnessParams[] = [
         catalog: "ready",
         scroll: null,
     },
-    // Same catalog with the REAL download modal open (opened through the
-    // production openModelDownloadModal path) driven into the REAL
-    // completion hold by the production publishComplete path — full
-    // determinate bar, "100%" percent row, Cancel hidden — the state the
-    // honest completion shows before the modal's short hold elapses and it
-    // closes itself.
     {
         caseId: "panel",
         locale: "en",
@@ -264,10 +200,6 @@ export const CAPTURED_CASES: readonly HarnessParams[] = [
         catalog: "modal",
         scroll: null,
     },
-    // In-app model cleanup: the REAL manage modal over the
-    // canned catalog (four installed models — three general, one German
-    // specialist). The selected model ("base") renders its delete disabled;
-    // the other rows carry their localized Delete action.
     {
         caseId: "panel",
         locale: "en",
@@ -279,13 +211,6 @@ export const CAPTURED_CASES: readonly HarnessParams[] = [
     },
 ];
 
-/**
- * Canned `list_models` payload matching the committed defaults/models.json
- * catalog: the legacy trio installed, the German full-precision
- * model installed for install-state variety in the per-language group, every
- * other curated entry not installed. Sizes and descriptions mirror the real
- * manifest; the store payload never carries digests.
- */
 const HARNESS_MODEL_CATALOG: readonly CatalogModel[] = [
     {
         id: "tiny",
@@ -402,14 +327,6 @@ const HARNESS_MODEL_CATALOG: readonly CatalogModel[] = [
     },
 ];
 
-/**
- * Builds the catalog store for the panel case through the production publish
- * paths. The modal variant seeds the recommended turbo model's final 100%
- * progress frame (bytesReceived == totalBytes) — the exact percent the real
- * `model_download_progress` stream ends on; the install flip itself happens
- * after the modal opened, through the production publishComplete path (see
- * ModalOpener), so the capture shows the real completion hold.
- */
 function fakeCatalogStore(variant: Exclude<HarnessCatalogVariant, "none">): ModelCatalogStore {
     const store = new ModelCatalogStore();
     store.setModels(HARNESS_MODEL_CATALOG);
@@ -431,15 +348,8 @@ function fakeDiagnostics(): DiagnosticsSource {
     };
 }
 
-/** Stateless monotonic clock wired exactly like the composition root's. */
 const clock = new SystemClock();
 
-/**
- * The real hydration chain for the `hydrated-failed` case: a REAL adapter
- * over a transport seeded with the failed status report. The panel
- * mounts with an empty setup store and reconstructs the failed state through
- * the production `hydrateSetupFromStatus` path — no live event involved.
- */
 function hydratedFailureCase(): {
     store: SetupProgressStore;
     diagnostics: DiagnosticsSource;
@@ -447,7 +357,7 @@ function hydratedFailureCase(): {
     const transport = new FakeDeckyTransport();
     transport.callResponses.set("get_status", FAILED_GET_STATUS_REPORT);
     const adapter = new DeckySpeechAdapter(new DeckyBackendClient(transport));
-    adapter.subscribe(() => undefined); // arm the backend event subscriptions
+    adapter.subscribe(() => undefined);
     return {
         store: adapter.setupProgress,
         diagnostics: {
@@ -478,15 +388,6 @@ function fakeState(stateKind: HarnessParams["stateKind"]): DictationState {
     }
 }
 
-/**
- * Opens the REAL download modal through the production path for the `modal`
- * capture variant (mount-time trigger standing in for the user's selection
- * of a not-installed model; the modal itself is the real component over the
- * real store) and then settles the download through the production
- * publishComplete path — the same guarded `model_download_complete` payload
- * the adapter ingests — so the modal shows the REAL completion hold (100%
- * snapshot held, Cancel hidden) instead of a fake mid-download frame.
- */
 function ModalOpener({ store, locale }: { store: ModelCatalogStore; locale: Locale }): null {
     React.useEffect(() => {
         const model = store
@@ -502,11 +403,6 @@ function ModalOpener({ store, locale }: { store: ModelCatalogStore; locale: Loca
             onCompleted: () => undefined,
             onCancel: () => undefined,
         });
-        // model_download_complete while the modal is open: the store marks
-        // the model installed and keeps the final percent-100 frame, and the
-        // modal enters its completion hold (Cancel hidden) before closing
-        // after COMPLETION_HOLD_MS. The capture exposure ends inside that
-        // hold window (see modalShot in capture.mjs).
         store.publishComplete({
             protocolVersion: 1,
             modelId: model.id,
@@ -516,12 +412,6 @@ function ModalOpener({ store, locale }: { store: ModelCatalogStore; locale: Loca
     return null;
 }
 
-/**
- * Boot load that rejects outright: mounts the panel's honest failed state
- * (alert + hint + Retry). A wedged boot load that never settles renders the
- * SAME early-return view after its 10 s deadline; the rejection just skips
- * the wait in the capture browser.
- */
 function failedBootLoadPort(): SettingsPort {
     return {
         load: () => Promise.reject(new Error("harness: boot load failed")),
@@ -529,14 +419,6 @@ function failedBootLoadPort(): SettingsPort {
     };
 }
 
-/**
- * Opens the REAL manage modal through the production path for the `manage`
- * capture variant (mount-time trigger standing in for the user's press on
- * the Manage models affordance; the modal itself is the real component over
- * the real store). The selected model is "base" — its delete renders
- * disabled exactly as in the composed panel; delete/refresh handlers are
- * inert (the capture shows the list, not an in-flight deletion).
- */
 function ManageOpener({ store, locale }: { store: ModelCatalogStore; locale: Locale }): null {
     React.useEffect(() => {
         openManageModelsModal({
@@ -568,9 +450,6 @@ function PanelCase({
     const hydration = setup === "hydrated-failed" ? hydratedFailureCase() : null;
     const setupSnapshot: SetupProgressSnapshot | null =
         setup === "none" || setup === "hydrated-failed" ? null : SETUP_SNAPSHOTS[setup];
-    // Catalog wiring: the REAL model select consumes the store
-    // side-channel exactly like the composed panel (load is inert here — the
-    // store is pre-populated through the production publish paths).
     const baseSettingsPort = new FakeSettingsPort();
     if (language !== "system") {
         baseSettingsPort.value = { ...baseSettingsPort.value, language };
@@ -655,13 +534,6 @@ function MicCase({ locale }: { locale: Locale }): React.ReactElement {
     );
 }
 
-/**
- * Dictation-card case: the REAL card over the REAL level store. The
- * `recording`/`transcript` variants publish REAL payload-shaped frames
- * (envelope numbers only) through the store's production publish path — the
- * rendered bars are exactly what real `recording_level` events produce; no
- * synthetic DOM, no synthetic CSS.
- */
 function DictationCase({
     locale,
     variant,
@@ -689,17 +561,10 @@ function DictationCase({
                   },
               }
             : { kind: "ready" };
-    // Publish after mount (real event timing): the card resets the level
-    // window when the state enters recording, so pre-mount frames would be
-    // wiped by its fresh-window behavior.
     React.useEffect(() => {
         if (variant !== "recording") {
             return;
         }
-        // 24 frames of a plausible spoken envelope: two gentle surges. Each
-        // frame's peak is the envelope's dBFS (20·log10, floored at the
-        // meter's -60 dBFS, rounded to 3 decimals like the backend's frames)
-        // so the strip exercises the real dB-derived level mapping.
         const amplitudes = [
             0.05, 0.12, 0.2, 0.35, 0.5, 0.62, 0.7, 0.65, 0.5, 0.3, 0.18, 0.1, 0.08, 0.15, 0.28,
             0.45, 0.6, 0.75, 0.85, 0.78, 0.6, 0.4, 0.22, 0.12,
@@ -745,7 +610,6 @@ function Harness({ params }: { params: HarnessParams }): React.ReactElement {
     );
 }
 
-/** Mounts one captured state; returns the disposer. Shared with the smoke test. */
 export function mountVisualHarness(container: HTMLElement, params: HarnessParams): () => void {
     const root = createRoot(container);
     root.render(<Harness params={params} />);
@@ -799,8 +663,6 @@ function paramsFromLocation(): HarnessParams {
     };
 }
 
-// Browser auto-mount: only on the harness page itself (jsdom smoke calls
-// mountVisualHarness directly and has no #visual-root + ?case URL).
 const visualRoot = typeof document !== "undefined" ? document.getElementById("visual-root") : null;
 if (
     visualRoot !== null &&
@@ -810,12 +672,6 @@ if (
     const params = paramsFromLocation();
     mountVisualHarness(visualRoot, params);
     const settle = (): void => {
-        // Numeric capture geometry for the driver: the page stays
-        // unscrolled and the capture driver screenshots the full window and
-        // crops the target region — headless Chromium maps window pixels
-        // 1:1 onto the page from its origin, but does not reliably honor
-        // page-side scroll offsets (the old scrollIntoView targeting
-        // captured the wrong region for section shots).
         const doc = document.documentElement;
         visualRoot.dataset.overflowX = doc.scrollWidth > doc.clientWidth ? "true" : "false";
         const sections = Array.from(
@@ -828,11 +684,6 @@ if (
                 height: Math.round(rect.height),
             };
         });
-        // Named sub-section regions for targeted crops (the Speech section
-        // with the Language → Model dropdowns is smaller than the whole
-        // panel, and the modal overlay lives outside #visual-root). The modal
-        // region is the dialog BOX drawn by ModalRoot, not the fullscreen
-        // overlay (real Steam's ModalOverlayContent spans the whole screen).
         const catalogBlock = document.querySelector<HTMLElement>("[data-model-select]");
         const regions: { name: string; top: number; height: number }[] = [];
         if (catalogBlock) {
@@ -846,8 +697,6 @@ if (
         const modalCard = document.querySelector<HTMLElement>(".decky-modal-dialog");
         if (modalCard) {
             const modalRect = modalCard.getBoundingClientRect();
-            // The manage modal carries its own marker; the download modal is
-            // the remaining ModalRoot dialog (only one modal is ever open).
             const manageModal = document.querySelector<HTMLElement>("[data-manage-modal]");
             regions.push({
                 name: manageModal !== null ? "manageModal" : "downloadModal",
@@ -863,6 +712,5 @@ if (
         });
     };
     window.requestAnimationFrame(settle);
-    // Fallback for capture drivers whose virtual clock does not run rAF.
     window.setTimeout(settle, 300);
 }

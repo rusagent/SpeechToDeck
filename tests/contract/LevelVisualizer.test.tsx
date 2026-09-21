@@ -1,20 +1,3 @@
-/**
- * LevelVisualizer contract tests.
- *
- * Decision points:
- * 1. Every style renders the SAME real-frame window behind the pinned journey
- *    contract — [data-level-strip], 24×[data-level-bar], [data-level-value]
- *    0..1 — fed ONLY by real LevelMeterStore publications (no synthetic
- *    audio data; the store is the oracle, never a fabricated frame).
- * 2. `classic` preserves the previous strip's exact bar semantics (height
- *    formula with its 4% floor, hot-bar color threshold) — a behavior
- *    preservation pin over the extracted strip.
- * 3. Style selection persists under `speechtodeck.levelStyle` (persisted
- *    readback oracle); garbage and missing values fail closed to `heatmap`.
- * 4. The `heatmap` palette is the acceptance's magma ramp: deep purple floor
- *    → red/orange → amber → near-white yellow core, monotonic in temperature.
- */
-
 import { act, cleanup, fireEvent, render } from "@testing-library/react";
 import * as React from "react";
 import { afterEach, describe, expect, it } from "vitest";
@@ -31,12 +14,6 @@ afterEach(() => {
     window.localStorage.clear();
 });
 
-/**
- * Real payload shape: `[min, max, peakDbfs]` with a physically consistent
- * symmetric envelope (linear peak = 10^(peakDbfs / 20)). The store derives
- * each bar from peakDbfs normalized over the -60..0 dBFS range, so -30 dBFS
- * renders as 0.50 and -6 dBFS as 0.90.
- */
 function framePayload(seq: number, peakDbfs: number) {
     const amplitude = 10 ** (peakDbfs / 20);
     return {
@@ -47,7 +24,6 @@ function framePayload(seq: number, peakDbfs: number) {
     };
 }
 
-/** Mirrors the card's exact store wiring (useSyncExternalStore over the window). */
 function VisualizerHarness({ store }: { store: LevelMeterStore }): React.ReactElement {
     const snapshot = React.useSyncExternalStore(
         (onChange) => store.subscribe(onChange),
@@ -97,17 +73,14 @@ describe("LevelVisualizer", () => {
         expect(levelBars()).toHaveLength(24);
         expect(levelValue(23)).toBe("0.00");
 
-        // Real frames through the real store → real columns (never synthetic).
         await act(async () => {
             store.publish(framePayload(1, -30));
             store.publish(framePayload(2, -6));
         });
         expect(levelValue(23)).toBe("0.90");
         expect(levelValue(22)).toBe("0.50");
-        expect(levelValue(0)).toBe("0.00"); // untouched window head stays dark
+        expect(levelValue(0)).toBe("0.00");
 
-        // Heatmap renders amplitude as temperature: hot gradient + glow for
-        // loud columns, no glow for the silent floor.
         const loud = levelBars()[23] as HTMLElement;
         expect(loud.style.background).toContain("linear-gradient");
         expect(loud.style.boxShadow).not.toBe("none");
@@ -124,24 +97,21 @@ describe("LevelVisualizer", () => {
         await act(async () => {
             store.publish(framePayload(1, -30));
             store.publish(framePayload(2, -6));
-            store.publish(framePayload(3, -59)); // 1 dB above the floor → 0.02
+            store.publish(framePayload(3, -59));
         });
         const columns = levelBars();
         expect(columns).toHaveLength(24);
-        // Newest frame is the rightmost column (store: oldest first).
         expect(levelValue(23)).toBe("0.02");
         expect(levelValue(22)).toBe("0.90");
         expect(levelValue(21)).toBe("0.50");
-        // Same height formula (with the 4% floor) and hot-bar color as the
-        // original strip this style preserves.
-        const loud = columns[22] as HTMLElement; // 0.9
+        const loud = columns[22] as HTMLElement;
         expect(loud.className).toContain("speechtodeck-level-bar");
         expect(loud.style.height).toBe("90%");
         expect(loud.style.background).toContain("255, 92, 92");
-        const mid = columns[21] as HTMLElement; // 0.5
+        const mid = columns[21] as HTMLElement;
         expect(mid.style.height).toBe("50%");
         expect(mid.style.background).toContain("255, 255, 255");
-        const quiet = columns[23] as HTMLElement; // 0.02
+        const quiet = columns[23] as HTMLElement;
         expect(quiet.style.height).toBe("4%");
     });
 
@@ -161,7 +131,6 @@ describe("LevelVisualizer", () => {
         expect(loud).not.toBeNull();
         const halves = Array.from(loud?.children ?? []) as HTMLElement[];
         expect(halves).toHaveLength(2);
-        // 0.9 → two mirrored 45% halves around the shared center line.
         expect(halves[0]?.style.height).toBe("45%");
         expect(halves[1]?.style.height).toBe("45%");
     });
@@ -188,18 +157,15 @@ describe("LevelVisualizer", () => {
     });
 
     it("falls back to heatmap on garbage or missing stored values and without storage", async () => {
-        // Garbage stored value fails closed to the default.
         window.localStorage.setItem(LEVEL_STYLE_STORAGE_KEY, "neon-rain");
         expect(loadLevelStyle(window.localStorage)).toBe("heatmap");
         const store = new LevelMeterStore();
         await renderVisualizer(store);
         expect(stripStyleAttribute()).toBe("heatmap");
 
-        // Missing key → default.
         window.localStorage.clear();
         expect(loadLevelStyle(window.localStorage)).toBe("heatmap");
 
-        // Unavailable storage (null) → default, no throw.
         expect(loadLevelStyle(null)).toBe("heatmap");
     });
 
@@ -207,16 +173,13 @@ describe("LevelVisualizer", () => {
         const brightness = (color: string): number =>
             channelValues(color).reduce((sum, channel) => sum + channel, 0);
 
-        // Deep purple floor: dark and blue-dominant.
         const [floorRed = 0, , floorBlue = 0] = channelValues(heatColor(0));
         expect(brightness(heatColor(0))).toBeLessThan(90);
         expect(floorBlue).toBeGreaterThan(floorRed);
 
-        // Past the middle the ramp is red/orange: red-dominant over blue.
         const [midRed = 0, , midBlue = 0] = channelValues(heatColor(0.6));
         expect(midRed).toBeGreaterThan(midBlue);
 
-        // Hottest core: near-white with a yellow cast (red ≥ green > blue).
         const [hotRed = 0, hotGreen = 0, hotBlue = 0] = channelValues(heatColor(1));
         for (const channel of [hotRed, hotGreen, hotBlue]) {
             expect(channel).toBeGreaterThan(150);
@@ -224,7 +187,6 @@ describe("LevelVisualizer", () => {
         expect(hotRed).toBeGreaterThanOrEqual(hotGreen);
         expect(hotGreen).toBeGreaterThan(hotBlue);
 
-        // Temperature rises monotonically with amplitude.
         const temperatures = [0, 0.2, 0.4, 0.6, 0.8, 1].map((value) =>
             brightness(heatColor(value)),
         );

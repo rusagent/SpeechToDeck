@@ -1,12 +1,3 @@
-"""Composition root and main.py facade tests.
-
-The fail-closed facade test runs against a deliberately unpinned runtime
-manifest (the committed manifest is pinned since the v1.0.1 acquisition).
-The full-pipeline test runs the real fixture daemon through composition:
-real supervision, the record CLI protocol, event-driven transcription
-delivery — no STT hardware.
-"""
-
 from __future__ import annotations
 
 import asyncio
@@ -42,8 +33,6 @@ UNPINNED_MANIFEST_JSON = (
     ' "version": "", "source": "", "sha256": "", "license": ""}]}'
 )
 
-# Download-path payloads: RETRY_PAYLOAD matches the patched manifest digest
-# (installable); CORRUPT_PAYLOAD deliberately does not (digest gate).
 RETRY_PAYLOAD = b"transient-retry-model-payload-" * 6144
 CORRUPT_PAYLOAD = b"corrupt-download-not-matching-the-manifest-digest"
 
@@ -72,31 +61,23 @@ def test_plugin_imports_without_decky_and_exposes_spec_callables() -> None:
 
 
 def build_plugin_roots(tmp_path: Path, *, with_fake_model: bool = False) -> tuple[Path, Path]:
-    """Real plugin root layout: committed defaults, empty bin/."""
     root = tmp_path / "plugin-root"
     defaults = root / "defaults"
     defaults.mkdir(parents=True)
     manifest_payload = json.loads(REAL_MODELS_MANIFEST.read_text(encoding="utf-8"))
     data_dir = tmp_path / "data"
     if with_fake_model:
-        # Install the default model (digest patched in) so startup passes the
-        # digest integrity gate and failures below isolate the RUNTIME path.
         payload = write_fake_model(data_dir, "base", "ggml-base.bin")
         digest = hashlib.sha256(payload).hexdigest()
         for entry in manifest_payload["models"]:
             if entry["id"] == "base":
                 entry["sha256"] = digest
     (defaults / "models.json").write_text(json.dumps(manifest_payload))
-    # The unpinned runtime manifest → fail closed at startup.
     (defaults / "runtime-manifest.json").write_text(UNPINNED_MANIFEST_JSON, encoding="utf-8")
     return root, data_dir
 
 
 def test_get_capabilities_reports_backend_version_fail_soft(tmp_path: Path) -> None:
-    """Additive diagnostics field: the plugin version, read once from the
-    loader-installed package.json at composition. Missing or malformed
-    package.json omits the field (fail-soft; older payloads stay valid).
-    """
 
     async def scenario() -> None:
         root, data_dir = build_plugin_roots(tmp_path / "reported")
@@ -135,11 +116,11 @@ def test_facade_fails_closed_against_unpinned_runtime(tmp_path: Path) -> None:
         plugin = main.Plugin()
         plugin._app = app
         try:
-            await app.start()  # must not raise (failures surface, not fatal)
+            await app.start()
             unavailable = [
                 p for p in publisher.payloads("runtime_status") if p.get("state") == "unavailable"
             ]
-            assert unavailable  # startup surfaced the failure
+            assert unavailable
             assert any("pinned" in str(p.get("detail", "")) for p in unavailable)
 
             status = await plugin.get_status()
@@ -149,12 +130,10 @@ def test_facade_fails_closed_against_unpinned_runtime(tmp_path: Path) -> None:
             capabilities = await plugin.get_capabilities()
             assert capabilities["protocolVersion"] == 1
             assert capabilities["speechRuntimeAvailable"] is False
-            # Speech-side capability fields (conservative while the
-            # hardware probes live in the native daemon).
             assert capabilities["microphoneAvailable"] is False
             assert capabilities["cpuAvailable"] is True
             assert capabilities["vulkanAvailable"] is False
-            assert capabilities["modelInstalled"] is True  # fake model installed below
+            assert capabilities["modelInstalled"] is True
 
             models = await plugin.list_models()
             assert [m["id"] for m in models["models"]] == [
@@ -186,19 +165,15 @@ def test_facade_fails_closed_against_unpinned_runtime(tmp_path: Path) -> None:
                 "kotoba-whisper-v2.0-q5_0": False,
                 "kotoba-whisper-v2.0-f16": False,
             }
-            # Additive payload fields: specialized models carry their
-            # languages and the curated description; legacy entries omit them.
             distil = next(m for m in models["models"] if m["id"] == "distil-small-en")
             assert distil["languages"] == ["en"]
             assert distil["multilingual"] is False
             assert isinstance(distil["description"], str) and distil["description"]
-            assert "languages" not in models["models"][0]  # tiny: general model
+            assert "languages" not in models["models"][0]
             assert "description" not in models["models"][0]
 
             settings = await plugin.get_settings()
-            assert settings["modelId"] == "base"  # shipped default
-            # Legacy keys (maxRecordingSeconds et al.) left the document and
-            # are ignored on merge; a plain field update round-trips.
+            assert settings["modelId"] == "base"
             updated = await plugin.update_settings({"language": "de"})
             assert updated["language"] == "de"
             assert "maxRecordingSeconds" not in updated
@@ -208,22 +183,16 @@ def test_facade_fails_closed_against_unpinned_runtime(tmp_path: Path) -> None:
             assert "vadEnabled" not in persisted
             assert "outputMode" not in persisted
 
-            # Runtime down (unpinned) → the runtime guard fires first.
             missing = await plugin.start_recording("session-1")
             assert missing["ok"] is False
             assert missing["code"] == "RUNTIME_UNAVAILABLE"
 
-            # Invalid ids never reach the network.
             bad_download = await plugin.download_model("../../etc/passwd")
             assert bad_download["code"] == "MODEL_NOT_INSTALLED"
 
             cancelled = await plugin.cancel_model_download()
             assert cancelled == {"ok": True, "cancelled": False}
 
-            # Explicit restart re-runs the FULL startup path; against
-            # the unpinned manifest it fails closed at runtime.verify — the
-            # failure is event-surfaced (never a call failure) and recorded
-            # for the frontend status hydration.
             restarted = await plugin.restart_runtime()
             assert restarted == {"ok": True, "restarted": True}
             failed = [p for p in publisher.payloads("setup_progress") if p.get("step") == "failed"]
@@ -236,7 +205,7 @@ def test_facade_fails_closed_against_unpinned_runtime(tmp_path: Path) -> None:
             }
 
             await app.dispose()
-            await app.dispose()  # idempotent
+            await app.dispose()
             assert not (data_dir / "runtime" / "transcript.out").exists()
         finally:
             await app.dispose()
@@ -255,9 +224,6 @@ def write_fake_model(data_dir: Path, model_id: str, filename: str) -> bytes:
 def compose_with_fixture_daemon(
     tmp_path: Path,
 ) -> tuple[Application, FakeEventPublisher, Path]:
-    """Composition over the real fixture daemon: pinned binary, installed
-    "base" (default) and "tiny" models so startup and the model-change
-    restart both pass the digest integrity gate."""
     root, data_dir = build_plugin_roots(tmp_path)
     binary = build_fixture_binary(root)
     write_pinned_runtime_manifest(root, binary)
@@ -283,9 +249,6 @@ def test_full_pipeline_with_real_fixture_daemon(tmp_path: Path) -> None:
 
             started = await app.start_recording("sess-1")
             assert started == {"sessionId": "sess-1"}
-            # The audio.sock level stream runs only while a
-            # recording session is active — started with the acknowledged
-            # start, stopped with the session end (no socket needed here).
             assert app.level_client.is_running
             assert await wait_until(
                 lambda: (
@@ -308,16 +271,12 @@ def test_full_pipeline_with_real_fixture_daemon(tmp_path: Path) -> None:
             )
             assert payload["protocolVersion"] == 1
             assert payload["text"] == "hello world"
-            # Additive v0.2 clipboard leg: the fixture layout has no bin/xclip,
-            # so the backend reports the skipped leg (frontend copy is primary).
             assert payload["clipboard"] == "skipped"
             metrics = payload["metrics"]
             assert metrics["modelId"] == "base"
             assert metrics["computeBackend"] in ("cpu", "vulkan", "auto")
             assert "audioDurationMs" in metrics and "transcriptionDurationMs" in metrics
 
-            # Cancellation through the full stack: cancel emits no transcript
-            # and also ends the level stream.
             await app.start_recording("sess-2")
             assert app.level_client.is_running
             await app.cancel_recording("sess-2")
@@ -326,17 +285,15 @@ def test_full_pipeline_with_real_fixture_daemon(tmp_path: Path) -> None:
                 p for p in publisher.payloads("transcript_ready") if p.get("sessionId") == "sess-2"
             ]
 
-            # Duplicate session through the facade: stable conflict code.
             await app.start_recording("sess-3")
             conflict = await _facade_call(app.start_recording("sess-4"))
             assert conflict["code"] == "SESSION_CONFLICT"
             await app.cancel_recording("sess-3")
 
-            # Runtime status events flowed from the real daemon status file.
             assert any(p.get("state") == "recording" for p in publisher.payloads("runtime_status"))
 
             await app.dispose()
-            assert app.supervisor.last_exit_code == 0  # clean shutdown
+            assert app.supervisor.last_exit_code == 0
             assert not (data_dir / "runtime" / "transcript.out").exists()
         finally:
             await app.dispose()
@@ -346,7 +303,7 @@ def test_full_pipeline_with_real_fixture_daemon(tmp_path: Path) -> None:
 
 async def _facade_call(operation: object) -> dict[str, object]:
     try:
-        result = await operation  # type: ignore[arg-type]
+        result = await operation
     except SpeechError as error:
         return {"ok": False, **error.payload()}
     assert isinstance(result, dict)
@@ -359,7 +316,7 @@ def test_start_recording_requires_running_runtime(tmp_path: Path) -> None:
         app = compose(plugin_root=root, data_dir=data_dir, event_publisher=FakeEventPublisher())
         try:
             with pytest.raises(RuntimeUnavailableError):
-                await app.start_recording("session-1")  # never started
+                await app.start_recording("session-1")
         finally:
             await app.dispose()
 
@@ -367,11 +324,6 @@ def test_start_recording_requires_running_runtime(tmp_path: Path) -> None:
 
 
 def test_update_settings_drives_runtime_lifecycle(tmp_path: Path) -> None:
-    """Settings drive the runtime lifecycle: `enabled` off stops the runtime
-    and start_recording
-    rejects; enabling again follows the startup path; a runtime-relevant
-    change restarts the daemon exactly once with the new settings; an
-    irrelevant change restarts nothing (storm guard)."""
 
     def starting_events(publisher: FakeEventPublisher) -> list[dict[str, object]]:
         return [p for p in publisher.payloads("runtime_status") if p.get("state") == "starting"]
@@ -382,18 +334,15 @@ def test_update_settings_drives_runtime_lifecycle(tmp_path: Path) -> None:
             await app.start()
             assert await wait_until(app.supervisor.is_running, timeout=5.0)
 
-            # enabled=false: the runtime goes away in the stop order and
-            # the facade rejects recording with a stable error code.
             disabled = await app.update_settings({"enabled": False})
             assert disabled["enabled"] is False
             assert await wait_until(lambda: not app.supervisor.is_running(), timeout=5.0)
-            assert app.supervisor.last_exit_code == 0  # clean SIGTERM stop
+            assert app.supervisor.last_exit_code == 0
             persisted = json.loads((data_dir / "settings.json").read_text(encoding="utf-8"))
             assert persisted["enabled"] is False
             with pytest.raises(RuntimeUnavailableError):
                 await app.start_recording("sess-disabled")
 
-            # enabled=true: startup path again, sessions accepted.
             enabled = await app.update_settings({"enabled": True})
             assert enabled["enabled"] is True
             assert await wait_until(app.supervisor.is_running, timeout=5.0)
@@ -401,15 +350,11 @@ def test_update_settings_drives_runtime_lifecycle(tmp_path: Path) -> None:
             assert started == {"sessionId": "sess-after-enable"}
             await app.cancel_recording("sess-after-enable")
 
-            # Runtime-relevant change: exactly one supervisor restart, and
-            # the new settings reach the daemon (restart with the new model).
             starting_before = len(starting_events(publisher))
             updated = await app.update_settings({"modelId": "tiny"})
             assert updated["modelId"] == "tiny"
             assert await wait_until(app.supervisor.is_running, timeout=5.0)
             assert len(starting_events(publisher)) == starting_before + 1
-            # The generated config carries the absolute model path; the new
-            # model reaches the daemon when the log shows its .bin file.
             log_line = "models/ggml-tiny.bin"
 
             async def new_model_in_daemon_log() -> bool:
@@ -420,13 +365,9 @@ def test_update_settings_drives_runtime_lifecycle(tmp_path: Path) -> None:
 
             assert await wait_until(new_model_in_daemon_log, timeout=5.0)
 
-            # Runtime-irrelevant update (no effective value change): no
-            # restart. Every remaining wire field is either lifecycle-owned
-            # or runtime-relevant, so the storm guard fires on value
-            # equality — an update that changes nothing restarts nothing.
             starting_before = len(starting_events(publisher))
             current = await app.get_settings()
-            current.pop("schemaVersion")  # backend-owned; never client-set
+            current.pop("schemaVersion")
             await app.update_settings(current)
             assert len(starting_events(publisher)) == starting_before
             assert app.supervisor.is_running()
@@ -437,15 +378,7 @@ def test_update_settings_drives_runtime_lifecycle(tmp_path: Path) -> None:
 
 
 def _gate_daemon_spawn(app: Application) -> tuple[asyncio.Event, asyncio.Event]:
-    """Deterministic await point at the daemon spawn, plus an instant
-    cancel-recording stub.
 
-    Parking `supervisor.start` behind a gate lets a test hold the
-    startup (or a settings-driven enable) immediately before the daemon
-    spawns. The cancel-ack wait against a not-yet-running daemon takes
-    its full 2s timeout and would mask the lifecycle ordering under test,
-    so the cancel seam is stubbed to return immediately (the stop order
-    itself is covered by the lifecycle test with the real client)."""
     entered = asyncio.Event()
     gate = asyncio.Event()
     original_start = app.supervisor.start
@@ -453,25 +386,18 @@ def _gate_daemon_spawn(app: Application) -> tuple[asyncio.Event, asyncio.Event]:
     async def gated_start(settings: object) -> None:
         entered.set()
         await gate.wait()
-        await original_start(settings)  # type: ignore[arg-type]
+        await original_start(settings)
 
-    app.supervisor.start = gated_start  # type: ignore[method-assign]
+    app.supervisor.start = gated_start
 
     async def instant_cancel() -> None:
         return None
 
-    app.client.cancel_recording = instant_cancel  # type: ignore[method-assign]
+    app.client.cancel_recording = instant_cancel
     return entered, gate
 
 
 def test_disable_during_startup_leaves_no_running_daemon(tmp_path: Path) -> None:
-    """Race 1: `update_settings(enabled=false)` is issued while the
-    startup is parked immediately before the daemon spawn. Without the
-    shared lifecycle lock the disable completes first and startup then
-    spawns a daemon that contradicts the disabled settings; with the lock
-    the disable cannot run to completion while startup holds it, so the
-    disable lands after startup and tears the daemon down again — the run
-    ends daemon-down and settings-consistent either way."""
 
     def starting_events(publisher: FakeEventPublisher) -> list[dict[str, object]]:
         return [p for p in publisher.payloads("runtime_status") if p.get("state") == "starting"]
@@ -482,14 +408,9 @@ def test_disable_during_startup_leaves_no_running_daemon(tmp_path: Path) -> None
         try:
             startup = asyncio.create_task(app.start())
             assert await wait_until(entered.is_set, timeout=5.0)
-            # Startup is parked at the daemon spawn; issue the disable now.
             disable = asyncio.create_task(app.update_settings({"enabled": False}))
 
             async def open_gate_after_disable() -> None:
-                # Pre-fix, the disable finishes while startup is parked and
-                # the gate opens immediately; post-fix the lock makes that
-                # ordering impossible, so a short grace period opens it.
-                # shield: a timeout must not cancel the disable task.
                 with contextlib.suppress(TimeoutError):
                     await asyncio.wait_for(asyncio.shield(disable), timeout=0.5)
                 gate.set()
@@ -497,12 +418,8 @@ def test_disable_during_startup_leaves_no_running_daemon(tmp_path: Path) -> None
             await asyncio.wait_for(open_gate_after_disable(), timeout=10.0)
             await asyncio.wait_for(startup, timeout=10.0)
             await asyncio.wait_for(disable, timeout=10.0)
-            # The daemon was started exactly once, then taken down again.
             assert len(starting_events(publisher)) == 1
             assert await wait_until(lambda: not app.supervisor.is_running(), timeout=5.0)
-            # No exit-code assertion: the fixture daemon is stopped within
-            # its own startup window here, so the exit status is not stable
-            # (clean stops are covered by the lifecycle test).
             persisted = json.loads((data_dir / "settings.json").read_text(encoding="utf-8"))
             assert persisted["enabled"] is False
         finally:
@@ -512,17 +429,10 @@ def test_disable_during_startup_leaves_no_running_daemon(tmp_path: Path) -> None
 
 
 def test_dispose_during_update_leaves_no_daemon_after_unload(tmp_path: Path) -> None:
-    """Race 2: `update_settings(enabled=true)` is parked mid-startup
-    when `dispose()` runs. Disposal shares the lifecycle lock and fences
-    transitions with `_disposed`, so no daemon outlives the plugin unload —
-    and a late update after disposal respawns nothing."""
 
     async def scenario() -> None:
         app, _publisher, data_dir = compose_with_fixture_daemon(tmp_path)
         try:
-            # Realistic prior lifecycle: startup, then disable. (Without
-            # start(), the runtime dir does not exist and the monitor's
-            # inotify watch would legitimately fail closed on enable.)
             await app.start()
             assert await wait_until(app.supervisor.is_running, timeout=5.0)
             await app.update_settings({"enabled": False})
@@ -534,10 +444,6 @@ def test_dispose_during_update_leaves_no_daemon_after_unload(tmp_path: Path) -> 
             unload = asyncio.create_task(app.dispose())
 
             async def open_gate_after_unload() -> None:
-                # Pre-fix, dispose finishes while the update is parked and
-                # the gate opens immediately; post-fix the lock makes that
-                # ordering impossible, so a short grace period opens it.
-                # shield: a timeout must not cancel the dispose task.
                 with contextlib.suppress(TimeoutError):
                     await asyncio.wait_for(asyncio.shield(unload), timeout=0.5)
                 gate.set()
@@ -545,14 +451,9 @@ def test_dispose_during_update_leaves_no_daemon_after_unload(tmp_path: Path) -> 
             await asyncio.wait_for(open_gate_after_unload(), timeout=10.0)
             await asyncio.wait_for(update, timeout=10.0)
             await asyncio.wait_for(unload, timeout=10.0)
-            # Either ordering converges: the daemon spawned by the update (if
-            # it won the lock) is torn down by dispose, never orphaned.
             assert not app.supervisor.is_running()
-            # The supervisor observed the teardown (exit status itself is not
-            # stable for a daemon stopped within its startup window).
             assert app.supervisor.last_exit_code is not None
 
-            # After disposal, a late update persists but must not respawn.
             await app.update_settings({"enabled": True})
             assert not app.supervisor.is_running()
             persisted = json.loads((data_dir / "settings.json").read_text(encoding="utf-8"))
@@ -563,12 +464,9 @@ def test_dispose_during_update_leaves_no_daemon_after_unload(tmp_path: Path) -> 
     asyncio.run(scenario())
 
 
-# ── setup_progress startup stream (frozen frontend contract) ────────────────
 
 
 def test_setup_progress_fresh_path_with_model_present(tmp_path: Path) -> None:
-    """Startup with the model installed emits the frozen step sequence
-    verify → ensure → daemon → warmup → ready with the frozen payload shape."""
 
     async def scenario() -> None:
         app, publisher, _data_dir = compose_with_fixture_daemon(tmp_path)
@@ -594,7 +492,7 @@ def test_setup_progress_fresh_path_with_model_present(tmp_path: Path) -> None:
             assert first["percent"] == 0
             assert first["indeterminate"] is False
             assert first["detailKey"] == "setup.detail.checksum"
-            assert events[1]["percent"] == 100  # verification is fast: 0 → 100
+            assert events[1]["percent"] == 100
             ensure = events[2]
             assert ensure["labelKey"] == "setup.step.modelEnsure"
             assert ensure["detailKey"] == "setup.detail.verifying"
@@ -622,16 +520,13 @@ def test_setup_progress_fresh_path_with_model_present(tmp_path: Path) -> None:
 
 
 def test_setup_progress_download_path_percent_monotonic(tmp_path: Path) -> None:
-    """A missing model downloads during startup: model.ensure carries the
-    downloading detail and a monotonic real percent from the throttled
-    download feed, ending at 100 when the daemon path proceeds."""
 
     async def scenario() -> None:
         root, data_dir = build_plugin_roots(tmp_path)
         binary = build_fixture_binary(root)
         write_pinned_runtime_manifest(root, binary)
 
-        payload = b"download-path-model-payload-" * 6144  # ~165 KiB → 3 chunks
+        payload = b"download-path-model-payload-" * 6144
         digest = hashlib.sha256(payload).hexdigest()
         manifest_payload = json.loads(REAL_MODELS_MANIFEST.read_text(encoding="utf-8"))
         download_url = ""
@@ -663,7 +558,7 @@ def test_setup_progress_download_path_percent_monotonic(tmp_path: Path) -> None:
             plugin_root=root,
             data_dir=data_dir,
             event_publisher=publisher,
-            model_fetcher=LocalFetcher(),  # type: ignore[arg-type]
+            model_fetcher=LocalFetcher(),
         )
         try:
             assert not await app.models.store.is_installed("base")
@@ -671,7 +566,7 @@ def test_setup_progress_download_path_percent_monotonic(tmp_path: Path) -> None:
             assert await wait_until(app.supervisor.is_running, timeout=5.0)
 
             assert opened_urls == [download_url]
-            assert await app.models.store.is_installed("base")  # atomic install
+            assert await app.models.store.is_installed("base")
             ensure = [
                 p for p in publisher.payloads("setup_progress") if p["step"] == "model.ensure"
             ]
@@ -679,8 +574,8 @@ def test_setup_progress_download_path_percent_monotonic(tmp_path: Path) -> None:
             percents = [int(p["percent"]) for p in ensure]
             assert percents[0] == 0
             assert percents[-1] == 100
-            assert percents == sorted(percents)  # monotonic progress feed
-            assert len(percents) >= 3  # real intermediate ticks, not just 0 → 100
+            assert percents == sorted(percents)
+            assert len(percents) >= 3
         finally:
             await app.dispose()
 
@@ -688,9 +583,6 @@ def test_setup_progress_download_path_percent_monotonic(tmp_path: Path) -> None:
 
 
 def test_setup_progress_failure_at_daemon_start(tmp_path: Path) -> None:
-    """A daemon.start failure emits the terminal `failed` event at stepIndex 2
-    with the stable error code and never emits ready; the existing fail-closed
-    surface (runtime down, `runtime_status` unavailable) is unchanged."""
 
     async def scenario() -> None:
         app, publisher, _data_dir = compose_with_fixture_daemon(tmp_path)
@@ -699,20 +591,19 @@ def test_setup_progress_failure_at_daemon_start(tmp_path: Path) -> None:
             async def failing_start(settings: object) -> None:
                 raise RuntimeStartError("spawn refused", detail="test seam")
 
-            app.supervisor.start = failing_start  # type: ignore[method-assign]
+            app.supervisor.start = failing_start
 
-            await app.start()  # surfaced, never fatal
+            await app.start()
 
             events = publisher.payloads("setup_progress")
             failed = events[-1]
             assert failed["step"] == "failed"
             assert failed["labelKey"] == "setup.state.failed"
-            assert failed["stepIndex"] == 2  # failed at daemon.start
-            assert failed["percent"] == 0  # percent = current at the failing step
+            assert failed["stepIndex"] == 2
+            assert failed["percent"] == 0
             assert failed["indeterminate"] is False
             assert failed["error"] == {"code": "RUNTIME_START_FAILED"}
             assert not any(p["step"] == "ready" for p in events)
-            # Fail-closed semantics unchanged.
             assert not app.supervisor.is_running()
             unavailable = [
                 p for p in publisher.payloads("runtime_status") if p.get("state") == "unavailable"
@@ -724,12 +615,9 @@ def test_setup_progress_failure_at_daemon_start(tmp_path: Path) -> None:
     asyncio.run(scenario())
 
 
-# ── startup download resilience + full-path restart ─────────────────────────
 
 
 def build_download_roots(tmp_path: Path, payload: bytes) -> tuple[Path, Path, str]:
-    """Pinned-runtime layout with the default model NOT installed and the
-    manifest digest patched to `payload` (the download path)."""
     root, data_dir = build_plugin_roots(tmp_path)
     binary = build_fixture_binary(root)
     write_pinned_runtime_manifest(root, binary)
@@ -748,12 +636,6 @@ def build_download_roots(tmp_path: Path, payload: bytes) -> tuple[Path, Path, st
 def test_startup_retries_transient_download_then_ready(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """On-device v0.1.3 (journal 20:43): ONE transient transport error
-    (`model download request failed`) failed startup permanently. The
-    transient class now gets exactly 2 automatic retries on the documented
-    bounded 2 s/5 s ladder; every attempt re-emits the model.ensure step from
-    percent 0 (frozen payload shape, existing detail key) and success still
-    completes ready with the model installed and no stored failure."""
 
     class RetryStream:
         total_bytes = len(RETRY_PAYLOAD)
@@ -778,8 +660,6 @@ def test_startup_retries_transient_download_then_ready(
             return RetryStream()
 
     async def scenario() -> None:
-        # The documented ladder is the decision point under test; the run
-        # itself uses patched (fast) delays to keep the suite wall-time.
         assert MODEL_DOWNLOAD_RETRY_DELAYS_S == (2.0, 5.0)
         monkeypatch.setattr(backend.composition, "MODEL_DOWNLOAD_RETRY_DELAYS_S", (0.01, 0.02))
         root, data_dir, download_url = build_download_roots(tmp_path, RETRY_PAYLOAD)
@@ -788,16 +668,15 @@ def test_startup_retries_transient_download_then_ready(
             plugin_root=root,
             data_dir=data_dir,
             event_publisher=publisher,
-            model_fetcher=FlakyFetcher(),  # type: ignore[arg-type]
+            model_fetcher=FlakyFetcher(),
         )
         try:
             assert not await app.models.store.is_installed("base")
             await app.start()
             assert await wait_until(app.supervisor.is_running, timeout=5.0)
 
-            # Initial attempt + exactly 2 automatic retries.
             assert opens == [download_url, download_url, download_url]
-            assert await app.models.store.is_installed("base")  # atomic install
+            assert await app.models.store.is_installed("base")
             ensure = [
                 p for p in publisher.payloads("setup_progress") if p["step"] == "model.ensure"
             ]
@@ -806,7 +685,7 @@ def test_startup_retries_transient_download_then_ready(
                 for p in ensure
                 if p["percent"] == 0 and p["detailKey"] == "setup.detail.downloading"
             ]
-            assert len(fresh) == 3  # each attempt re-emits model.ensure from 0
+            assert len(fresh) == 3
             assert any(p["step"] == "ready" for p in publisher.payloads("setup_progress"))
             assert (await app.get_status())["runtime"]["lastFailure"] is None
         finally:
@@ -816,9 +695,6 @@ def test_startup_retries_transient_download_then_ready(
 
 
 def test_startup_checksum_failure_does_not_retry(tmp_path: Path) -> None:
-    """A MODEL_CHECKSUM_FAILED download is never retried (non-transient):
-    exactly one attempt, the immediate terminal `failed` event at model.ensure,
-    and the failure recorded for the `get_status` hydration report."""
 
     class CorruptStream:
         total_bytes = len(CORRUPT_PAYLOAD)
@@ -837,25 +713,23 @@ def test_startup_checksum_failure_does_not_retry(tmp_path: Path) -> None:
             return CorruptStream()
 
     async def scenario() -> None:
-        # Manifest digest pinned to RETRY_PAYLOAD; the fetcher delivers a
-        # different payload → digest mismatch.
         root, data_dir, _download_url = build_download_roots(tmp_path, RETRY_PAYLOAD)
         publisher = FakeEventPublisher()
         app: Application = compose(
             plugin_root=root,
             data_dir=data_dir,
             event_publisher=publisher,
-            model_fetcher=CorruptFetcher(),  # type: ignore[arg-type]
+            model_fetcher=CorruptFetcher(),
         )
         try:
-            await app.start()  # surfaced, never fatal
+            await app.start()
 
-            assert len(opens) == 1  # no retry on the checksum class
-            assert not await app.models.store.is_installed("base")  # never valid
+            assert len(opens) == 1
+            assert not await app.models.store.is_installed("base")
             events = publisher.payloads("setup_progress")
             failed = events[-1]
             assert failed["step"] == "failed"
-            assert failed["stepIndex"] == 1  # failed at model.ensure
+            assert failed["stepIndex"] == 1
             assert failed["error"] == {"code": "MODEL_CHECKSUM_FAILED"}
             assert not any(p["step"] == "ready" for p in events)
             assert not app.supervisor.is_running()
@@ -870,10 +744,6 @@ def test_startup_checksum_failure_does_not_retry(tmp_path: Path) -> None:
 
 
 def test_restart_runtime_reruns_full_startup_after_failure(tmp_path: Path) -> None:
-    """Recovery: after a failed startup, the explicit restart re-runs
-    the FULL path — runtime verify → model ensure → daemon start → warmup,
-    with the setup_progress stream — ending ready with the daemon up, sessions
-    accepted and the stored failure record cleared."""
 
     async def scenario() -> None:
         app, publisher, _data_dir = compose_with_fixture_daemon(tmp_path)
@@ -883,18 +753,16 @@ def test_restart_runtime_reruns_full_startup_after_failure(tmp_path: Path) -> No
                 raise RuntimeStartError("spawn refused", detail="test seam")
 
             original_start = app.supervisor.start
-            app.supervisor.start = failing_start  # type: ignore[method-assign]
+            app.supervisor.start = failing_start
             await app.start()
             assert any(p["step"] == "failed" for p in publisher.payloads("setup_progress"))
             assert not app.supervisor.is_running()
 
-            app.supervisor.start = original_start  # type: ignore[method-assign]
+            app.supervisor.start = original_start
             await app.restart_runtime()
 
             assert await wait_until(app.supervisor.is_running, timeout=5.0)
             events = publisher.payloads("setup_progress")
-            # The fresh setup stream re-ran after the failed run: the tail is
-            # exactly the frozen fresh-path sequence, terminating in ready.
             assert [str(p["step"]) for p in events][-7:] == [
                 "runtime.verify",
                 "runtime.verify",

@@ -1,41 +1,3 @@
-"""SpeechDaemonSupervisor.
-
-Owns the native STT daemon child process for its whole lifetime:
-
-- resolves the pinned binary per compute variant from
-  defaults/runtime-manifest.json (cpu → avx2 build, vulkan → vulkan build,
-  auto → the probe policy in runtime_variant.py) and fails closed with
-  RUNTIME_START_FAILED when the selected artifact is unpinned, its binary is
-  missing, or its bytes do not match the pinned digest;
-- spawns the daemon from a digest-verified PRIVATE COPY of the pinned binary
-  under the plugin data dir, never `bin/` directly: installing an update over
-  the RUNNING plugin rewrites `bin/` in place and a direct-executing daemon
-  made that abort with `[Errno 26] Text file busy`. The
-  copy is a digest-keyed cache refreshed atomically on every spawn
-  verification (executable_copy.py); Linux rename-over-a-running-executable
-  is legal, so the refresh can never collide with the running daemon;
-- generates one TOML config per daemon start with the exact upstream keys
-  (state_file, output file mode, whisper model/language, VAD, disabled
-  hotkey/notifications/OSD/streaming) and spawns
-  `<private copy> --config <generated> daemon` — the daemon subcommand takes
-  no options upstream; all tuning travels through the config file;
-- spawns via argument-array `create_subprocess_exec` only, and binds
-  the child to this process's lifetime with PR_SET_PDEATHSIG where available
-  (verified against mature plugins: the loader kills only the plugin
-  process — KillMode=process + SIGKILL after the dispose window — so the
-  kernel-level parent-death signal closes the orphan hole the group ladder
-  alone cannot);
-- redirects daemon stdout/stderr into a rotating log file under the plugin
-  data dir, actively drained from a pipe (no unread pipes, no
-  transcript content is ever written by this process itself);
-- stops in order: SIGTERM → bounded wait → SIGKILL only if required,
-  killing the whole process group so no orphan survives (upstream handles
-  SIGTERM gracefully and deletes its state file);
-- applies a bounded restart policy: at most 3 attempts with bounded exponential
-  delay, only when no active session/transcription is pending; afterwards the
-  runtime stays unavailable until an explicit restart.
-"""
-
 from __future__ import annotations
 
 import asyncio
@@ -48,11 +10,14 @@ import sys
 import time
 from collections.abc import Callable
 from pathlib import Path
+from types import ModuleType
 
-try:  # PR_SET_PDEATHSIG is Linux-only (prctl(2)); keep other platforms spawnable.
-    import ctypes
-except ImportError:  # pragma: no cover - CPython always ships ctypes
-    ctypes = None  # type: ignore[assignment]
+try:
+    import ctypes as _ctypes
+
+    ctypes: ModuleType | None = _ctypes
+except ImportError:
+    ctypes = None
 
 from backend.domain.contracts import (
     DEFAULT_MAX_RECORDING_SECONDS,
@@ -80,74 +45,43 @@ from backend.infrastructure.process.runtime_variant import (
 
 LOGGER = logging.getLogger("speech.runtime")
 
-SHUTDOWN_TIMEOUT_S = 5.0  # bounded daemon shutdown
-MAX_RESTART_ATTEMPTS = 3  # restart policy ceiling
-RESTART_BASE_DELAY_S = 0.5  # bounded exponential delay
+SHUTDOWN_TIMEOUT_S = 5.0
+MAX_RESTART_ATTEMPTS = 3
+RESTART_BASE_DELAY_S = 0.5
 RESTART_MAX_DELAY_S = 8.0
 
-# VAD stays disabled in the generated config. The silero VAD model is
-# not bundled with the plugin, so voxtype logs "Failed to initialize VAD,
-# continuing without: VAD model not found" and runs without VAD anyway —
-# emitting `enabled = true` only configured a feature that never initialized
-# on device. Flip back only if a voxtype setup ever ships the VAD model with
-# the runtime.
 DAEMON_VAD_ENABLED = False
-# A daemon that stayed up this long is considered stable again; the restart
-# budget resets so a later crash gets a fresh policy window.
 RESTART_STABILITY_WINDOW_S = 60.0
 
 _LOG_MAX_BYTES = 512 * 1024
 _LOG_BACKUPS = 2
 
-# Linux prctl(2) operation: bind the child to this process's lifetime.
 PR_SET_PDEATHSIG = 1
 
 
 def daemon_preexec(parent_pid: int) -> Callable[[], None] | None:
-    """preexec_fn binding the daemon child to this process's lifetime.
 
-    The Decky loader kills only the plugin process: the systemd unit runs
-    `KillMode=process` and the loader SIGKILLs it after the bounded dispose
-    window (loader plugin.py:161,176-183), so a daemon outliving an aborted
-    dispose would survive as an init-reparented orphan (field-documented by
-    decky-copyparty main.py:20-27). PR_SET_PDEATHSIG makes the kernel deliver
-    SIGTERM to the child the moment this process dies — the shipped DeckyEQ
-    worker.py:10-13 / copyparty main.py:36-37 pattern — while the
-    SIGTERM→SIGKILL group ladder stays the primary shutdown path. The classic
-    race guard re-checks the parent after fork: when it died between fork and
-    prctl, the child exits immediately instead of outliving the backend
-    (DeckyEQ worker.py:14-15). Returns None where prctl is unavailable
-    (non-Linux platforms).
-    """
-    if ctypes is None or not sys.platform.startswith("linux"):
+    ctypes_module = ctypes
+    if ctypes_module is None or not sys.platform.startswith("linux"):
         return None
 
-    def preexec() -> None:  # runs in the forked child, before exec
-        libc = ctypes.CDLL(None, use_errno=True)
+    def preexec() -> None:
+        libc = ctypes_module.CDLL(None, use_errno=True)
         if libc.prctl(PR_SET_PDEATHSIG, signal.SIGTERM, 0, 0, 0) != 0:
-            errno_value = ctypes.get_errno()
+            errno_value = ctypes_module.get_errno()
             raise OSError(errno_value, os.strerror(errno_value))
         if os.getppid() != parent_pid:
-            # The parent already died mid-spawn: never exec the daemon.
             os._exit(1)
 
     return preexec
 
 
-# Model path resolver: settings model id → absolute .bin path in the plugin
-# data dir (the ModelStore download target; composition wires it to the
-# loaded model manifest so downloads/checksums stay under our control).
 ModelPathResolver = Callable[[str], Path]
 
-# Resolved manifest info for the selected model (effective-language
-# derivation: the config build needs the declared languages); None when the
-# id is unknown or the resolver is not wired (legacy behavior).
 ModelInfoResolver = Callable[[str], ModelInfo | None]
 
 
 class DaemonLog:
-    """Small size-capped rotating log for daemon stdout/stderr."""
-
     def __init__(self, path: Path, *, max_bytes: int = _LOG_MAX_BYTES) -> None:
         self._path = path
         self._max_bytes = max_bytes
@@ -163,7 +97,6 @@ class DaemonLog:
             with self._path.open("a", encoding="utf-8") as handle:
                 handle.write(text + "\n")
         except OSError:
-            # Diagnostics must never break supervision.
             LOGGER.debug("daemon log write failed", exc_info=True)
 
     def _rotate(self) -> None:
@@ -177,33 +110,11 @@ class DaemonLog:
 
 
 def _toml_string(value: str) -> str:
-    """Escape a TOML basic string (JSON string escaping is TOML-compatible)."""
     return json.dumps(value)
 
 
 def _effective_language(settings_language: str, model_info: ModelInfo | None) -> str:
-    """Effective [whisper] language for the generated config.
 
-    Precedence:
-
-    1. The model declares exactly one language (curated catalog,
-       `languages` in defaults/models.json) → that language, ALWAYS. A
-       specialized model cannot honor anything else, so a stale persisted
-       settings.language (e.g. german model + "en") is ignored here rather
-       than reaching the daemon. This subsumes English-only
-       forcing for the shipped catalog (distil-en declares ["en"]).
-    2. Known English-only model WITHOUT declared languages
-       (multilingual=false) → "en" (legacy fallback: .en
-       checkpoints cannot auto-detect and cannot honor other languages).
-    3. Otherwise the legacy mapping: "system" → "auto" (our sentinel has no
-       upstream equivalent), explicit tags pass through. settings.language
-       applies whenever no single language is declared — multilingual
-       general models, models declaring several languages, and the
-       unwired/unknown-model case. The shipped catalog has no multi-language
-       entry (every declared-language model pins exactly one), and the
-       frontend hides its Language picker for ANY declared-language model,
-       so no shipped surface offers this choice today.
-    """
     language = "auto" if settings_language == "system" else settings_language
     if model_info is None:
         return language
@@ -223,50 +134,7 @@ def daemon_config_toml(
     model_path: Path,
     model_info: ModelInfo | None = None,
 ) -> str:
-    """Generate the daemon TOML for one start (verified upstream keys).
 
-    Key mapping against the upstream default config
-    (github.com/peteonrails/voxtype `dev`, config/default.toml and
-    src/config/*.rs, all cited in bin/README.md):
-
-    - `engine = "whisper"` — top-level engine selection;
-    - `state_file` — bare-word state file; the daemon deletes it on shutdown
-      (missing file = stopped for consumers);
-    - `[audio] max_duration_secs` — recording bound:
-      a 24 h runaway-recording valve (`DEFAULT_MAX_RECORDING_SECONDS`),
-      emitted as a FIXED constant — recording is practically unlimited
-      (upstream has no true unlimited mode: 0 auto-stops within ~100 ms).
-      The setting was removed from the settings document, so no user
-      value reaches this key;
-    - `[whisper] model` — absolute path to OUR downloaded ggml file (upstream
-      accepts ids or absolute .bin paths; the absolute path keeps downloads
-      and checksums under our ModelStore control);
-    - `[whisper] language` — effective-language derivation: a
-      model that declares exactly ONE language in the manifest gets that
-      language REGARDLESS of settings.language (a specialized model cannot
-      honor anything else; a stale persisted override like
-      german-model + settings "en" must never reach the daemon). Otherwise
-      the legacy mapping applies — settings "system" maps to "auto" (no
-      upstream equivalent), explicit codes pass through — except for a known
-      English-only model without declared languages
-      (multilingual=false; legacy fallback), which is pinned to "en"
-      because .en checkpoints cannot auto-detect NOR honor any other
-      language (on device, an en-only model with an explicit "de"
-      produced broken transcription);
-    - `[whisper] on_demand_loading = false` — the model stays loaded;
-    - `[whisper] eager_processing = false` — one-shot dictation only;
-    - `[vad] enabled` — FIXED to false — the silero VAD model is not
-      bundled, voxtype warns and continues without it, so a `true` line only
-      configured a feature that never initialized (the settings toggle stays
-      removed);
-    - `[output] mode = "file"` + `file_path` + `file_mode = "overwrite"` —
-      atomic per-recording transcript writes with the `.done` sidecar;
-    - `[output.notification]` all off and `[osd] enabled = false` (upstream
-      OSD default is enabled) — no UI side effects from the plugin runtime;
-    - `[streaming]` is omitted entirely — upstream treats the section as
-      opt-in (`Option<StreamingConfig>`), so streaming stays disabled;
-    - `[hotkey] enabled = false` — recording is driven by our client only.
-    """
     language = _effective_language(settings.language, model_info)
     lines = [
         f"engine = {_toml_string('whisper')}",
@@ -276,8 +144,6 @@ def daemon_config_toml(
         "enabled = false",
         "",
         "[audio]",
-        # Fixed recording-length valve: see the docstring mapping
-        # notes above.
         f"max_duration_secs = {DEFAULT_MAX_RECORDING_SECONDS}",
         "",
         "[whisper]",
@@ -287,8 +153,6 @@ def daemon_config_toml(
         "eager_processing = false",
         "",
         "[vad]",
-        # Fixed constant (silero VAD model not bundled) — see the
-        # docstring notes.
         f"enabled = {'true' if DAEMON_VAD_ENABLED else 'false'}",
         "",
         "[output]",
@@ -315,7 +179,6 @@ def write_daemon_config(
     *,
     model_info: ModelInfo | None = None,
 ) -> Path:
-    """Write the generated daemon config atomically; return its path."""
     payload = daemon_config_toml(
         settings,
         state_file=paths.status_file,
@@ -339,8 +202,6 @@ def write_daemon_config(
 
 
 class SpeechDaemonSupervisor:
-    """Owns the native daemon child for its whole lifetime."""
-
     def __init__(
         self,
         paths: PluginPaths,
@@ -375,8 +236,6 @@ class SpeechDaemonSupervisor:
         self._watch_task: asyncio.Task[None] | None = None
         self._drain_task: asyncio.Task[None] | None = None
         self._verified: tuple[Settings, ResolvedRuntime, Path, Path] | None = None
-        # Private executable cache under the plugin data dir: the
-        # daemon never executes bin/ directly (Text-file-busy hazard).
         self._exec_copy_dir = paths.runtime_dir / EXEC_COPY_DIRNAME
         self._stopping = False
         self._restarts_used = 0
@@ -384,28 +243,12 @@ class SpeechDaemonSupervisor:
         self._settings: Settings | None = None
         self.last_exit_code: int | None = None
 
-    # ── supervisor surface ───────────────────────────────────────────────────
-
     async def verify(self, settings: Settings) -> None:
-        """Verification phase without spawning: config generation, variant
-        selection, binary presence and pinned-digest check, plus
-        the digest-verified private executable copy.
 
-        Split from `start()` so the startup orchestration can emit its
-        `runtime.verify` setup step around the real verification. The verified
-        spawn inputs are cached for an immediately following `start()` with
-        equal settings; `start()` verifies by itself when called standalone.
-        """
         self._verified = await self._verify(settings)
 
     async def start(self, settings: Settings) -> None:
-        """Start the pinned variant binary; idempotent while running.
 
-        Reuses inputs from a preceding `verify()` with equal settings
-        instead of hashing the binary twice. The
-        daemon executes the private copy prepared by the verification, never
-        `bin/` directly (Text-file-busy hazard).
-        """
         if self.is_running():
             return
         self._stopping = False
@@ -417,13 +260,6 @@ class SpeechDaemonSupervisor:
         await self._spawn(settings, verified[1], verified[2], verified[3])
 
     async def _verify(self, settings: Settings) -> tuple[Settings, ResolvedRuntime, Path, Path]:
-        """Config generation, variant resolution, presence + digest check, and
-        the digest-verified private executable copy (source AND copy)."""
-        # The config exists before resolution: the auto probe runs the
-        # candidate binary against exactly this configuration. The selected
-        # model's manifest info drives the effective-language
-        # derivation in the config build (single-language models force their
-        # declared language).
         model_info = (
             self._model_info_for(settings.model_id) if self._model_info_for is not None else None
         )
@@ -455,7 +291,6 @@ class SpeechDaemonSupervisor:
         return (settings, resolved, config_path, exec_path)
 
     async def stop(self) -> None:
-        """Stop order: SIGTERM → bounded wait → SIGKILL, group-wide."""
         self._stopping = True
         proc = self._proc
         if proc is not None:
@@ -467,7 +302,6 @@ class SpeechDaemonSupervisor:
         self._drain_task = None
 
     async def restart(self, settings: Settings) -> None:
-        """Explicit user-driven restart; resets the restart budget."""
         await self.stop()
         self._restarts_used = 0
         self._stopping = False
@@ -487,10 +321,7 @@ class SpeechDaemonSupervisor:
 
     @property
     def selected_backend(self) -> str | None:
-        """Metrics backend of the running/last-started variant."""
         return self._resolver.selected_backend
-
-    # ── internals ────────────────────────────────────────────────────────────
 
     async def _spawn(
         self,
@@ -499,11 +330,6 @@ class SpeechDaemonSupervisor:
         config_path: Path,
         exec_path: Path,
     ) -> None:
-        # Real upstream surface: global flags precede the option-less daemon
-        # subcommand; all tuning travels through the generated config file.
-        # argv[0] is the digest-verified private copy — never bin/ directly —
-        # so an update installed over the running plugin cannot hit
-        # `[Errno 26] Text file busy` on the executing image.
         argv = [
             str(exec_path),
             "--config",
@@ -511,14 +337,10 @@ class SpeechDaemonSupervisor:
             "daemon",
         ]
         try:
-            # Argument-array only. start_new_session gives the daemon its
-            # own process group so the group kill below cannot miss children;
-            # PDEATHSIG (when available) additionally ends the child if this
-            # process itself is SIGKILLed outside any graceful path.
             proc = await asyncio.create_subprocess_exec(
                 *argv,
                 stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.STDOUT,  # one drained stream → log file
+                stderr=asyncio.subprocess.STDOUT,
                 stdin=asyncio.subprocess.DEVNULL,
                 env=child_environment(self._paths.data_dir),
                 start_new_session=True,
@@ -543,10 +365,9 @@ class SpeechDaemonSupervisor:
         )
 
     async def _drain_output(self, proc: asyncio.subprocess.Process) -> None:
-        """Actively drain the daemon pipe into the rotating log file."""
         log = DaemonLog(self._paths.daemon_log)
         stream = proc.stdout
-        if stream is None:  # pragma: no cover - PIPE is always set above
+        if stream is None:
             return
         while True:
             line = await stream.readline()
@@ -564,12 +385,10 @@ class SpeechDaemonSupervisor:
             await self._publish_status(available=False, state="stopped", exit_code=exit_code)
             return
 
-        # The restart budget resets once the daemon proved stable.
         if self._clock() - self._spawned_at >= self._stability_window:
             self._restarts_used = 0
 
         if self._on_unexpected_exit is not None:
-            # Application layer clears any active session (RUNTIME_CRASHED).
             await _maybe_await(self._on_unexpected_exit(exit_code))
 
         await self._publish_status(available=False, state="crashed", exit_code=exit_code)
@@ -590,7 +409,6 @@ class SpeechDaemonSupervisor:
             return
 
         if not self._is_idle():
-            # Never restart while a transcript insertion may be pending.
             await self._publish_status(
                 available=False,
                 state="unavailable",
@@ -609,10 +427,6 @@ class SpeechDaemonSupervisor:
         if self._stopping or self.is_running():
             return
         try:
-            # Full re-verification for the restart: the spawn inputs
-            # (config, resolved variant, private executable copy) are rebuilt
-            # through the same path as a fresh start, so a runtime that
-            # changed on disk is never restarted onto an unverified binary.
             _, resolved, config_path, exec_path = await self._verify(settings)
             await self._spawn(settings, resolved, config_path, exec_path)
         except SpeechError as exc:
@@ -634,7 +448,6 @@ class SpeechDaemonSupervisor:
             return
         except TimeoutError:
             pass
-        # SIGKILL only if required; the whole group dies with the leader.
         with contextlib.suppress(ProcessLookupError):
             os.killpg(pid, signal.SIGKILL)
         await proc.wait()

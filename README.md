@@ -52,18 +52,15 @@ v0.2.0 (QAM dictation flow).
 Requires Node 24, pnpm 10, Python >= 3.11.
 
 ```bash
-pnpm install --frozen-lockfile                          # pinned deps
+pnpm install --frozen-lockfile
 
-# Manifest integrity gates (fail-closed; runtime artifact pin pending)
 node scripts/validate-manifests.mjs
 node scripts/validate-licenses.mjs
 
-# Formatting / lint (active gates)
 pnpm exec prettier --check .
 python3 -m venv .venv && .venv/bin/pip install ruff mypy
 .venv/bin/ruff --version
 
-# These activate as src/ and tests/ land
 pnpm typecheck && pnpm test && pnpm lint && pnpm build
 ```
 

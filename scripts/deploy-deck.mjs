@@ -1,33 +1,10 @@
 #!/usr/bin/env node
-/**
- * Remote-deploy a SpeechToDeck plugin zip to the Steam Deck and hot-reload the
- * plugin backend through the Decky loader WebSocket API — no manual
- * uninstall/install round-trip in the Decky UI.
- *
- * Why this is safe while the plugin is running: the backend daemon execs a copy
- * of the runtime binary from the plugin's data dir (update-safe execution), and
- * CPython does not hold imported .py files open, so overwriting the plugin
- * directory cannot hit "Text file busy". The reload then restarts the backend
- * process, which picks up the new code.
- *
- * Usage:
- *   node scripts/deploy-deck.mjs --zip <local-path-or-URL> [--host steamdeck] [--plugin SpeechToDeck]
- *
- * After a deploy that changed frontend code, close and reopen the QAM panel so
- * Steam's CEF re-imports the plugin module.
- *
- * ONE-TIME SETUP (deck terminal): the Decky loader extracts plugins as root, so
- * an ssh deploy as user `deck` can only overwrite a deck-owned directory. Run
- * once:  sudo chown -R deck:deck ~/homebrew/plugins/SpeechToDeck
- * (Repeated only if you ever install a zip through the Decky UI again, which
- * re-creates root-owned files.)
- */
 
 import { spawn, execFileSync } from "node:child_process";
 
-const CALL = 0; // decky_loader wsrouter MessageType.CALL
-const REPLY = 1; // MessageType.REPLY
-const ERROR = -1; // MessageType.ERROR
+const CALL = 0;
+const REPLY = 1;
+const ERROR = -1;
 const DECK_ZIP = "SpeechToDeck-deploy.zip";
 
 function parseArgs(argv) {
@@ -63,9 +40,7 @@ async function waitForToken(port, tries = 30) {
         try {
             const res = await fetch(`http://127.0.0.1:${port}/auth/token`);
             if (res.ok) return (await res.text()).trim();
-        } catch {
-            // tunnel not ready yet
-        }
+        } catch {}
         await sleep(400);
     }
     throw new Error("decky loader tunnel did not come up");
@@ -77,9 +52,7 @@ function wsCall(port, token, route, args, timeoutMs = 45000) {
         const timer = setTimeout(() => {
             try {
                 ws.close();
-            } catch {
-                /* already closed */
-            }
+            } catch {}
             reject(new Error(`websocket call ${route} timed out`));
         }, timeoutMs);
         ws.addEventListener("error", () => {
@@ -95,9 +68,7 @@ function wsCall(port, token, route, args, timeoutMs = 45000) {
                 clearTimeout(timer);
                 try {
                     ws.close();
-                } catch {
-                    /* already closed */
-                }
+                } catch {}
                 if (msg.type === ERROR)
                     reject(new Error(`loader error: ${JSON.stringify(msg.error)}`));
                 else resolve(msg.result);

@@ -1,11 +1,3 @@
-/**
- * Stable error codes and transcript validation.
- *
- * UI text maps from codes; frontend logic never parses arbitrary exception
- * strings. The list below is the baseline catalog; the two transcript
- * validation codes extend it.
- */
-
 export const DICTATION_ERROR_CODES = [
     "STEAM_KEYBOARD_NOT_FOUND",
     "STEAM_PROFILE_UNSUPPORTED",
@@ -32,9 +24,6 @@ export const DICTATION_ERROR_CODES = [
     "TRANSCRIPT_INVALID",
     "TRANSCRIPT_TOO_LARGE",
 
-    // Backend-produced codes (main.py `Plugin._call` envelopes and
-    // `speech_error` events). Mirrors backend/domain/errors.py::ErrorCode;
-    // both sides must stay in sync (UI text is mapped from codes).
     "RUNTIME_UNAVAILABLE",
     "INVALID_SESSION_ID",
     "INVALID_TRANSCRIPT",
@@ -51,7 +40,6 @@ export function isDictationErrorCode(value: unknown): value is DictationErrorCod
     );
 }
 
-/** Maximum supported transcript size in UTF-8 bytes (16 KiB). */
 export const MAX_TRANSCRIPT_UTF8_BYTES = 16 * 1024;
 
 export class DictationError extends Error {
@@ -64,11 +52,6 @@ export class DictationError extends Error {
     }
 }
 
-/**
- * Raised by `validateTranscript` for whitespace-only input. An empty
- * transcript is not an error state: the caller returns to ready with no
- * clipboard write, no paste and no error.
- */
 export class EmptyTranscriptError extends Error {
     constructor() {
         super("Transcript is empty");
@@ -96,10 +79,6 @@ export class TranscriptTooLargeError extends DictationError {
     }
 }
 
-/**
- * Transcript validation before insertion.
- * Returns the trimmed transcript; no character escaping alters valid Unicode.
- */
 export function validateTranscript(text: string): string {
     const normalized = text.trim();
 

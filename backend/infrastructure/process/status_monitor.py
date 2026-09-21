@@ -1,21 +1,3 @@
-"""Event-driven runtime status consumption.
-
-The native daemon writes one bare status word — `idle`, `recording`,
-`streaming` or `transcribing` — into its state file (upstream config key
-`state_file`, a plain non-atomic write on every state change) and DELETES
-the file on shutdown; a missing file therefore means "stopped" (synthesized
-by this module, never by the daemon). The transcript for the current
-recording and its `.done` completion sidecar land in the same
-directory.
-
-`StatusFileWatcher` consumes changes via Linux inotify and dispatches typed
-internal events. There is deliberately **no timer loop and no filesystem
-polling**. `RuntimeStatusMonitor` turns status changes into typed
-`runtime_status` events on the EventPublisher port. Errors are never
-synthesized here: a state file carries no error word upstream, so error
-mapping belongs to the client's stop outcomes.
-"""
-
 from __future__ import annotations
 
 import asyncio
@@ -33,9 +15,8 @@ from backend.infrastructure.process.process_environment import OUTPUT_FILENAME, 
 
 LOGGER = logging.getLogger("speech.runtime")
 
-# inotify constants (linux/inotify.h).
-_IN_CLOEXEC = 0o2000000  # 0x80000
-_IN_NONBLOCK = 0o4000  # 0x800
+_IN_CLOEXEC = 0o2000000
+_IN_NONBLOCK = 0o4000
 _IN_MODIFY = 0x2
 _IN_CLOSE_WRITE = 0x8
 _IN_MOVED_TO = 0x80
@@ -47,15 +28,8 @@ _WATCH_MASK = _IN_MODIFY | _IN_CLOSE_WRITE | _IN_MOVED_TO | _IN_CREATE | _IN_DEL
 _EVENT_HEADER = struct.Struct("iIII")
 _READ_BUFFER_SIZE = 64 * 1024
 
-# Bare words the daemon writes to the state file (verified upstream v1.0.1,
-# src/daemon.rs update_state call sites). "stopped" is never written: the
-# daemon deletes the file instead, and consumers synthesize the state.
 KNOWN_DAEMON_STATES = frozenset({"idle", "recording", "streaming", "transcribing"})
 
-# Adapter mapping onto the runtime_status vocabulary. `streaming` is
-# the upstream live-partial capture state (disabled in our generated config,
-# mapped defensively): the daemon is actively capturing, so it maps to
-# "recording" rather than being dropped at the vocabulary boundary.
 MONITOR_STATE_MAP = {
     "idle": "idle",
     "recording": "recording",
@@ -66,18 +40,15 @@ MONITOR_STATE_MAP = {
 
 
 class WatcherClosedError(OSError):
-    """Raised to pending waiters when the watcher is closed."""
+    pass
 
 
 @dataclass(frozen=True)
 class StatusSnapshot:
-    """Parsed daemon state (a single bare word)."""
-
     state: str
 
 
 def parse_status_word(data: bytes | str) -> StatusSnapshot | None:
-    """Parse a bare-word daemon status; None when malformed."""
     try:
         word = (data.decode("utf-8") if isinstance(data, bytes) else data).strip()
     except UnicodeDecodeError:
@@ -89,10 +60,8 @@ def parse_status_word(data: bytes | str) -> StatusSnapshot | None:
 
 @dataclass(frozen=True)
 class WatchEvent:
-    """Typed internal status event."""
-
     kind: Literal["status", "output"]
-    snapshot: StatusSnapshot | None = None  # status only; None = malformed word
+    snapshot: StatusSnapshot | None = None
 
 
 WatchCallback = Callable[[WatchEvent], None]
@@ -106,8 +75,6 @@ class _Waiter:
 
 
 class StatusFileWatcher:
-    """inotify-based watcher over the native runtime directory."""
-
     def __init__(self, runtime_dir: Path) -> None:
         self._runtime_dir = runtime_dir
         self._status_file = runtime_dir / STATUS_FILENAME
@@ -120,7 +87,6 @@ class StatusFileWatcher:
         self.malformed_count = 0
 
     def start(self) -> None:
-        """Begin watching; raises OSError when inotify is unavailable."""
         if self._fd is not None:
             return
         libc = ctypes.CDLL(None, use_errno=True)
@@ -141,10 +107,6 @@ class StatusFileWatcher:
         self._loop = asyncio.get_running_loop()
         self._loop.add_reader(fd, self._on_readable)
 
-        # Initial state: the current state file, or a synthesized "stopped"
-        # when it is absent (the daemon deletes it on shutdown; missing file
-        # = stopped). A leftover transcript from a previous run is
-        # intentionally not announced; the client clears it.
         self._dispatch(self._current_status_event())
 
     def close(self) -> None:
@@ -170,7 +132,6 @@ class StatusFileWatcher:
         return _unsubscribe
 
     async def wait_until(self, predicate: WatchPredicate, timeout: float) -> WatchEvent | None:
-        """Await the first (new or current) event satisfying predicate."""
         loop = asyncio.get_running_loop()
         future: asyncio.Future[WatchEvent] = loop.create_future()
         waiter = _Waiter(predicate, future)
@@ -195,7 +156,6 @@ class StatusFileWatcher:
         return event.snapshot if event is not None else None
 
     def _current_status_event(self) -> WatchEvent:
-        """Read the state file now; a missing file is a stopped state."""
         try:
             snapshot = parse_status_word(self._status_file.read_bytes())
         except FileNotFoundError:
@@ -223,8 +183,6 @@ class StatusFileWatcher:
                 continue
             if name == STATUS_FILENAME:
                 if mask & _IN_DELETE:
-                    # The daemon removes the state file on shutdown; that
-                    # deletion IS the stopped transition.
                     stopped = StatusSnapshot(state="stopped")
                     self._dispatch(WatchEvent(kind="status", snapshot=stopped))
                 else:
@@ -247,14 +205,12 @@ class StatusFileWatcher:
             if waiter.future.done():
                 continue
             if event.kind == "status" and event.snapshot is None:
-                continue  # malformed payloads never satisfy predicates
+                continue
             if waiter.predicate(event):
                 waiter.future.set_result(event)
 
 
 class RuntimeStatusMonitor:
-    """Consumes daemon state changes and emits `runtime_status` events."""
-
     def __init__(self, watcher: StatusFileWatcher, publisher: EventPublisher) -> None:
         self._watcher = watcher
         self._publisher = publisher
@@ -266,9 +222,6 @@ class RuntimeStatusMonitor:
     async def start(self) -> None:
         if self._unsubscribe is not None:
             return
-        # Subscribe before starting so the watcher's initial-state dispatch
-        # (current state file, or stopped when it is absent) reaches the
-        # monitor.
         self._unsubscribe = self._watcher.subscribe(self._on_event)
         self._watcher.start()
 
@@ -297,8 +250,6 @@ class RuntimeStatusMonitor:
                 "malformedPayload": True,
             }
         else:
-            # Adapter mapping (see MONITOR_STATE_MAP); a state word the daemon
-            # did not write is never invented here.
             state = MONITOR_STATE_MAP.get(snapshot.state, "unknown")
             self.last_state = state
             payload = {

@@ -1,12 +1,3 @@
-"""Defaults file resolution across the two shipped layouts (store contract).
-
-The Decky packager flattens `defaults/` into the plugin root of an installed
-package, while a repository checkout keeps the files under `defaults/`. These
-tests pin the single resolver (`resolve_defaults_file`, consumed by
-`PluginPaths.models_manifest` / `PluginPaths.runtime_manifest`) for both
-layouts, the conflict rule, and that `compose()` loads the installed layout.
-"""
-
 from __future__ import annotations
 
 import json
@@ -26,13 +17,11 @@ REAL_MODELS_MANIFEST = REPO_ROOT / "defaults" / "models.json"
 
 
 def _stage_flattened(plugin_root: Path) -> None:
-    """Temp-dir fixture shaped like an installed package: flattened defaults."""
     plugin_root.mkdir(parents=True)
     shutil.copy(REAL_MODELS_MANIFEST, plugin_root / "models.json")
 
 
 def _stage_dev(plugin_root: Path) -> None:
-    """Temp-dir fixture shaped like the repository checkout."""
     defaults = plugin_root / "defaults"
     defaults.mkdir(parents=True)
     shutil.copy(REAL_MODELS_MANIFEST, defaults / "models.json")
@@ -47,13 +36,11 @@ def test_dev_layout_resolves_into_defaults_dir(tmp_path: Path) -> None:
 
 
 def test_installed_layout_resolves_flattened_files(tmp_path: Path) -> None:
-    # The packaged top-level dir is named exactly plugin.json "name".
     root = tmp_path / "SpeechToDeck"
     _stage_flattened(root)
     paths = PluginPaths(plugin_root=root, data_dir=tmp_path / "data")
     assert paths.models_manifest == root / "models.json"
     assert paths.models_manifest.is_file()
-    # Missing file: the flattened path is the stable fail-closed location.
     assert paths.runtime_manifest == root / "runtime-manifest.json"
 
 
@@ -65,19 +52,13 @@ def test_packaged_layout_wins_when_both_exist(tmp_path: Path) -> None:
 
 
 def test_resolver_rejects_paths_outside_plugin_root(tmp_path: Path) -> None:
-    """Traversal hardening: a filename that resolves outside the plugin
-    root is never returned — the resolver fails closed with the stable
-    `MANIFEST_INVALID` code, in both layouts and for existing targets."""
     root = tmp_path / "checkout"
     _stage_dev(root)
-    # An existing file OUTSIDE the root that a traversal filename resolves to.
     outside = tmp_path / "outside"
     outside.mkdir()
     (outside / "models.json").write_text("{}", encoding="utf-8")
-    # Existing traversal target (flattened candidate exists, outside root).
     with pytest.raises(ManifestInvalidError):
         resolve_defaults_file(root, "../outside/models.json")
-    # Missing traversal target (neither candidate exists, path escapes).
     with pytest.raises(ManifestInvalidError):
         resolve_defaults_file(root, "../../etc/models.json")
 
@@ -86,8 +67,6 @@ def test_composition_loads_manifest_from_installed_layout(tmp_path: Path) -> Non
     root = tmp_path / "SpeechToDeck"
     _stage_flattened(root)
     app = compose(plugin_root=root, data_dir=tmp_path / "data")
-    # Curated model set plus the per-language catalog entries,
-    # loaded through the flattened installed layout.
     assert {model.id for model in app.manifest.models} == {
         "tiny",
         "base",
@@ -105,10 +84,6 @@ def test_composition_loads_manifest_from_installed_layout(tmp_path: Path) -> Non
 
 
 def test_remote_binary_entries_match_pinned_runtime_manifest() -> None:
-    """Pin integrity: the loader `remote_binary` entries (what the Decky
-    loader downloads at install time, verified by sha256hash) must be exactly
-    the artifacts pinned in defaults/runtime-manifest.json (what the backend
-    verifies at startup) — one pin, two consumers, zero drift."""
     package = json.loads((REPO_ROOT / "package.json").read_text(encoding="utf-8"))
     manifest = json.loads(
         (REPO_ROOT / "defaults" / "runtime-manifest.json").read_text(encoding="utf-8")

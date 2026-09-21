@@ -15,7 +15,6 @@ export interface TestRig {
     readonly settings: FakeSettingsPort;
     readonly clock: FakeClock;
     readonly ids: FakeIdGenerator;
-    /** Shared ordered call log across every fake, for ordering assertions. */
     readonly trace: string[];
 }
 
@@ -31,10 +30,6 @@ export function createTestRig(settingsOverride?: Partial<PluginSettings>): TestR
     return { controller, speech, clipboard, settings, clock, ids, trace };
 }
 
-/**
- * Drains pending microtasks and macrotask hops without wall-clock sleeps:
- * controller effect chains settle entirely between macrotask boundaries.
- */
 export async function flush(): Promise<void> {
     for (let hop = 0; hop < 6; hop += 1) {
         await new Promise<void>((resolve) => {
@@ -43,13 +38,11 @@ export async function flush(): Promise<void> {
     }
 }
 
-/** Startup to `ready`. */
 export async function startReady(rig: TestRig): Promise<void> {
     await rig.controller.start();
     expect(rig.controller.getSnapshot().kind).toBe("ready");
 }
 
-/** Panel press to acknowledged recording; returns the session id. */
 export async function startRecording(rig: TestRig): Promise<string> {
     await rig.controller.handlePanelMicrophonePressed();
     await flush();
@@ -64,7 +57,6 @@ export async function startRecording(rig: TestRig): Promise<string> {
     return sessionId;
 }
 
-/** Recording → stopping → acknowledged transcription; returns the session id. */
 export async function startTranscribing(rig: TestRig): Promise<string> {
     const sessionId = await startRecording(rig);
     await rig.controller.handlePanelMicrophonePressed();

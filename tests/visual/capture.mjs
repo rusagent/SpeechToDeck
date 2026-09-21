@@ -1,32 +1,3 @@
-/**
- * Captures the visual-harness screenshots and overflow probes.
- *
- * Screenshots follow fixed visual-capture limits: JPEG quality 42,
- * device scale 1, clipped to the owned surface (the 410px QAM column),
- * long edge ≤ 800px, height ≤ 450px. Files land in .tmp/ui-visual/
- * (gitignored); only the harness SOURCE under tests/visual/ is committed.
- *
- * Single committed exception: storeShot() writes the store listing asset
- * assets/screenshot.jpg from the same real-panel page (EN, top sections) at
- * 2x device scale and JPEG quality 75 — the review capture limits above do
- * not bind store assets.
- *
- * Host tools (no project dependencies): a headless-capable Chromium and
- * ImageMagick (`magick`/`convert`). Override via CHROME env var.
- *
- * Targeting: the harness page stays unscrolled and reports its geometry to
- * the driver (data-geometry, written by harness-entry). Headless Chromium's
- * --screenshot maps window pixels 1:1 onto the page from its origin, but
- * does not reliably honor page-side scroll offsets — the old
- * scrollIntoView targeting captured the wrong region for section shots.
- * The driver therefore measures the section rects (dump-dom pass), takes a
- * full-window screenshot, and crops the exact column region with
- * ImageMagick; section shots clip to the titled section so it fills the
- * frame.
- *
- * Usage: node tests/visual/capture.mjs
- */
-
 import { execFileSync } from "node:child_process";
 import { mkdirSync, rmSync, statSync } from "node:fs";
 import path from "node:path";
@@ -35,22 +6,17 @@ import { fileURLToPath } from "node:url";
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
 const out = path.join(root, ".tmp/ui-visual");
 
-// The QAM column is 410px; the capture window is deliberately wider so the
-// column is centered with a measurable offset and Chromium's minimum-window
-// clamping cannot crop it. Only the crop output is 410px wide.
 const COLUMN_WIDTH = 410;
 const CAPTURE_WINDOW_WIDTH = 700;
-const SECTION_MARGIN = 8; // page px around a section-targeted crop
-const BOTTOM_MARGIN = 48; // spare page rows below the crop region
+const SECTION_MARGIN = 8;
+const BOTTOM_MARGIN = 48;
 
 function firstAvailable(candidates) {
     for (const candidate of candidates) {
         try {
             execFileSync(candidate, ["--version"], { stdio: "ignore" });
             return candidate;
-        } catch {
-            // try the next candidate
-        }
+        } catch {}
     }
     return null;
 }
@@ -70,7 +36,6 @@ if (chrome === null || magick === null) {
 
 mkdirSync(out, { recursive: true });
 
-// Build the harness bundle with the repo's own toolchain (no new deps).
 execFileSync(
     path.join(root, "node_modules/.bin/rollup"),
     ["-c", "tests/visual/rollup.config.mjs", "--silent"],
@@ -90,7 +55,6 @@ function chromeArgs(windowSize, extra, deviceScaleFactor = 1) {
     ];
 }
 
-/** Unscrolled page geometry reported by harness-entry (data-geometry). */
 function findRegion(geometry, name) {
     const rect = (geometry.regions ?? []).find((candidate) => candidate.name === name);
     if (rect === undefined) {
@@ -121,8 +85,6 @@ function shot(
     query,
     { sectionTitle = null, region = null, startRegion = null, height = 450 } = {},
 ) {
-    // Pass 1: measure the unscrolled page (section rects are independent of
-    // the window height; #visual-root content flows from the top).
     const geometry = readGeometry(query, height + BOTTOM_MARGIN);
     let cropY = 0;
     let cropH = height;
@@ -134,21 +96,14 @@ function shot(
         cropY = Math.max(0, section.top - SECTION_MARGIN);
         cropH = Math.min(450, section.height + 2 * SECTION_MARGIN);
     } else if (region !== null) {
-        // Named sub-section region reported by harness-entry (e.g. the
-        // catalog-driven ModelPicker block inside the Speech section).
         const rect = findRegion(geometry, region);
         cropY = Math.max(0, rect.top - SECTION_MARGIN);
         cropH = Math.min(450, rect.height + 2 * SECTION_MARGIN);
     } else if (startRegion !== null) {
-        // Region-anchored fixed-height crop: starts at the named region and
-        // extends `height` px (the full 605px picker cannot fit the ≤450px
-        // review limit, so catalog shots anchor at the decisive group).
         const rect = findRegion(geometry, startRegion);
         cropY = Math.max(0, rect.top - SECTION_MARGIN);
         cropH = height;
     }
-    // Pass 2: full-window screenshot at the capture size, then an exact
-    // column crop at the measured offset.
     const png = path.join(out, `${name}.png`);
     const jpg = path.join(out, `${name}.jpg`);
     execFileSync(
@@ -190,22 +145,6 @@ function overflowProbe(width, query) {
     console.log(`overflow probe at ${width}px: ${match?.[0] ?? "marker missing"}`);
 }
 
-// Download modal (on-device fix): the REAL surface is a fullscreen
-// Steam overlay — the on-device CDP capture measured ModalOverlayContent at
-// the full 854px browserview width with the dialog box drawn by ModalRoot
-// centered inside — so a 410px QAM column crop cannot contain it. The honest
-// representation captures the whole overlay window at a representative 640px
-// width (within the long-edge capture limit): the ModalRoot dialog
-// box on the dimmed page, plus Steam's X close icon above it. The geometry
-// pass doubles as the sentinel that the modal actually opened.
-//
-// Exposure vs the REAL completion hold: the harness completes the download
-// through publishComplete right after the modal opens, and the modal closes
-// itself COMPLETION_HOLD_MS (500 ms) later. The default 3000 ms virtual-time
-// exposure would outlive the hold and screenshot an already-closed modal, so
-// both passes end inside the hold window — after the 300 ms settle fallback,
-// before the 500 ms close. The extra flag overrides the earlier budget
-// (Chromium's last switch wins).
 function modalShot(name, query, { width = 640, height = 450, region = "downloadModal" } = {}) {
     const holdWindow = ["--virtual-time-budget=400"];
     const geometry = readGeometry(query, height, holdWindow);
@@ -230,15 +169,10 @@ function modalShot(name, query, { width = 640, height = 450, region = "downloadM
     console.log(`${name} ${width}x${height} ${statSync(jpg).size} bytes`);
 }
 
-// Store listing asset: the real settings panel (EN, top sections) at 2x
-// device scale, JPEG quality 75 (store assets are not bound by the
-// visual review capture limits; target < 150KB). Committed under assets/.
 function storeShot() {
     const query = "case=panel&locale=en";
     const height = 450;
     const scale = 2;
-    // Geometry is measured at scale 1 (CSS px); the 2x screenshot crop is
-    // the same region in device px.
     const geometry = readGeometry(query, height + BOTTOM_MARGIN);
     const png = path.join(out, "store-screenshot.png");
     execFileSync(
@@ -273,56 +207,30 @@ function storeShot() {
     );
 }
 
-// Panel clips (QAM column: top of the decluttered panel, EN + DE).
 shot("panel-en-top", "case=panel&locale=en");
 shot("panel-de-top", "case=panel&locale=de");
-// Honest boot-load failed state (torn loader install): the panel's
-// early-return view with alert, hint and Retry — no panel sections render.
 shot("panel-load-failed-en", "case=panel&load=failed&locale=en", { height: 400 });
-// Setup progress, REAL panel with the dedicated store preset per state:
-// active-indeterminate daemon step, determinate download at 37%, failed with
-// retry (EN + DE), and terminal ready hiding the panel again.
 shot("setup-indeterminate-en", "case=setup&variant=indeterminate&locale=en", { height: 320 });
 shot("setup-download-en", "case=setup&variant=download&locale=en", { height: 320 });
 shot("setup-failed-en", "case=setup&variant=failed&locale=en", { height: 400 });
 shot("setup-failed-de", "case=setup&variant=failed&locale=de", { height: 400 });
 shot("setup-ready-hidden-en", "case=setup&variant=ready&locale=en", { height: 320 });
-// Hydrated failure: the panel shows the failed state from the status
-// report alone (real adapter hydration, no live setup_progress event).
 shot("setup-hydrated-failed-en", "case=setup&variant=hydrated-failed&locale=en", { height: 400 });
-// Microphone button, all four states in one clip (EN + DE error text).
 shot("mic-states-en", "case=mic&locale=en", { height: 160 });
 shot("mic-states-de", "case=mic&locale=de", { height: 160 });
-// Dictation card: idle big button, live recording strip fed with
-// real received frames, settled transcript + clipboard block (EN + DE).
 shot("dictation-idle-en", "case=dictation&dictation=idle&locale=en", { height: 300 });
 shot("dictation-recording-en", "case=dictation&dictation=recording&locale=en", { height: 300 });
 shot("dictation-transcript-en", "case=dictation&dictation=transcript&locale=en", { height: 420 });
 shot("dictation-transcript-de", "case=dictation&dictation=transcript&locale=de", { height: 420 });
-// Model-select flow: the REAL Speech section reading
-// Model → (conditional) Language over the full canned list_models snapshot
-// (all-language grouped catalog), then the REAL download modal opened
-// through the production openModelDownloadModal path and completed through
-// the production publishComplete path — the real completion hold (ModalRoot
-// dialog box: title header, description, "100%" + full determinate bar,
-// Cancel hidden — captured fullscreen-overlay style via modalShot inside
-// the hold window).
 shot("panel-speech-en", "case=panel&catalog=ready&locale=en", {
     sectionTitle: "Speech",
 });
 modalShot("panel-modal-en", "case=panel&catalog=modal&locale=en");
-// In-app model cleanup: the REAL manage modal opened through
-// the production openManageModelsModal path over the canned catalog — the
-// installed list with names + sizes, the selected model's disabled delete,
-// the Delete-all-inactive action and the Close control (fullscreen-overlay
-// style via modalShot, same 640px representative width as the download
-// modal).
 modalShot("panel-manage-en", "case=panel&catalog=manage&locale=en", {
     region: "manageModal",
 });
 storeShot();
 
-// Numeric overflow checks at the acceptance widths (no bitmaps needed).
 for (const width of [390, 768]) {
     overflowProbe(width, "case=panel&locale=en");
 }

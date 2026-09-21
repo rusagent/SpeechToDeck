@@ -1,14 +1,3 @@
-/**
- * LanguagePicker.
- *
- * `system` maps to the speech engine's auto-detection on the backend (it
- * does NOT track the Steam UI language); `auto` lets the speech engine
- * detect; explicit picks use fixed language tags. A hint below the picker
- * states what the selected mode does, in the UI language. Rendered by the
- * settings panel below the ModelSelect, and only while the selected model
- * does not pin a language itself.
- */
-
 import * as React from "react";
 import { DropdownItem } from "@decky/ui";
 import { translate } from "../i18n/messages";
@@ -20,14 +9,8 @@ const LANGUAGE_SENTINELS = {
     auto: "auto",
 } as const;
 
-/**
- * Fully-controlled dropdown flag (constant — Steam asserts when `controlled`
- * changes after mount). Spread because @decky/ui 4.12.1 omits the runtime
- * `controlled` prop the client bundle implements.
- */
 export const CONTROLLED_DROPDOWN: { controlled: boolean } = { controlled: true };
 
-/** Curated explicit language tags; `system`/`auto` are sentinels. */
 const EXPLICIT_LANGUAGE_TAGS: readonly string[] = [
     "en",
     "de",
@@ -46,7 +29,6 @@ const EXPLICIT_LANGUAGE_TAGS: readonly string[] = [
 ];
 
 export interface LanguagePickerProps {
-    /** `"system"`, `"auto"` or an explicit language tag. */
     readonly value: string;
     readonly locale: Locale;
     readonly onChange: (language: string) => void;
@@ -85,10 +67,6 @@ export function LanguagePicker({
                 rgOptions={[...sentinelOptions, ...explicitOptions]}
                 selectedOption={value}
                 onChange={(option) => onChange(option.data as string)}
-                // Uniform fully-controlled semantics with the model dropdown:
-                // the displayed value always mirrors the persisted setting
-                // (Steam's DropdownItem is semi-controlled without the flag;
-                // see ModelSelect for the full rationale).
                 {...CONTROLLED_DROPDOWN}
             />
             <FieldHint>{translate(locale, languageHintKey(value))}</FieldHint>

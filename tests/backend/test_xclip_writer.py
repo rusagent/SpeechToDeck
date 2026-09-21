@@ -1,9 +1,3 @@
-"""XclipClipboardWriter tests (clipboard leg): status mapping, env
-resolution, privacy and staging hygiene. The real xclip is substituted by a
-scripted stand-in binary so spawn/exit/timeout paths run for real (no X
-server).
-"""
-
 from __future__ import annotations
 
 import asyncio
@@ -45,8 +39,6 @@ def test_missing_binary_reports_skipped(tmp_path: Path) -> None:
     writer = XclipClipboardWriter(
         paths.plugin_root / "bin" / "xclip", staging_dir=paths.runtime_dir
     )
-    # v0.2.0 pin decision: no binary shipped → the backend leg reports
-    # "skipped" and the transcription flow is otherwise untouched.
     assert writer.is_available() is False
     assert asyncio.run(writer.write_text("hello")) == "skipped"
 
@@ -73,9 +65,7 @@ def test_successful_copy_reports_ok_and_keeps_text_out_of_pipes(tmp_path: Path) 
         assert status == "ok"
         captured = (tmp_path / "captured.txt").read_text(encoding="utf-8")
         received.append(captured)
-        # The transcript reached the binary byte-exact via the staging file.
         assert received == ["hello world"]
-        # Staging files are transient — none remain afterwards.
         assert list(paths.runtime_dir.glob(".clipboard-*")) == []
 
     asyncio.run(scenario())
@@ -92,7 +82,6 @@ def test_nonzero_exit_and_spawn_failure_map_to_failed(tmp_path: Path) -> None:
         )
         assert await writer.write_text("text") == "failed"
 
-        # Binary present but not executable → spawn OSError → "failed".
         broken = paths.plugin_root / "bin" / "xclip"
         broken.chmod(stat.S_IRUSR | stat.S_IWUSR)
         assert await writer.write_text("text") == "failed"
@@ -114,7 +103,7 @@ def test_timeout_kills_the_child_and_maps_to_failed(tmp_path: Path) -> None:
 
         started = time_module.monotonic()
         assert await writer.write_text("text") == "failed"
-        assert time_module.monotonic() - started < 5.0  # bounded, not 30 s
+        assert time_module.monotonic() - started < 5.0
         assert list(paths.runtime_dir.glob(".clipboard-*")) == []
 
     asyncio.run(scenario())
@@ -145,12 +134,9 @@ def test_display_and_xauthority_resolution(tmp_path: Path) -> None:
         seen_env = dict(
             __import__("json").loads((tmp_path / "env.json").read_text(encoding="utf-8"))
         )
-        # DISPLAY from the gamescope environment file; XAUTHORITY only when
-        # the file exists (DeckyClipboard pattern).
         assert seen_env["DISPLAY"] == ":63"
         assert seen_env["XAUTHORITY"] == str(xauthority)
 
-        # Missing gamescope file → documented ":0" fallback.
         writer_fallback = XclipClipboardWriter(
             paths.plugin_root / "bin" / "xclip",
             staging_dir=paths.runtime_dir,
@@ -175,11 +161,10 @@ def test_unwritable_staging_dir_maps_to_failed_not_crash(tmp_path: Path) -> None
         staging_dir=paths.plugin_root / "settings-file-is-not-a-dir",
         gamescope_environment_file=gamescope_env(tmp_path, ":0"),
     )
-    # Force an unwritable staging location: a FILE where the dir would be.
     blocker = paths.plugin_root / "settings-file-is-not-a-dir"
     blocker.parent.mkdir(parents=True, exist_ok=True)
     blocker.write_text("not a directory", encoding="utf-8")
-    os.chmod(blocker.parent, 0o500)  # read-only parent for extra safety
+    os.chmod(blocker.parent, 0o500)
     try:
         assert asyncio.run(writer.write_text("text")) == "failed"
     finally:

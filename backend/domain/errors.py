@@ -1,10 +1,3 @@
-"""Stable backend error codes and typed exceptions.
-
-Error codes cross the Decky boundary as stable strings. Frontend UI text is
-mapped from codes only; exception messages never travel to the frontend
-(frontend logic must never parse arbitrary exception strings).
-"""
-
 from __future__ import annotations
 
 from enum import StrEnum
@@ -13,13 +6,6 @@ PROTOCOL_VERSION = 1
 
 
 class ErrorCode(StrEnum):
-    """Stable error codes, including the dedicated transcript errors.
-
-    Only codes the backend can produce are declared here. Frontend-only codes
-    (STEAM_KEYBOARD_*, PASTE_*, CLIPBOARD_*, KEYBOARD_CONTEXT_CHANGED) belong
-    to the frontend.
-    """
-
     MICROPHONE_UNAVAILABLE = "MICROPHONE_UNAVAILABLE"
     RUNTIME_START_FAILED = "RUNTIME_START_FAILED"
     RUNTIME_CRASHED = "RUNTIME_CRASHED"
@@ -44,8 +30,6 @@ class ErrorCode(StrEnum):
 
 
 class SpeechError(Exception):
-    """Base class for every backend failure carrying a stable code."""
-
     def __init__(
         self,
         code: ErrorCode,
@@ -61,10 +45,7 @@ class SpeechError(Exception):
         self.session_id = session_id
 
     def payload(self) -> dict[str, object]:
-        """Versioned event/callable payload for this error.
 
-        Never includes transcript text or audio bytes (privacy).
-        """
         payload: dict[str, object] = {
             "protocolVersion": PROTOCOL_VERSION,
             "code": str(self.code),
@@ -77,8 +58,6 @@ class SpeechError(Exception):
 
 
 class CodedSpeechError(SpeechError):
-    """Subclass boilerplate removal: fixes the error code of a family."""
-
     def __init__(
         self,
         message: str,
@@ -88,13 +67,11 @@ class CodedSpeechError(SpeechError):
     ) -> None:
         super().__init__(self._code(), message, detail=detail, session_id=session_id)
 
-    def _code(self) -> ErrorCode:  # pragma: no cover - overridden
+    def _code(self) -> ErrorCode:
         raise NotImplementedError
 
 
 class RuntimeStartError(CodedSpeechError):
-    """The pinned native runtime could not be started."""
-
     def _code(self) -> ErrorCode:
         return ErrorCode.RUNTIME_START_FAILED
 
@@ -140,26 +117,12 @@ class ModelDownloadFailedError(CodedSpeechError):
 
 
 class ModelDownloadCancelledError(CodedSpeechError):
-    """User-initiated cancel of the in-flight download.
-
-    Deliberately NOT a failure: the stable code keeps the journal (and the
-    frontend error mapping) from reading a routine cancel as a network
-    failure — on device, every second tap on the conflated Download/Cancel
-    button logged `MODEL_DOWNLOAD_FAILED`.
-    """
-
     def _code(self) -> ErrorCode:
         return ErrorCode.MODEL_DOWNLOAD_CANCELLED
 
 
 class TransientModelDownloadError(ModelDownloadFailedError):
-    """Transport-class download failure (URLError/timeout/connection reset).
-
-    Same stable code (``MODEL_DOWNLOAD_FAILED``); the subclass marks the
-    failure class the startup path may retry with its bounded automatic
-    ladder. Checksum mismatches, cancellations and HTTP status failures stay
-    plain ``ModelDownloadFailedError`` and are never retried.
-    """
+    pass
 
 
 class ModelChecksumFailedError(CodedSpeechError):

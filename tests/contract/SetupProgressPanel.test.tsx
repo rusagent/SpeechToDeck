@@ -1,15 +1,3 @@
-/**
- * SetupProgressPanel render tests (frozen `setup_progress` contract).
- *
- * Decision points: the four step rows derive their state from the guarded
- * payload, subsequent payloads advance the active step and per-step/overall
- * percents (render-only arithmetic: completed × 25 + percent/4), the
- * terminal failed state surfaces the mapped error with a retry control,
- * and the bar exposes progressbar ARIA semantics (no `aria-valuenow` while
- * indeterminate). The store and adapter boundary is covered in
- * DeckyAdapters.test.ts.
- */
-
 import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { SetupProgressPanel } from "../../src/presentation/settings/SetupProgressPanel";
@@ -50,8 +38,6 @@ describe("SetupProgressPanel", () => {
 
         const steps = screen.getAllByRole("listitem");
         expect(steps).toHaveLength(4);
-        // Accessible names come from the visible labels; the state glyphs
-        // are aria-hidden and never color-only.
         expect(steps.map((step) => step.getAttribute("data-step-state"))).toEqual([
             "done",
             "active",
@@ -64,10 +50,7 @@ describe("SetupProgressPanel", () => {
         expect(screen.getByRole("listitem", { name: "Load model" })).toBe(steps[3]);
         expect(steps[1]?.textContent).toContain("37%");
         expect(steps[1]?.getAttribute("aria-current")).toBe("step");
-        // Description line: current labelKey + detailKey text (regular dash,
-        // no em-dashes in UI strings).
         expect(screen.getByText("Model - Downloading…")).not.toBeNull();
-        // Overall percent: completed(1) × 25 + 37/4 = 34 (render-only).
         const bar = screen.getByRole("progressbar");
         expect(bar.getAttribute("aria-valuenow")).toBe("34");
         expect(bar.getAttribute("aria-valuemin")).toBe("0");
@@ -100,7 +83,6 @@ describe("SetupProgressPanel", () => {
             "active",
             "pending",
         ]);
-        // 2 completed × 25 + 40/4 = 60.
         expect(screen.getByRole("progressbar").getAttribute("aria-valuenow")).toBe("60");
     });
 
@@ -112,7 +94,6 @@ describe("SetupProgressPanel", () => {
         expect(bar.hasAttribute("aria-valuenow")).toBe(false);
         expect(bar.getAttribute("aria-valuemin")).toBe("0");
         expect(bar.getAttribute("aria-valuemax")).toBe("100");
-        // Indeterminate payloads never render percent figures.
         expect(screen.queryByText(/^\d+%$/)).toBeNull();
     });
 
@@ -133,14 +114,13 @@ describe("SetupProgressPanel", () => {
             "error",
             "pending",
         ]);
-        // Raw code chip plus mapped text, announced via role="alert".
         expect(screen.getByText("MODEL_DOWNLOAD_FAILED")).not.toBeNull();
         expect(screen.getByRole("alert").textContent).toContain("Downloading the model failed.");
 
         const retry = screen.getByRole("button", { name: "Retry" }) as HTMLButtonElement;
         fireEvent.click(retry);
         expect(onRetry).toHaveBeenCalledTimes(1);
-        expect(retry.disabled).toBe(true); // in-flight retry is not re-entrant
+        expect(retry.disabled).toBe(true);
 
         await act(async () => {
             resolveRetry?.();

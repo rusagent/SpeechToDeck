@@ -1,8 +1,3 @@
-/**
- * Monotonic clock adapter (feeds `startedAtMonotonicMs`): monotonic
- * orderings and durations only, never a wall-clock date.
- */
-
 import type { ClockPort } from "../../application/ports/ClockPort";
 
 export class SystemClock implements ClockPort {

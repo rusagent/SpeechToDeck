@@ -1,5 +1,3 @@
-"""Settings persistence tests: defaults, atomicity, migrations."""
-
 from __future__ import annotations
 
 import asyncio
@@ -24,9 +22,6 @@ DEFAULTS_PAYLOAD = {
     "language": "system",
 }
 
-# Device document from an older release (the keys the owner's deck carries:
-# v0.2.4 removed maxRecordingSeconds/vadEnabled; v0.2.3 removed outputMode
-# when the in-keyboard insertion feature was dropped).
 LEGACY_V024_PAYLOAD = DEFAULTS_PAYLOAD | {
     "maxRecordingSeconds": 110,
     "vadEnabled": True,
@@ -43,9 +38,8 @@ def test_missing_file_yields_spec_defaults(tmp_path: Path) -> None:
     async def scenario() -> None:
         repo, path = make_repo(tmp_path)
         settings = await repo.load()
-        # Shipped defaults, verbatim.
         assert settings.to_payload() == DEFAULTS_PAYLOAD
-        assert not path.exists()  # defaults are not implicitly persisted
+        assert not path.exists()
 
     asyncio.run(scenario())
 
@@ -70,9 +64,7 @@ def test_save_is_atomic_and_private(tmp_path: Path) -> None:
         repo, path = make_repo(tmp_path)
         loaded = await repo.load()
         await repo.save(loaded)
-        # serialize → tmp → flush → rename leaves no temp behind.
         assert not (tmp_path / "settings.json.tmp").exists()
-        # user-only permissions.
         assert stat.S_IMODE(path.stat().st_mode) == 0o600
 
     asyncio.run(scenario())
@@ -99,17 +91,12 @@ def test_invalid_fields_rejected_deliberately(tmp_path: Path, mutation: dict[str
 
 
 def test_legacy_v024_keys_tolerated_on_load_and_never_written_back(tmp_path: Path) -> None:
-    """v0.2.5 decision point: the removed settings must not lock existing
-    devices out of their settings.json — load tolerates them (ignored, values
-    like 110/true/"direct-insert" included), and the next save drops them
-    from the file while every kept field survives unchanged."""
 
     async def scenario() -> None:
         repo, path = make_repo(tmp_path)
         path.write_text(json.dumps(LEGACY_V024_PAYLOAD), encoding="utf-8")
 
         settings = await repo.load()
-        # The wire snapshot no longer carries the legacy keys at all.
         assert "maxRecordingSeconds" not in settings.to_payload()
         assert "vadEnabled" not in settings.to_payload()
         assert "outputMode" not in settings.to_payload()
@@ -155,7 +142,6 @@ def test_migration_chain_walks_registered_migrators(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     async def scenario() -> None:
-        # Simulate a v2 format: current version 2, registered v1→v2 migrator.
         monkeypatch.setattr(jsr, "CURRENT_SCHEMA_VERSION", 2)
         monkeypatch.setattr(
             jsr,
@@ -166,7 +152,7 @@ def test_migration_chain_walks_registered_migrators(
         path.write_text(json.dumps(DEFAULTS_PAYLOAD), encoding="utf-8")
         settings = await repo.load()
         assert settings.schema_version == 2
-        assert settings.model_id == "base"  # data carried through deliberately
+        assert settings.model_id == "base"
 
     asyncio.run(scenario())
 
@@ -179,7 +165,7 @@ def test_migration_chain_fails_closed_on_gap(
         monkeypatch.setattr(
             jsr,
             "MIGRATIONS",
-            {1: lambda data: {**data, "schemaVersion": 2}},  # 2→3 missing
+            {1: lambda data: {**data, "schemaVersion": 2}},
         )
         repo, path = make_repo(tmp_path)
         path.write_text(json.dumps(DEFAULTS_PAYLOAD), encoding="utf-8")

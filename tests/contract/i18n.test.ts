@@ -1,9 +1,3 @@
-/**
- * i18n contract tests: EN and DE dictionaries are complete
- * and identical in key coverage, and every stable error code maps to
- * non-empty UI text in both locales.
- */
-
 import { describe, expect, it } from "vitest";
 import { DICTATION_ERROR_CODES } from "../../src/domain/DictationError";
 import {
@@ -32,8 +26,6 @@ describe("i18n dictionaries", () => {
     });
 
     it("contains no em-dash in any locale string (regular dashes only)", () => {
-        // Sweep guard for the no-em-dash rule; covers both the
-        // general dictionaries and the error texts.
         for (const [locale, dictionary] of Object.entries(MESSAGES)) {
             for (const [key, value] of Object.entries(dictionary)) {
                 expect(value, `${key} (${locale})`).not.toContain("—");
@@ -51,10 +43,9 @@ describe("i18n dictionaries", () => {
             for (const locale of ["en", "de"] as const) {
                 const text = translateError(locale, code);
                 expect(text.length, `${code} in ${locale}`).toBeGreaterThan(0);
-                expect(text).not.toBe(code); // mapped text, not the raw code
+                expect(text).not.toBe(code);
             }
         }
-        // The cancellation code reads as a cancel, never as a failure.
         expect(translateError("en", "MODEL_DOWNLOAD_CANCELLED")).not.toContain("failed");
     });
 
@@ -66,9 +57,6 @@ describe("i18n dictionaries", () => {
     });
 
     it("labels the model language groups with locale-invariant native endonyms", () => {
-        // A language group is labeled in its own language
-        // in BOTH UI locales — only the key must exist everywhere (parity
-        // gate above).
         const keys = [
             "model.group.lang.de",
             "model.group.lang.en",

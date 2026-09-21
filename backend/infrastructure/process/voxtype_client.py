@@ -1,33 +1,3 @@
-"""Voxtype CLI client.
-
-Control of the native runtime happens exclusively through argument-array
-subprocess invocations of the SELECTED variant binary. The real
-upstream surface (verified against `src/cli/record.rs` and
-`src/app/record.rs`) is:
-
-- `record start --file=<transcript path>` — signals the daemon (SIGUSR1)
-  and exits 0 once the signal was delivered; bounded by the 2 s ack;
-- `record stop --wait --json --timeout <bounded>` — signals the daemon
-  (SIGUSR2), then blocks on the `.done` completion sidecar and prints one
-  outcome object. Exit codes: 0 transcribed, 3 empty, 4 timed out, 1 failed;
-- `record cancel` — writes the cancel trigger file the daemon observes.
-
-Recording flow: previous transcript output and its sidecar are
-removed before recording starts, the final outcome is resolved by the stop
-command's exit code, the freshly produced output is read exactly once after
-a transcribed stop, normalized at the process boundary (exactly one
-trailing newline stripped — upstream always writes one), and deleted so a
-previous result can never be reused. The stop outcome is delivered through
-the TranscriptSink from a background task, so the stop acknowledgement
-stays bounded while the final transcription wait stays bounded by the
-`--timeout` handed to the CLI plus a small local grace.
-
-The daemon reports empty speech itself (exit 3): the client delivers it as
-an empty TranscriptResult and the application service applies the
-empty-speech path. Errors are never invented from status words — they come
-only from these outcomes.
-"""
-
 from __future__ import annotations
 
 import asyncio
@@ -53,43 +23,23 @@ from backend.infrastructure.process.runtime_variant import RuntimeVariantResolve
 
 LOGGER = logging.getLogger("speech.runtime")
 
-ACK_TIMEOUT_S = 2.0  # record start/stop/cancel acknowledgement timeout
-# Final-wait floor for the CLI's `--timeout`: the original
-# budget, kept exactly for short recordings. With the 24 h recording valve
-# there is no fixed cap to budget from, so the handed-out
-# --timeout grows with the actually recorded duration (`final_wait_budget`).
+ACK_TIMEOUT_S = 2.0
 DEFAULT_FINAL_TIMEOUT_S = 120.0
-STOP_TIME_FACTOR = 2.0  # ≈ twice real time: whisper headroom for long audio
-# Local grace on top of the CLI's own --timeout: the CLI reports timeout
-# (exit 4) itself; only a hung CLI is killed here.
+STOP_TIME_FACTOR = 2.0
 _STOP_CLI_GRACE_S = 5.0
 _ERROR_DETAIL_LIMIT = 200
 
-# Upstream `record stop --wait` exit contract (src/app/record.rs).
 _EXIT_TRANSCRIBED = 0
 _EXIT_EMPTY = 3
 _EXIT_TIMEOUT = 4
 
 
 def final_wait_budget(recorded_seconds: float, floor_s: float) -> float:
-    """`record stop --timeout` budget, scaled with the recording.
 
-    max(floor, recorded_seconds * STOP_TIME_FACTOR): short recordings keep
-    their exact current bound (the floor), longer ones get transcription
-    headroom proportional to what was actually recorded. From 45 s recorded
-    upward this stays at or below the application watchdog's scaled budget
-    (which adds its 30 s grace), so the upstream exit-4 timeout remains the
-    primary reporter; below 45 s the 120 s floor exceeds the watchdog's
-    90 s floor, which fires first — the watchdog-first relationship,
-    kept by the floors on purpose. Deterministic in `recorded_seconds`;
-    strictly bounded at every length — no wait is unbounded.
-    """
     return max(floor_s, recorded_seconds * STOP_TIME_FACTOR)
 
 
 class VoxtypeClient:
-    """SpeechRuntime adapter over the pinned runtime's CLI."""
-
     def __init__(
         self,
         paths: PluginPaths,
@@ -107,18 +57,9 @@ class VoxtypeClient:
         self.transcript_sink: TranscriptSink | None = None
         self._delivery_task: asyncio.Task[None] | None = None
         self._stop_proc: asyncio.subprocess.Process | None = None
-        # Monotonic timestamp of the last acknowledged `record start`; drives
-        # the scaled stop budget. One-shot: consumed by stop, cleared
-        # by cancel.
         self._recording_started_at: float | None = None
 
-    # ── SpeechRuntime port ───────────────────────────────────────────────────
-
     async def start(self) -> None:
-        """Runtime surface ready: drop stale output from a previous session."""
-        # A transcript (or sidecar) left behind by a crashed
-        # previous plugin session must never be reused; every recording also
-        # clears both before it starts.
         self._clear_output_artifacts()
 
     async def stop(self) -> None:
@@ -126,15 +67,11 @@ class VoxtypeClient:
 
     async def start_recording(self) -> None:
         self._require_sink()
-        # Recording-flow step 1: remove/truncate previous transcript output
-        # and its completion sidecar.
         self._clear_output_artifacts()
         await self._control(
             ["record", "start", f"--file={self._paths.output_file}"],
             start_failure=RecordingStartError,
         )
-        # The daemon is recording from here: the scaled stop budget measures
-        # the real recording span from the acknowledged start.
         self._recording_started_at = self._clock()
 
     async def stop_recording(self) -> None:
@@ -142,9 +79,6 @@ class VoxtypeClient:
         started_at = self._recording_started_at
         self._recording_started_at = None
         recorded_seconds = max(0.0, self._clock() - started_at) if started_at is not None else 0.0
-        # The final-outcome steps run in the background: the stop
-        # acknowledgement stays bounded while the CLI's --wait resolves
-        # the final outcome.
         self._delivery_task = asyncio.get_running_loop().create_task(
             self._deliver_final_transcript(recorded_seconds)
         )
@@ -154,10 +88,7 @@ class VoxtypeClient:
             await self._control(["record", "cancel"], start_failure=RecordingStopError)
         finally:
             self._recording_started_at = None
-            # Cancellation discards any pending result unconditionally.
             await self._abort_delivery()
-
-    # ── transcript delivery ──────────────────────────────────────────────────
 
     def _require_sink(self) -> TranscriptSink:
         if self.transcript_sink is None:
@@ -172,9 +103,6 @@ class VoxtypeClient:
         task = self._delivery_task
         self._delivery_task = None
         if task is not None and not task.done():
-            # A running stop CLI is bounded by its own --timeout, but
-            # cancellation (and teardown) must not leave it lingering: kill
-            # it before cancelling the delivery task.
             proc = self._stop_proc
             self._stop_proc = None
             if proc is not None and proc.returncode is None:
@@ -197,8 +125,6 @@ class VoxtypeClient:
         except asyncio.CancelledError:
             raise
         except SpeechError as exc:
-            # The stop CLI could not run (variant unresolved, spawn failure):
-            # surface it through the sink instead of dying unretrieved.
             await sink.on_transcript_error(exc)
             return
         except Exception as exc:
@@ -208,17 +134,12 @@ class VoxtypeClient:
             return
 
         if exit_code == _EXIT_TIMEOUT or exit_code is None:
-            # Exit 4 is the CLI's own --timeout; None means the CLI itself
-            # never finished within the local grace and was killed.
             await sink.on_transcript_error(
                 TranscriptionTimeoutError("final transcription wait timed out")
             )
             return
 
         if exit_code == _EXIT_EMPTY:
-            # The daemon itself reported empty speech (no transcript file
-            # is written); deliver an empty result, the application applies
-            # the empty-speech path.
             self._clear_output_artifacts()
             await sink.on_transcript(self._result(text="", started=started))
             return
@@ -242,14 +163,7 @@ class VoxtypeClient:
         await sink.on_transcript(result)
 
     async def _run_stop_command(self, recorded_seconds: float) -> tuple[int | None, str]:
-        """Run `record stop --wait --json --timeout N`; return (exit, stderr).
 
-        N is the scaled budget (`final_wait_budget`): the floor for
-        short recordings, growing with the recorded duration otherwise.
-
-        stdout is discarded: the upstream --json outcome object embeds the
-        transcript text, so it is never read into a loggable buffer.
-        """
         timeout = max(1, round(final_wait_budget(recorded_seconds, self._final_timeout)))
         argv = self._cli_argv(
             ["record", "stop", "--wait", "--json", "--timeout", str(timeout)],
@@ -270,15 +184,10 @@ class VoxtypeClient:
         return proc.returncode, detail
 
     def _read_output_once(self, started: float) -> TranscriptResult:
-        """Read the newly produced output exactly once, then remove it."""
         output_path = self._paths.output_file
-        raw = output_path.read_bytes()  # single read; a previous session's
-        # output was removed before recording started.
+        raw = output_path.read_bytes()
         output_path.unlink(missing_ok=True)
         self._paths.output_sidecar_file.unlink(missing_ok=True)
-        # Normalize invalid UTF-8 at the process boundary. The upstream
-        # writer always appends exactly one trailing newline; strip exactly
-        # that one here (further trimming happens in the application).
         text = raw.decode("utf-8", errors="replace")
         if text.endswith("\n"):
             text = text[:-1]
@@ -292,21 +201,13 @@ class VoxtypeClient:
             transcription_duration_ms=(self._clock() - started) * 1000.0,
         )
 
-    # ── CLI control ──────────────────────────────────────────────────────────
-
     def _cli_argv(
         self,
         args: list[str],
         *,
         start_failure: type[CodedSpeechError],
     ) -> list[str]:
-        """Full argv for a control invocation of the SELECTED variant binary.
 
-        The generated daemon config travels along so the CLI resolves the
-        same output/state configuration as the running daemon. An unresolved
-        variant (no daemon was ever started) fails closed with the caller's
-        stable error instead of invoking an arbitrary binary.
-        """
         binary_path = self._resolver.selected_binary_path
         if binary_path is None:
             raise start_failure("native runtime is not running", detail="variant unresolved")
@@ -338,15 +239,7 @@ class VoxtypeClient:
         *,
         start_failure: type[CodedSpeechError],
     ) -> None:
-        """Bounded fire-and-forget control invocation (start/cancel).
 
-        The daemon is "running" for the supervisor the moment the process is
-        spawned, but the CLI control surface (pid file) appears only after
-        the daemon finished booting. A transient refusal is retried until
-        the acknowledgement budget is spent; the last error is raised
-        then — a genuinely dead runtime fails with the same stable code,
-        just after the full ack window.
-        """
         deadline = self._clock() + self._ack_timeout
         delay = 0.05
         while True:

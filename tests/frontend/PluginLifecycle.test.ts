@@ -1,9 +1,3 @@
-/**
- * PluginLifecycle tests: startup delegation, the unload
- * sequence executed through reverse-order disposal, idempotent dispose,
- * and teardown failure containment.
- */
-
 import { describe, expect, it } from "vitest";
 
 import { DictationController } from "../../src/application/DictationController";

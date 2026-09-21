@@ -1,21 +1,3 @@
-/**
- * SetupProgressPanel — animated multi-step setup progress for the plugin
- * panel.
- *
- * Renders the backend's `setup_progress` stream (frozen contract, guarded in
- * the adapter): four step rows with per-step state and percent, an animated
- * overall bar, a description line and — on the terminal `failed` step — the
- * mapped error plus a retry control wired to the existing
- * `restart_runtime` callable path. Terminal `ready` never reaches this
- * component: the settings panel hides it as soon as the snapshot is ready.
- *
- * Motion: the bar width moves via CSS `transform: scaleX(...)`
- * with a transition; shimmer and the indeterminate slide are CSS keyframes.
- * There are no JS animation loops and no idle timers; every animation is
- * switched off under `prefers-reduced-motion`. Steps never rely on color
- * alone — each state has a distinct glyph.
- */
-
 import * as React from "react";
 import { ButtonItem } from "@decky/ui";
 import type { SetupProgressSnapshot } from "../../application/ports/SetupProgressPort";
@@ -27,11 +9,9 @@ import { CodeChip } from "./CodeChip";
 export interface SetupProgressPanelProps {
     readonly snapshot: SetupProgressSnapshot;
     readonly locale: Locale;
-    /** Invoked by the failed-state retry button (the restart_runtime path). */
     readonly onRetry: () => Promise<void>;
 }
 
-/** Display order of the four setup steps with their i18n label keys. */
 const STEP_ROWS: readonly { readonly labelKey: SetupProgressSnapshot["labelKey"] }[] = [
     { labelKey: "setup.step.runtimeVerify" },
     { labelKey: "setup.step.modelEnsure" },
@@ -60,10 +40,6 @@ function stepState(snapshot: SetupProgressSnapshot, index: number): StepState {
           : "pending";
 }
 
-/**
- * Overall picture, render-only arithmetic (never sent anywhere):
- * completed steps count 25 each, the running step contributes percent/4.
- */
 function overallPercent(snapshot: SetupProgressSnapshot): number {
     if (snapshot.step === "ready") {
         return 100;
@@ -82,11 +58,6 @@ function setupErrorMessage(locale: Locale, snapshot: SetupProgressSnapshot): str
         : translate(locale, "setup.errorUnknown");
 }
 
-/**
- * Motion styles, injected once (same idiom as the microphone button).
- * Every animation is active-state feedback and switches off under
- * `prefers-reduced-motion`.
- */
 const SETUP_MOTION_STYLES = `
 @keyframes speechtodeck-setup-spin {
     to { transform: rotate(360deg); }
@@ -197,7 +168,7 @@ export function SetupProgressPanel({
 
     return (
         <div data-setup-progress={snapshot.step} style={{ padding: "2px 0 6px" }}>
-            {/* Overall picture: title plus the render-only overall percent. */}
+            {}
             <div
                 style={{
                     display: "flex",
@@ -230,7 +201,7 @@ export function SetupProgressPanel({
                 ) : null}
             </div>
 
-            {/* Overall bar: transform-only width, transition between steps. */}
+            {}
             <div
                 role="progressbar"
                 aria-label={title}
@@ -259,7 +230,7 @@ export function SetupProgressPanel({
                         transition: "transform 240ms ease",
                     }}
                 />
-                {/* Shimmer only while the setup is still running. */}
+                {}
                 {running ? (
                     <div
                         aria-hidden="true"
@@ -277,7 +248,7 @@ export function SetupProgressPanel({
                 ) : null}
             </div>
 
-            {/* Description line: current step label plus the step detail. */}
+            {}
             <div
                 style={{
                     marginTop: 6,
@@ -307,9 +278,6 @@ export function SetupProgressPanel({
                     return (
                         <li
                             key={row.labelKey}
-                            // Explicit accessible name: the marker glyphs are
-                            // decorative and the list style is removed, so the
-                            // name must not rely on content computation.
                             aria-label={showPercent !== null ? `${label} ${showPercent}` : label}
                             aria-current={state === "active" ? "step" : undefined}
                             data-step-state={state}

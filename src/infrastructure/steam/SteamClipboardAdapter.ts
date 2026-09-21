@@ -1,12 +1,3 @@
-/**
- * SteamClipboardAdapter.
- *
- * Accepts only the complete transcript string — never chunks. The 16 KiB
- * UTF-8 limit is enforced with the core validation constant; larger
- * transcripts are rejected with the controlled `TRANSCRIPT_TOO_LARGE` error.
- * No clipboard restoration is performed.
- */
-
 import {
     MAX_TRANSCRIPT_UTF8_BYTES,
     DictationError,
@@ -41,7 +32,7 @@ export class SteamClipboardAdapter implements ClipboardPort {
             throw new TranscriptTooLargeError(byteLength);
         }
         try {
-            await writeText(text); // the complete string, in one call
+            await writeText(text);
         } catch (error) {
             throw new DictationError(
                 "CLIPBOARD_WRITE_FAILED",

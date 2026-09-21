@@ -1,24 +1,4 @@
 #!/usr/bin/env node
-// Artifact manifest validation (CI gate "artifact manifest validation").
-//
-// Validates defaults/models.json against the model manifest schema
-// and defaults/runtime-manifest.json against the runtime artifact integrity
-// schema. The script uses Node only — no third-party dependencies.
-//
-// Gate policy (done means the CI gate list is green):
-// - models.json violations are always hard failures with a nonzero exit
-//   code. A model entry without a real, verified digest can never pass this
-//   gate; digests are never guessed or computed from anything other than the
-//   actual downloaded artifact.
-// - The runtime manifest pins both Voxtype v1.0.1 x86_64 Linux artifacts
-//   (avx2 + vulkan; see bin/README.md). The gate still reports a loud
-//   RUNTIME_UNPINNED diagnostic if an artifact ever loses its digest: product
-//   code fails closed against an unpinned manifest (backend startup:
-//   RUNTIME_START_FAILED), so the DEFAULT run exits 0 with the diagnostic.
-//   `--strict` (release packaging) fails on any unpinned runtime. Everything
-//   else about the runtime manifest (malformed JSON, wrong schemaVersion,
-//   invalid https source, bad sha256 format, duplicate ids/variants) is a
-//   hard failure in both modes.
 
 import { readFileSync } from "node:fs";
 import path from "node:path";
@@ -32,12 +12,9 @@ const unpinned = [];
 
 const SHA256_RE = /^[0-9a-f]{64}$/;
 const MODEL_ID_RE = /^[a-z0-9][a-z0-9._-]*$/;
-// Curated-catalog validation rules, mirrored exactly by
-// backend/infrastructure/model/model_manifest.py.
 const LANGUAGE_CODE_RE = /^[a-z]{2,8}(-[a-z0-9]{1,8})*$/;
 const MAX_DESCRIPTION_CHARS = 200;
 const MAX_MODEL_SIZE_BYTES = 2147483648;
-// Curated v1 model set.
 const REQUIRED_MODEL_IDS = ["tiny", "base", "small"];
 const ALLOWED_ENGINES = new Set(["whisper"]);
 const ALLOWED_MODEL_FIELDS = new Set([
@@ -157,13 +134,10 @@ function validateModels() {
         if (typeof model.filename !== "string" || model.filename.length === 0) {
             fail(`${label}.filename: must be a non-empty string`);
         } else if (/[\\/]/.test(model.filename) || model.filename.includes("..")) {
-            // Model files live in the plugin data directory only (reject path traversal).
             fail(
                 `${label}.filename: must be a plain file name, got ${JSON.stringify(model.filename)}`,
             );
         } else if (seenFilenames.has(model.filename)) {
-            // The filename is the local store name; two models sharing
-            // it would overwrite each other's artifact.
             fail(`${label}.filename: duplicate filename ${JSON.stringify(model.filename)}`);
         } else {
             seenFilenames.add(model.filename);
@@ -188,8 +162,6 @@ function validateModels() {
         }
 
         if (model.sizeBytes === undefined) {
-            // Required so the picker can show a human-readable size
-            // before download without network probes.
             fail(`${label}.sizeBytes: is required`);
         } else if (!Number.isInteger(model.sizeBytes) || model.sizeBytes <= 0) {
             fail(`${label}.sizeBytes: must be a positive integer`);
@@ -243,9 +215,6 @@ function validateRuntimeManifest() {
         return;
     }
 
-    // One artifact per compute variant, selected by the supervisor from the
-    // settings computeBackend (cpu → avx2 build, vulkan → vulkan build, auto →
-    // explicit probe policy). Each variant must appear at most once.
     const VARIANT_VALUES = new Set(["cpu", "vulkan"]);
     const seenIds = new Set();
     const seenVariants = new Set();
@@ -257,8 +226,6 @@ function validateRuntimeManifest() {
             return;
         }
 
-        // A runtime artifact is "unpinned" while its sha256 is still empty
-        // (acquisition procedure in bin/README.md).
         const pinned =
             typeof artifact.sha256 === "string" &&
             artifact.sha256.length > 0 &&
@@ -298,7 +265,6 @@ function validateRuntimeManifest() {
         }
 
         if (pinned) {
-            // Once pinned, every provenance field must be filled.
             for (const field of ["version", "source", "license"]) {
                 if (typeof artifact[field] !== "string" || artifact[field].length === 0) {
                     fail(`${label}.${field}: must be a non-empty string for a pinned artifact`);

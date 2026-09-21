@@ -1,9 +1,3 @@
-/**
- * SteamClipboardAdapter contract tests: complete-string writes
- * only, 16 KiB UTF-8 limit enforced with the core constant, and controlled
- * errors when the write mechanism is missing or fails.
- */
-
 import { describe, expect, it, vi } from "vitest";
 import { SteamClipboardAdapter } from "../../src/infrastructure/steam/SteamClipboardAdapter";
 import { MAX_TRANSCRIPT_UTF8_BYTES } from "../../src/domain/DictationError";
@@ -19,8 +13,7 @@ function stubClipboard(writeText: unknown): {
         writeText: fn,
         restore: () => {
             if (previous === undefined) {
-                // @ts-expect-error test cleanup of a test-installed property
-                delete navigator.clipboard;
+                delete (navigator as { clipboard?: Clipboard }).clipboard;
             } else {
                 Object.defineProperty(navigator, "clipboard", previous);
             }
@@ -79,8 +72,7 @@ describe("SteamClipboardAdapter", () => {
             });
         } finally {
             if (previous === undefined) {
-                // @ts-expect-error test cleanup of a test-installed property
-                delete navigator.clipboard;
+                delete (navigator as { clipboard?: Clipboard }).clipboard;
             } else {
                 Object.defineProperty(navigator, "clipboard", previous);
             }

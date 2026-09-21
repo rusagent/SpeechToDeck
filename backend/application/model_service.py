@@ -1,11 +1,3 @@
-"""Model selection and download orchestration.
-
-Owns the `model_download_progress` / `model_download_complete` events and
-the user-facing download lifecycle (single in-flight download, explicit
-cancellation). Model ids are validated against the committed manifest before
-any path or URL is touched.
-"""
-
 from __future__ import annotations
 
 import asyncio
@@ -36,8 +28,6 @@ LOGGER = logging.getLogger("speech.model")
 
 
 class ModelService:
-    """Application service for the curated model set."""
-
     def __init__(
         self,
         manifest: ModelManifest,
@@ -48,9 +38,6 @@ class ModelService:
     ) -> None:
         self._manifest = manifest
         self._publisher = publisher
-        # Startup progress consumes the same throttled download feed as
-        # the `model_download_progress` events (setup_progress.py); it is
-        # inert outside the startup path.
         self._setup_progress = setup_progress
         self._store = ModelStore(
             manifest,
@@ -62,11 +49,9 @@ class ModelService:
 
     @property
     def store(self) -> ModelStore:
-        """Store surface (also satisfies the ModelRepository port)."""
         return self._store
 
     async def list_models(self) -> list[dict[str, object]]:
-        """Curated models with installed flags, for the `list_models` callable."""
         result: list[dict[str, object]] = []
         for info in await self._store.list_models():
             installed = await self._store.is_installed(info.id)
@@ -74,20 +59,15 @@ class ModelService:
         return result
 
     async def ensure_model(self, model_id: str) -> None:
-        """Installed + digest-verified; used at startup."""
         await self._store.ensure_model(model_id)
 
     async def download_model(self, model_id: str) -> None:
-        """Download one model; only one download runs at a time."""
-        self._resolve(model_id)  # fail fast on unknown/traversal ids
+        self._resolve(model_id)
         task = asyncio.get_running_loop().create_task(self._store.download(model_id))
         self._download_task = task
         try:
             await task
         except ModelDownloadCancelled:
-            # A cancel is user-initiated completion, not a failure: it maps to
-            # its own stable code so the journal and the frontend never
-            # read it as MODEL_DOWNLOAD_FAILED (an on-device finding).
             raise ModelDownloadCancelledError(
                 "model download cancelled", detail=f"id={model_id}"
             ) from None
@@ -106,19 +86,7 @@ class ModelService:
         LOGGER.info("model downloaded id=%s", info.id)
 
     async def delete_model(self, model_id: str) -> dict[str, object]:
-        """Delete one installed model file (in-app model cleanup).
 
-        The path never crosses the boundary as input: the id resolves against
-        the strict manifest and the store derives `<data_dir>/models/<filename>`
-        (unknown or traversal ids fail with the stable
-        MODEL_NOT_INSTALLED code). A download writing this model's artifact is
-        a coded rejection (the same MODEL_DOWNLOAD_FAILED family the download
-        lifecycle reports; the detail names the conflict for the journal). The
-        selected model is rejected upstream by the Application, which owns the
-        settings seam — a successful delete therefore never touches settings.
-        Removing an already-absent file is an idempotent no-op reporting no
-        freedBytes (optional payload fields are omitted when absent).
-        """
         info = self._resolve(model_id)
         if self._store.downloading_model_id() == info.id:
             raise ModelDownloadFailedError("model download is in flight", detail=f"id={model_id}")
@@ -133,7 +101,6 @@ class ModelService:
         return payload
 
     def cancel_download(self) -> bool:
-        """`cancel_model_download` callable: True when a download was cancelled."""
         task = self._download_task
         if task is not None and not task.done():
             task.cancel()
@@ -166,8 +133,6 @@ class ModelService:
 
 
 def _model_payload(info: ModelInfo, installed: bool) -> dict[str, object]:
-    """Wire shape for the `list_models` callable (optional additive
-    fields are omitted when absent, matching the sizeBytes pattern)."""
     payload: dict[str, object] = {
         "id": info.id,
         "engine": info.engine,

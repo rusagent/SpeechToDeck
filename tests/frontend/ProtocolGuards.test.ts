@@ -1,8 +1,3 @@
-/**
- * Boundary type-guard tests: backend JSON and settings payloads are
- * validated manually before use; no blind casts.
- */
-
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 
@@ -92,7 +87,6 @@ describe("isTranscriptReadyPayload", () => {
         }
         expect(isTranscriptClipboardStatus("ok")).toBe(true);
         expect(isTranscriptClipboardStatus("maybe")).toBe(false);
-        // An unknown clipboard outcome is a boundary violation.
         expect(isTranscriptReadyPayload({ ...VALID_PAYLOAD, clipboard: "maybe" })).toBe(false);
         expect(isTranscriptReadyPayload({ ...VALID_PAYLOAD, clipboard: 1 })).toBe(false);
     });
@@ -146,11 +140,6 @@ describe("isRecordingLevelPayload + isDictationFlowReport", () => {
         expect(isDictationFlowReport({ backendRunning: false, clipboard: "unavailable" })).toBe(
             true,
         );
-        // Regression (observed on device): the backend never emitted
-        // `backendRunning` — its dictationFlow is clipboard-only — so the
-        // guard rejected every real get_status payload and the panel lost its
-        // status feed. The field is additive-optional, validated only
-        // when present.
         expect(isDictationFlowReport({ clipboard: "unavailable" })).toBe(true);
         expect(isDictationFlowReport({ clipboard: "xclip" })).toBe(true);
         expect(isDictationFlowReport({ backendRunning: "yes", clipboard: "xclip" })).toBe(false);
@@ -170,7 +159,7 @@ describe("isRecordingLevelPayload + isDictationFlowReport", () => {
             },
             modelDownloadInProgress: false,
         };
-        expect(isRuntimeStatusReport(base)).toBe(true); // older backend
+        expect(isRuntimeStatusReport(base)).toBe(true);
         expect(
             isRuntimeStatusReport({
                 ...base,
@@ -217,7 +206,7 @@ describe("isSpeechCapabilities and status", () => {
             vulkanAvailable: true,
             modelInstalled: true,
         };
-        expect(isSpeechCapabilities(base)).toBe(true); // older backend: field omitted
+        expect(isSpeechCapabilities(base)).toBe(true);
         expect(isSpeechCapabilities({ ...base, backendVersion: "0.2.3" })).toBe(true);
         expect(isSpeechCapabilities({ ...base, backendVersion: 42 })).toBe(false);
     });
@@ -248,13 +237,6 @@ describe("isRuntimeStatusReport", () => {
     });
 
     it("accepts the verbatim on-device get_status payload (past boundary failure)", () => {
-        // Production defect: SharedJSContext logged "dropped get_status payload:
-        // boundary guard failed" because the real shipped backend emits
-        // dictationFlow.clipboard only, while the guard required a
-        // dictationFlow.backendRunning boolean the backend never sent. The
-        // captured payload (tests/fixtures/status/get_status_real.json, origin
-        // in its _captureOrigin key) must pass the guard as-is — unknown extra
-        // keys like _captureOrigin are ignored.
         const payload: unknown = JSON.parse(
             readFileSync(join(process.cwd(), "tests/fixtures/status/get_status_real.json"), "utf8"),
         );
@@ -288,9 +270,6 @@ describe("isPluginSettings", () => {
     });
 
     it("tolerates the removed legacy keys (superset accepted, never rejected)", () => {
-        // A real device document carries maxRecordingSeconds/vadEnabled;
-        // the slimmed guard validates the fields this document owns and
-        // ignores the legacy superset instead of failing the load.
         expect(
             isPluginSettings({ ...VALID_SETTINGS, maxRecordingSeconds: 110, vadEnabled: true }),
         ).toBe(true);

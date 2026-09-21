@@ -1,14 +1,3 @@
-/**
- * Translation dictionaries.
- *
- * Every user-visible frontend string lives here — no strings buried in
- * components, adapters or services. English and German are complete; the
- * `Record<MessageKey, string>` shape makes the compiler reject a locale that
- * misses a key, so additional languages can be added without code changes
- * elsewhere. UI text for errors is mapped from stable error codes only —
- * frontend logic never parses exception strings.
- */
-
 import type { DictationErrorCode } from "../../domain/DictationError";
 import type { SpeechRuntimeStatus } from "../../application/ports/SpeechPort";
 
@@ -29,8 +18,6 @@ export const EN_MESSAGES = {
     "setting.loadFailed": "Backend is not responding.",
     "setting.loadFailedHint":
         "Close and reopen this panel. If it persists, reload the plugin and open it again.",
-    // Self-heal after a torn loader install: shown in the failed state after
-    // the one-time loader reload fired (two consecutive load-deadline timeouts).
     "setting.loadFailedReloading": "Reloading the plugin backend …",
 
     "option.model.tiny": "Tiny (fastest)",
@@ -63,9 +50,6 @@ export const EN_MESSAGES = {
     "model.modal.close": "Close",
     "model.modal.failed": "Download failed",
     "model.catalog.unavailable": "The model catalog could not be loaded.",
-    // In-app model cleanup: the manage modal under the
-    // Model select. Honest wording: deletion is local and reversible by
-    // re-downloading; the selected model can never be deleted.
     "model.manage.open": "Manage models",
     "model.manage.title": "Manage models",
     "model.manage.hint":
@@ -106,9 +90,6 @@ export const EN_MESSAGES = {
     "mic.label.ready": "Start voice input",
     "mic.label.recording": "Recording - press to stop",
     "mic.label.processing": "Processing…",
-    // The concrete error-code chip plus the mapped text render right on the
-    // card's error line; the label stays generic (naming a failure mode here
-    // read like an error the user must act on).
     "mic.label.error": "Voice input error",
 
     "dictation.level.label": "Live microphone level",
@@ -126,7 +107,6 @@ export const EN_MESSAGES = {
 export type MessageKey = keyof typeof EN_MESSAGES;
 
 export const DE_MESSAGES: Record<MessageKey, string> = {
-    // Brand name: identical across locales (EN/DE parity).
     "panel.title": "SpeechToDeck",
 
     "section.runtime": "Laufzeit",
@@ -175,9 +155,6 @@ export const DE_MESSAGES: Record<MessageKey, string> = {
     "model.modal.close": "Schließen",
     "model.modal.failed": "Download fehlgeschlagen",
     "model.catalog.unavailable": "Die Modell-Liste konnte nicht geladen werden.",
-    // In-app model cleanup: the manage modal under the
-    // Model select. Honest wording: deletion is local and reversible by
-    // re-downloading; the selected model can never be deleted.
     "model.manage.open": "Modelle verwalten",
     "model.manage.title": "Modelle verwalten",
     "model.manage.hint":
@@ -238,7 +215,6 @@ export const MESSAGES: Record<Locale, Record<MessageKey, string>> = {
     de: DE_MESSAGES,
 };
 
-/** Error-code → UI text mapping. Complete over all stable codes. */
 export const ERROR_MESSAGES: Record<Locale, Record<DictationErrorCode, string>> = {
     en: {
         STEAM_KEYBOARD_NOT_FOUND: "Steam keyboard not found.",
@@ -315,12 +291,6 @@ export function translate(locale: Locale, key: MessageKey): string {
     return MESSAGES[locale][key];
 }
 
-/**
- * Message keys of the curated catalog display names. Model names
- * are product identifiers; the German locale only localizes the language
- * adjectives. An id without a curated key (an older backend catalog) renders
- * as the raw id instead of an empty string.
- */
 const MODEL_NAME_KEYS: Record<string, MessageKey> = {
     tiny: "option.model.tiny",
     base: "option.model.base",
@@ -350,17 +320,12 @@ export function translateError(locale: Locale, code: DictationErrorCode): string
     return ERROR_MESSAGES[locale][code];
 }
 
-/** Accessible names for the microphone visual states. */
 export type MicrophoneLabelState = "ready" | "recording" | "processing" | "error";
 
 export function translateMicLabel(locale: Locale, state: MicrophoneLabelState): string {
     return translate(locale, `mic.label.${state}` as MessageKey);
 }
 
-/**
- * Locale detection from a BCP-47 language tag. English is the fallback for
- * every tag that is not a German variant.
- */
 export function detectLocale(languageTag: string | null | undefined): Locale {
     if (
         languageTag !== null &&
@@ -372,7 +337,6 @@ export function detectLocale(languageTag: string | null | undefined): Locale {
     return "en";
 }
 
-/** The environment locale, or English when no navigator is present. */
 export function detectEnvironmentLocale(): Locale {
     if (typeof navigator === "undefined") {
         return "en";

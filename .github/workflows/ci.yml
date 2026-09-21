@@ -1,13 +1,3 @@
-# CI pipeline implementing the project's gate list.
-#
-# All gates run unconditionally: their inputs (src/, tests/, backend/,
-# main.py, scripts/validate-package.mjs) are permanent parts of this
-# repository. The former job-level hashFiles guards are not valid GitHub
-# Actions (hashFiles is step-only) and were removed after run 35155004723
-# failed at startup.
-#
-# No release artifact is produced while any required gate fails.
-
 name: CI
 
 on:
@@ -15,9 +5,6 @@ on:
         branches: [main]
     pull_request:
 
-# Pin the pnpm version here: package.json deliberately carries no
-# `packageManager` field because the Decky builder container ships a global
-# pnpm 9 that must not be overridden.
 env:
     PNPM_VERSION: "10.33.2"
 
@@ -26,8 +13,6 @@ concurrency:
     cancel-in-progress: true
 
 jobs:
-    # ── Frontend gates ────────────────────────────────────────────────────────
-
     frontend-formatting:
         runs-on: ubuntu-latest
         steps:
@@ -68,8 +53,6 @@ jobs:
                   node-version: 24
                   cache: pnpm
             - run: pnpm install --frozen-lockfile
-            # Strict flags: strict, noImplicitAny, noUncheckedIndexedAccess,
-            # exactOptionalPropertyTypes (all set in tsconfig.json).
             - run: pnpm typecheck
 
     frontend-unit-tests:
@@ -85,8 +68,6 @@ jobs:
                   cache: pnpm
             - run: pnpm install --frozen-lockfile
             - run: pnpm test
-
-    # ── Python gates ──────────────────────────────────────────────────────────
 
     python-formatting:
         runs-on: ubuntu-latest
@@ -106,7 +87,6 @@ jobs:
               with:
                   python-version: "3.11"
             - run: pip install ruff==0.16.8
-            # pyproject.toml [tool.ruff] include covers backend/, tests/, main.py.
             - run: ruff check .
 
     python-type-checking:
@@ -116,8 +96,6 @@ jobs:
             - uses: actions/setup-python@v5
               with:
                   python-version: "3.11"
-            # The backend is stdlib-only (the SteamOS Decky runtime ships no
-            # third-party packages); mypy needs no extra stubs.
             - run: pip install mypy==2.3.1
             - run: mypy
 
@@ -128,8 +106,6 @@ jobs:
             - uses: actions/setup-python@v5
               with:
                   python-version: "3.11"
-            # The suite runs under plain pytest (asyncio.run scenarios, no
-            # pytest-asyncio); the model fetcher uses the stdlib only.
             - run: pip install pytest
             - run: pytest tests/backend
 
@@ -145,11 +121,7 @@ jobs:
                   node-version: 24
                   cache: pnpm
             - run: pnpm install --frozen-lockfile
-            # Contract tests are TypeScript (boundary validation across the
-            # Decky event protocol) and run under vitest.
             - run: pnpm exec vitest run tests/contract
-
-    # ── Artifact and package gates ────────────────────────────────────────────
 
     manifest-validation:
         runs-on: ubuntu-latest
@@ -158,10 +130,6 @@ jobs:
             - uses: actions/setup-node@v4
               with:
                   node-version: 24
-            # Default policy: models.json violations fail hard; the unpinned
-            # runtime artifact prints a loud RUNTIME_UNPINNED diagnostic and
-            # stays green (product code fails closed at startup).
-            # Release packaging must add --strict, which fails on unpinned.
             - run: node scripts/validate-manifests.mjs
 
     license-validation:
@@ -201,12 +169,6 @@ jobs:
                   cache: pnpm
             - run: pnpm install --frozen-lockfile
             - run: pnpm build
-            # Exercise the real packaging path, docker-independent: assemble
-            # the verified store layout (single top-level dir named exactly
-            # plugin.json "name"; defaults/ flattened into the plugin root;
-            # bin/ kept; no src/, tests/ or node_modules) and validate the
-            # produced zip. release.yml runs the same script on the builder
-            # image output and validates every zip it ships.
             - name: Build package
               run: node scripts/build-package.mjs --src . --out .tmp/package-check
             - name: Validate package structure

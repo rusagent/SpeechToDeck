@@ -1,29 +1,3 @@
-/*
- * Deck visual-language stand-in for the @decky/ui field primitives.
- *
- * WHY THIS EXISTS: `@decky/ui` resolves PanelSection/Field/Dropdown etc.
- * from Steam's webpack runtime at module-eval time (components/Panel.js),
- * so the real primitives cannot render outside the Steam client. The
- * plugin bundle already treats "@decky/ui" as a runtime global (see
- * rollup.config.mjs globals → `DeckyUI`), which Steam/Decky Loader injects.
- * This harness provides that same global for a plain browser page, so the
- * REAL presentation components (SettingsPanel, MicrophoneButton, pickers)
- * render unchanged against the environment Steam would give them.
- *
- * Visual language (Steam Deck QAM plugin column, cited for visual review):
- * - Type: "Motiva Sans", "Segoe UI", Roboto, Arial, sans-serif; 14px base,
- *   sentence case labels; muted secondary text at ~55% white.
- * - Surfaces: near-black column background (#101216); panel sections as
- *   subtle lighter cards (rgba(255,255,255,0.05), 4px radius); rows divided
- *   by 1px hairlines (rgba(255,255,255,0.06)).
- * - Accent: Steam blue #1a9fff (slider fill, toggle on, focus); positive
- *   #5ac189, error #ff5c5c, unknown #8f98a0 for state chips only.
- * - Fields: label left, value right, vertically centered; dropdown shows
- *   selected label + chevron; toggles are 34x18 switches; sliders are a
- *   4px track with 14px round thumb and value bubble on the right.
- * - No shadows/gradients beyond subtle hairlines; no rounded "app card"
- *   styling — decky panels are flat and dense.
- */
 (function () {
     "use strict";
     const h = window.React.createElement;
@@ -174,8 +148,6 @@
         cursor: pointer;
     }
     .decky-button[disabled] { opacity: 0.5; cursor: default; }
-    /* Steam's destructive ConfirmModal OK (bDestructiveWarning): the repo's
-       cited warning state color (#ff5c5c). */
     .decky-button[data-destructive-warning] { background: #eb5545; border-color: #eb5545; }
     .decky-buttonitem { margin-bottom: 6px; }
     .decky-buttonitem-label {
@@ -208,16 +180,6 @@
         0% { left: -30%; }
         100% { left: 100%; }
     }
-    /* Steam modal host emulated for the harness (showModal + ModalRoot),
-       mirroring the REAL structure verified on device (CDP DOM capture)
-       and in the Steam client bundle: showModal mounts its node RAW
-       into a fullscreen ModalOverlayContent; ModalRoot (Steam's
-       GenericDialogModal) draws the centered dialog box with the DialogHeader
-       title, DialogBody content and DialogFooter buttons. Esc, the X close
-       icon and a background mousedown all funnel into the same closeModal
-       callback. The visible title is rendered by the modal content
-       (DialogHeader) — showModal's strTitle only becomes the overlay's
-       aria-label, exactly like real Steam. */
     .decky-modal-overlay {
         position: fixed;
         inset: 0;
@@ -280,10 +242,6 @@
         display: flex;
         align-items: flex-start;
         justify-content: center;
-        /* Gap keeps the error flash bubble (shrink-to-fit ≈104px wide,
-           centered under its 44px button) clear of the neighboring
-           figcaption: measured DE overlap of 12px at 18px → 6px clearance
-           at 36px, row still fits the 410px column. */
         gap: 36px;
         padding: 26px 10px 40px;
     }
@@ -375,16 +333,9 @@
     }
 
     function DropdownItem(props) {
-        // Real DropdownItem accepts flat options AND optgroups
-        // ({label, options}); flatten groups to find the selected label.
         const flat = (props.rgOptions || []).flatMap((entry) =>
             entry.data !== undefined ? [entry] : (entry.options ?? []),
         );
-        // Semi-controlled semantics (real Steam DropDownControl): WITHOUT the
-        // `controlled` flag the component keeps its own state value (only a
-        // prop CHANGE resyncs it); WITH `controlled: true` the displayed
-        // value always derives from selectedOption. The pickers pass
-        // controlled: true so a cancelled download snaps the label back.
         const internalState = window.React.useState(props.selectedOption);
         const value = props.controlled === true ? props.selectedOption : internalState[0];
         const selected = flat.find((option) => option.data === value);
@@ -416,11 +367,6 @@
     }
 
     function ButtonItem(props) {
-        // Real ButtonItem renders the row label next to the action button.
-        // Callers that pass the SAME string as label and children (setup
-        // retry, diagnostics restart) render the single button exactly as
-        // before; the catalog picker passes a rich label node plus
-        // a short action child and gets the label block above the button.
         const label = props.label;
         const showLabelBlock = label !== undefined && label !== props.children;
         return h(
@@ -445,25 +391,6 @@
         document.head.appendChild(style);
     }
 
-    /**
-     * Steam modal structure stand-ins (on-device fix). The REAL
-     * components resolve from Steam's webpack runtime at loader time
-     * (@decky/ui dist/components/Modal.js + Dialog.js); on the device the
-     * loader-injected DFL global exposes exactly these names (runtime-probed
-     * via CDP). The emulations below mirror the verified real DOM:
-     *
-     * - ModalRoot (= Steam's GenericDialogModal) draws the centered dialog
-     *   box and funnels EVERY dismissal (X close icon, background mousedown,
-     *   Esc in the real client) into the ONE closeModal callback; Steam does
-     *   not close the modal itself, the callback must do it.
-     * - DialogHeader/DialogBody/DialogBodyText/DialogFooter are the Steam
-     *   dialog divs the modal content composes (same skeleton Steam's own
-     *   ConfirmModal renders).
-     * - DialogButton is the secondary dialog button (Steam's "Cancel" style).
-     *
-     * data-* props are forwarded so contract markers and harness geometry
-     * survive into the emulated DOM.
-     */
     function ModalRoot(props) {
         const { children, className, closeModal, ...rest } = props;
         const dismiss = typeof closeModal === "function" ? closeModal : undefined;
@@ -474,8 +401,6 @@
                 className: className ? `${className} decky-modal-position` : "decky-modal-position",
                 "data-modal-root": "true",
                 onMouseDown: (ev) => {
-                    // Real ModalPosition: mousedown outside the dialog dismisses
-                    // unless bDisableBackgroundDismiss (same funnel as Esc/X).
                     if (
                         ev.currentTarget !== ev.target ||
                         props.bDisableBackgroundDismiss === true
@@ -525,14 +450,6 @@
         );
     }
 
-    /**
-     * Steam's ConfirmModal (decky/ui ConfirmModalProps): title, description
-     * and the OK/Cancel button pair; bDestructiveWarning marks the OK
-     * button with the warning color. The real dialog closes itself after
-     * either press (the modal host owns the close); this static re-creation
-     * only guarantees the import resolves and the visual tokens render —
-     * confirm interactions are covered by the component tests.
-     */
     function ConfirmModal(props) {
         const {
             strTitle,
@@ -570,15 +487,6 @@
         );
     }
 
-    /**
-     * Emulated Steam modal host for the harness: renders the given React node
-     * RAW into a fullscreen overlay outside #visual-root — exactly the
-     * boundary the real showModal provides (it adds no chrome of its own; the
-     * dialog box is drawn by the ModalRoot inside the node). strTitle becomes
-     * the overlay's aria-label; fnOnClose fires on every close (ours or the
-     * harness window), like the Steam contract the panel relies on for
-     * dismissal-cancels-download.
-     */
     function showModal(node, _parent, props) {
         const overlay = document.createElement("div");
         overlay.className = "decky-modal-overlay";

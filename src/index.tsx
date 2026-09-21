@@ -1,12 +1,3 @@
-/**
- * Composition root and Decky plugin entry.
- *
- * This module only creates dependencies and wires them — no application
- * logic. `PluginCompositionRoot` owns every disposable and disposes in
- * reverse construction order, executing the unload sequence: lifecycle
- * dispose (controller dispose → speech shutdown) → store unsubscription.
- */
-
 import { definePlugin } from "@decky/api";
 import * as React from "react";
 import { DictationController } from "./application/DictationController";
@@ -35,15 +26,6 @@ import type { SettingsPort } from "./application/ports/SettingsPort";
 import type { DictationState } from "./domain/DictationState";
 import { extractSession } from "./domain/DictationState";
 
-// Entry-module contract: the ONLY export is the callable default (the loader
-// evaluates `m.default()`); the composition root is internal wiring.
-
-/**
- * Self-heal gate after a torn loader install: a download counts as in flight
- * until its settle path clears it — EXCEPT the held final 100% completion
- * frame, which is settled state the modal still renders, never a
- * live download.
- */
 function isDownloadInFlight(snapshot: ModelCatalogSnapshot): boolean {
     return snapshot.download !== null && snapshot.download.percent !== 100;
 }
@@ -54,21 +36,17 @@ class PluginCompositionRoot implements Disposable {
     private readonly logger: Logger;
     private started = false;
 
-    /** Wired dependencies the plugin panel consumes. */
     readonly settingsPort: SettingsPort;
     readonly controllerStore: StateStore<DictationState>;
     readonly setupProgress: SetupProgressStore;
     readonly diagnostics: DiagnosticsSource;
-    /** Monotonic clock: controller timings and the panel's load deadline. */
     readonly clock: ClockPort;
-    /** Additive dictation card wiring for the plugin panel. */
     readonly dictation: {
         readonly levelMeter: LevelMeterStore;
         readonly transcript: StateStore<PanelTranscriptSnapshot | null>;
         readonly onPress: () => void;
         readonly onCopy: (text: string) => Promise<boolean>;
     };
-    /** Additive curated model catalog wiring for the plugin panel. */
     readonly modelCatalog: {
         readonly store: StateStore<ModelCatalogSnapshot>;
         readonly load: () => Promise<void>;
@@ -76,7 +54,6 @@ class PluginCompositionRoot implements Disposable {
         readonly cancel: () => void;
         readonly deleteModel: (modelId: string) => Promise<void>;
     };
-    /** Self-heal wiring for the plugin panel after a torn loader install. */
     readonly selfHeal: {
         readonly reportLoadOutcome: (outcome: SettingsLoadOutcome) => boolean;
         readonly onImportPlugin: (listener: () => void) => () => void;
@@ -85,7 +62,6 @@ class PluginCompositionRoot implements Disposable {
     constructor(logger: Logger = new Logger("plugin.lifecycle")) {
         this.logger = logger;
 
-        // Wiring — construction order only, no service locator.
         const transport = createDeckyApiTransport();
         const backendClient = new DeckyBackendClient(transport);
         const speechPort = new DeckySpeechAdapter(backendClient);
@@ -93,9 +69,6 @@ class PluginCompositionRoot implements Disposable {
         this.settingsPort = settingsAdapter;
         this.setupProgress = speechPort.setupProgress;
 
-        // Clipboard-only output: the settled transcript travels to the system
-        // clipboard in one write; the user carries it into any text field with
-        // the Steam keyboard's Paste key (STEAM+X).
         const clipboard = new SteamClipboardAdapter();
 
         const clock = new SystemClock();
@@ -109,9 +82,6 @@ class PluginCompositionRoot implements Disposable {
         );
         this.controllerStore = controller;
 
-        // Trimmed to the two methods the panel still consumes (the
-        // Diagnostics section removal orphaned the capability/cross-view
-        // loaders; the loader-side providers stay untouched).
         this.diagnostics = {
             hydrateSetupProgress: () => speechPort.hydrateSetupFromStatus(),
             restartRuntime: async () => {
@@ -119,11 +89,6 @@ class PluginCompositionRoot implements Disposable {
             },
         };
 
-        // Dictation card: the big button presses the SAME controller through
-        // the panel entry (mutex, state machine, stale-result protection);
-        // the level/transcript stores are the adapter's guarded UI
-        // side-channels; the copy is the panel execCommand path (primary
-        // while the backend xclip leg reports "skipped").
         this.dictation = {
             levelMeter: speechPort.levelMeter,
             transcript: speechPort.panelTranscript,
@@ -133,10 +98,6 @@ class PluginCompositionRoot implements Disposable {
             onCopy: (text: string) => copyTextToClipboard(text),
         };
 
-        // Model catalog: the guarded store side-channel plus the
-        // download callables. Failures are logged with their detail and
-        // leave the picker's store untouched (the row returns to its
-        // pre-download action); nothing is silently swallowed.
         this.modelCatalog = {
             store: speechPort.modelCatalog,
             load: async () => {
@@ -163,11 +124,6 @@ class PluginCompositionRoot implements Disposable {
                     });
                 });
             },
-            // In-app model cleanup: the id is the only input
-            // — the backend resolves the artifact path from its strict
-            // manifest. The manage modal awaits the result and owns the
-            // inline error presentation, so the coded rejection is logged
-            // here AND rethrown (never silently swallowed).
             deleteModel: async (modelId: string) => {
                 try {
                     await speechPort.deleteModel(modelId);
@@ -181,13 +137,6 @@ class PluginCompositionRoot implements Disposable {
             },
         };
 
-        // Loader-install self-heal: the panel reports boot-load
-        // outcomes through the two-method port below. The gates are read
-        // HERE, fresh at report time, over the composed stores — the reload
-        // never fires during an active dictation session (any sessionful
-        // state) or an in-flight model download. The reload itself lives in
-        // the infrastructure adapter and fires at most once per frontend
-        // module session (the loader's re-import resets it — never loops).
         const selfHeal = new DeckySelfHeal(transport);
         this.selfHeal = {
             reportLoadOutcome: (outcome) =>
@@ -217,7 +166,6 @@ class PluginCompositionRoot implements Disposable {
             try {
                 await resource.dispose();
             } catch (error) {
-                // One failing teardown step must not block the rest.
                 this.logger.error("composition root teardown step failed", {
                     detail: error instanceof Error ? error.message : String(error),
                 });

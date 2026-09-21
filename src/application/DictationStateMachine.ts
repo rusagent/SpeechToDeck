@@ -1,36 +1,3 @@
-/**
- * Pure dictation state machine.
- *
- * `transition` performs no I/O, accesses no global state, contains no Decky
- * and no DOM calls, and is fully unit-testable. The controller dispatches the
- * returned effects through the ports; the machine itself never touches them.
- *
- * Event alphabet (the dictation flow: press, acknowledgement, transcript,
- * inserted; the mic control press is named MICROPHONE_PRESSED):
- *
- * - STARTUP_COMPLETED / STARTUP_FAILED — boot or restart outcome.
- * - MICROPHONE_PRESSED — the mic control was pressed. Carries a fresh
- *   session only for the ready→starting edge, where the machine could not
- *   otherwise learn the controller-generated session; on all other edges the
- *   payload is ignored.
- * - RECORDING_STARTED / RECORDING_STOPPED — acknowledgements: the active
- *   indicator appears only after the start acknowledgement and ends only
- *   after the stop acknowledgement. Carry the sessionId for stale-result
- *   protection.
- * - TRANSCRIPT_READY — transcription outcome; dispatched only after the
- *   controller matched it against the active session, so a stale result is
- *   never even attempted.
- * - INSERTION_SUCCEEDED / INSERTION_FAILED — clipboard-write outcome (Result).
- * - CANCEL_REQUESTED — first-class cancellation.
- * - SPEECH_FAILED — an error event from the speech port (stable error codes).
- * - ERROR_DISMISSED — user acknowledged a recoverable error.
- *
- * Rejection semantics: an event that is not applicable in the current state —
- * including every forbidden transition and every stale result — is rejected
- * by returning the current state unchanged with no effects. The machine never
- * throws on stale or duplicate input.
- */
-
 import type { RuntimeCapabilities } from "../domain/Capability";
 import type { DictationErrorCode } from "../domain/DictationError";
 import { DictationError, EmptyTranscriptError, validateTranscript } from "../domain/DictationError";
@@ -63,10 +30,6 @@ export type DictationEvent =
       }
     | { readonly type: "ERROR_DISMISSED" };
 
-/**
- * Commands the machine hands to the controller. The controller executes them
- * through the ports; effects carry every argument the port call needs.
- */
 export type DictationEffect =
     | { readonly type: "START_RECORDING"; readonly sessionId: string }
     | { readonly type: "STOP_RECORDING"; readonly sessionId: string }
@@ -78,11 +41,6 @@ export interface TransitionResult {
     readonly effects: readonly DictationEffect[];
 }
 
-/**
- * Error codes that leave the plugin unable to continue without an explicit
- * restart-style action (fatal runtime errors); every other code is a
- * recoverable error that returns the plugin to ready after cleanup.
- */
 const FATAL_ERROR_CODES: ReadonlySet<DictationErrorCode> = new Set([
     "RUNTIME_CRASHED",
     "RUNTIME_START_FAILED",
@@ -110,12 +68,6 @@ function sameSession(state: { readonly session: DictationSession }, sessionId: s
     return state.session.sessionId === sessionId;
 }
 
-/**
- * Deterministic unavailable-reason derivation from the capability report,
- * checked in a fixed order. Returns `null` when the plugin is ready to
- * dictate: runtime available, microphone present, model installed, plugin
- * enabled.
- */
 function unavailableReasonFor(
     capabilities: RuntimeCapabilities,
     enabled: boolean,
@@ -135,11 +87,6 @@ function unavailableReasonFor(
     return null;
 }
 
-/**
- * Applies `event` to `current` and returns the next state plus the effects to
- * dispatch. Both axes are exhaustively switched so the compiler rejects a new
- * state kind or event type without an explicit decision.
- */
 export function transition(current: DictationState, event: DictationEvent): TransitionResult {
     switch (event.type) {
         case "STARTUP_COMPLETED": {
@@ -184,7 +131,6 @@ export function transition(current: DictationState, event: DictationEvent): Tran
             switch (current.kind) {
                 case "ready":
                     if (event.session === undefined) {
-                        // The controller always supplies a session for a ready press.
                         return unchanged(current);
                     }
                     return result(
@@ -192,7 +138,6 @@ export function transition(current: DictationState, event: DictationEvent): Tran
                         { type: "START_RECORDING", sessionId: event.session.sessionId },
                     );
                 case "recording":
-                    // Press while recording stops the recording.
                     return result(
                         { kind: "stopping", session: current.session },
                         { type: "STOP_RECORDING", sessionId: current.session.sessionId },
@@ -201,12 +146,10 @@ export function transition(current: DictationState, event: DictationEvent): Tran
                 case "stopping":
                 case "transcribing":
                 case "inserting":
-                    // Duplicate presses while an operation is pending are ignored.
                     return unchanged(current);
                 case "booting":
                 case "unavailable":
                 case "error":
-                    // e.g. error → recording is forbidden.
                     return unchanged(current);
             }
             break;
@@ -216,7 +159,7 @@ export function transition(current: DictationState, event: DictationEvent): Tran
             switch (current.kind) {
                 case "starting":
                     if (!sameSession(current, event.sessionId)) {
-                        return unchanged(current); // stale acknowledgement
+                        return unchanged(current);
                     }
                     return result({ kind: "recording", session: current.session });
                 case "booting":
@@ -236,7 +179,7 @@ export function transition(current: DictationState, event: DictationEvent): Tran
             switch (current.kind) {
                 case "stopping":
                     if (!sameSession(current, event.sessionId)) {
-                        return unchanged(current); // stale acknowledgement
+                        return unchanged(current);
                     }
                     return result({ kind: "transcribing", session: current.session });
                 case "booting":
@@ -254,23 +197,16 @@ export function transition(current: DictationState, event: DictationEvent): Tran
 
         case "TRANSCRIPT_READY": {
             switch (current.kind) {
-                // `stopping` included: the real backend emits transcript_ready
-                // INSIDE the stop_recording callable window, so over the FIFO
-                // decky socket the outcome event always precedes the callable
-                // resolution — the machine is still in `stopping` when it
-                // arrives (verified against a live device: rejecting it there
-                // lost the transcript forever and wedged the card in transcribing).
                 case "transcribing":
                 case "stopping": {
                     if (!sameSession(current, event.sessionId)) {
-                        return unchanged(current); // stale result
+                        return unchanged(current);
                     }
                     let normalized: string;
                     try {
                         normalized = validateTranscript(event.transcript);
                     } catch (error) {
                         if (error instanceof EmptyTranscriptError) {
-                            // Empty speech: silently back to ready, no insert.
                             return result({ kind: "ready" });
                         }
                         if (error instanceof DictationError) {
@@ -299,7 +235,6 @@ export function transition(current: DictationState, event: DictationEvent): Tran
                 case "stopping":
                 case "inserting":
                 case "error":
-                    // e.g. ready → transcribing and recording → inserting are forbidden.
                     return unchanged(current);
             }
             break;
@@ -331,9 +266,6 @@ export function transition(current: DictationState, event: DictationEvent): Tran
                     if (!sameSession(current, event.sessionId)) {
                         return unchanged(current);
                     }
-                    // Insertion failure is a recoverable error; no retry happens
-                    // automatically — the user presses again (auto-recovery into a
-                    // session state is forbidden).
                     return result({ kind: "error", error: event.error, recoverable: true });
                 case "booting":
                 case "unavailable":
@@ -354,8 +286,6 @@ export function transition(current: DictationState, event: DictationEvent): Tran
                 case "recording":
                 case "stopping":
                 case "transcribing":
-                    // Cancellation stops capture, discards any result and emits no
-                    // transcript; a late backend result is stale.
                     return result(
                         { kind: "ready" },
                         { type: "CANCEL_RECORDING", sessionId: current.session.sessionId },
@@ -377,7 +307,7 @@ export function transition(current: DictationState, event: DictationEvent): Tran
                 case "stopping":
                 case "transcribing": {
                     if (event.sessionId !== null && event.sessionId !== current.session.sessionId) {
-                        return unchanged(current); // stale error
+                        return unchanged(current);
                     }
                     return result(
                         {
@@ -385,7 +315,6 @@ export function transition(current: DictationState, event: DictationEvent): Tran
                             error: event.error,
                             recoverable: !isFatalDictationError(event.error),
                         },
-                        // Recoverable path cleanup: cancel whatever is still in flight.
                         { type: "CANCEL_RECORDING", sessionId: current.session.sessionId },
                     );
                 }
@@ -403,7 +332,6 @@ export function transition(current: DictationState, event: DictationEvent): Tran
             switch (current.kind) {
                 case "error":
                     if (!current.recoverable) {
-                        // Fatal errors need an explicit restart-style action.
                         return unchanged(current);
                     }
                     return result({ kind: "ready" });

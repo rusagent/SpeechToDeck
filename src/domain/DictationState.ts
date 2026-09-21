@@ -1,18 +1,6 @@
-/**
- * Application state as a discriminated union.
- *
- * Boolean flags such as `isRecording`/`hasError` are forbidden; every state is
- * one member of this union, so invalid combinations cannot be expressed.
- */
-
 import type { DictationError } from "./DictationError";
 import type { DictationSession } from "./DictationSession";
 
-/**
- * Why dictation is unavailable. Derived deterministically from the startup
- * capability report and the enabled setting, checked in a fixed order by the
- * state machine.
- */
 export type UnavailableReason =
     | "PLUGIN_DISABLED"
     | "SPEECH_RUNTIME_UNAVAILABLE"
@@ -39,7 +27,6 @@ export type DictationState =
           readonly recoverable: boolean;
       };
 
-/** The session carried by a sessionful state, or `null`. */
 export function extractSession(state: DictationState): DictationSession | null {
     switch (state.kind) {
         case "starting":

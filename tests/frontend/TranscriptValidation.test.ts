@@ -1,9 +1,3 @@
-/**
- * Transcript validation tests — the validation function is the oracle,
- * verbatim: trim, empty rejection, NUL rejection, 16 KiB UTF-8 exclusive
- * limit, and Unicode preservation.
- */
-
 import { describe, expect, it } from "vitest";
 
 import {

@@ -1,5 +1,3 @@
-"""Model manifest loader + ModelStore tests."""
-
 from __future__ import annotations
 
 import asyncio
@@ -25,7 +23,7 @@ from backend.infrastructure.model.model_store import (
 )
 from conftest import REAL_MODELS_MANIFEST, FakeEventPublisher, wait_until
 
-FAKE_BYTES = b"fake-model-bytes" * 1024  # 16 KiB deterministic payload
+FAKE_BYTES = b"fake-model-bytes" * 1024
 FAKE_DIGEST = hashlib.sha256(FAKE_BYTES).hexdigest()
 
 
@@ -43,12 +41,12 @@ def make_info(**overrides: object) -> ModelInfo:
     return ModelInfo(
         id=str(values["id"]),
         engine=str(values["engine"]),
-        multilingual=bool(values["multilingual"]),  # type: ignore[arg-type]
+        multilingual=bool(values["multilingual"]),
         filename=str(values["filename"]),
         download_url=str(values["download_url"]),
         sha256=str(values["sha256"]),
         size_bytes=(
-            None if values["size_bytes"] is None else int(values["size_bytes"])  # type: ignore[arg-type]
+            None if values["size_bytes"] is None else int(values["size_bytes"])
         ),
     )
 
@@ -74,7 +72,6 @@ class FakeStream:
 
 
 class FakeFetcher:
-    """ModelHttpFetcher double: streams local bytes; no network."""
 
     def __init__(
         self, payload: bytes = FAKE_BYTES, *, total: int | None = None, delay: float = 0.0
@@ -96,13 +93,11 @@ class FakeFetcher:
             self.concurrent -= 1
 
 
-# ── manifest loader (rules mirror scripts/validate-manifests.mjs) ───────────
 
 
 def test_real_committed_manifest_loads() -> None:
     manifest = load_model_manifest(REAL_MODELS_MANIFEST)
     ids = [model.id for model in manifest.models]
-    # Curated model set plus the curated per-language catalog.
     assert ids == [
         "tiny",
         "base",
@@ -123,19 +118,17 @@ def test_real_committed_manifest_loads() -> None:
         assert model.sha256 == model.sha256.lower()
         assert model.download_url.startswith("https://")
         assert "/" not in model.filename
-        # Catalog fields: size required and within the cap, optional fields consistent.
         assert model.size_bytes is not None
         assert 0 < model.size_bytes <= 2147483648
         if model.languages is not None:
             assert len(model.languages) > 0
             assert all(code == code.lower() for code in model.languages)
         if not model.multilingual:
-            # English-only models declare their language explicitly.
             assert model.languages is not None and "en" in model.languages
     assert manifest.by_id("base") is not None
     assert manifest.by_id("whisper-large-v3-turbo-q5_0") is not None
     assert manifest.by_id("distil-small-en") is not None
-    assert manifest.by_id("distil-small-en").languages == ("en",)  # type: ignore[union-attr]
+    assert manifest.by_id("distil-small-en").languages == ("en",)
     assert manifest.by_id("nonexistent") is None
 
 
@@ -168,7 +161,6 @@ def base_model_payload(**overrides: object) -> dict[str, object]:
 
 
 def duplicate_filename_payload() -> dict[str, object]:
-    """Two catalog entries sharing one local store name."""
     entry: dict[str, object] = {
         "id": "base",
         "engine": "whisper",
@@ -265,7 +257,6 @@ def test_manifest_rules_fail_closed(
 
 
 def test_manifest_parses_additive_catalog_fields(tmp_path: Path) -> None:
-    """Catalog fields: languages/description parse; absent → None; null → invalid."""
     entry: dict[str, object] = {
         "id": "distil-small-en",
         "engine": "whisper",
@@ -281,7 +272,6 @@ def test_manifest_parses_additive_catalog_fields(tmp_path: Path) -> None:
         "schemaVersion": 1,
         "models": [
             entry,
-            # The curated v1 set must stay present and stays general-purpose.
             *(
                 {
                     "id": model_id,
@@ -316,13 +306,11 @@ def test_duplicate_model_ids_fail_closed(tmp_path: Path) -> None:
         "sha256": FAKE_DIGEST,
     }
     payload = {"schemaVersion": 1, "models": [entry, dict(entry)]}
-    # Note: this payload also lacks tiny/small; assert both failures appear.
     with pytest.raises(Exception) as excinfo:
         load_model_manifest(write_manifest(tmp_path, payload))
     assert "duplicate" in str(excinfo.value.detail)
 
 
-# ── ModelStore (download/remove/integrity) ──────────────────────────────────
 
 
 def make_store(
@@ -340,8 +328,8 @@ def make_store(
         fetcher,
         on_progress=on_progress,
     )
-    store.test_progress = progress  # type: ignore[attr-defined]
-    store.test_publisher = publisher  # type: ignore[attr-defined]
+    store.test_progress = progress
+    store.test_publisher = publisher
     return store
 
 
@@ -358,15 +346,14 @@ def test_download_happy_path_is_atomic_and_private(tmp_path: Path) -> None:
         final = models_dir / "ggml-base.bin"
         assert final.is_file()
         assert final.read_bytes() == FAKE_BYTES
-        assert not (models_dir / "ggml-base.bin.part").exists()  # atomic install
+        assert not (models_dir / "ggml-base.bin.part").exists()
         mode = stat.S_IMODE(final.stat().st_mode)
-        assert mode == 0o600  # user-only file mode
+        assert mode == 0o600
         assert await store.is_installed("base")
 
-        progress = store.test_progress  # type: ignore[attr-defined]
+        progress = store.test_progress
         assert progress[-1] == ("base", len(FAKE_BYTES), len(FAKE_BYTES))
 
-        # Idempotent: a second download does not re-fetch.
         await store.download("base")
         assert len(fetcher.opened_urls) == 1
 
@@ -383,7 +370,7 @@ def test_checksum_mismatch_leaves_no_artifact(tmp_path: Path) -> None:
         with pytest.raises(ModelChecksumFailedError):
             await store.download("base")
         assert not (models_dir / "ggml-base.bin").exists()
-        assert not (models_dir / "ggml-base.bin.part").exists()  # never valid
+        assert not (models_dir / "ggml-base.bin.part").exists()
 
     asyncio.run(scenario())
 
@@ -412,7 +399,7 @@ def test_missing_and_invalid_model_ids_fail_closed(tmp_path: Path) -> None:
             with pytest.raises(ModelNotInstalledError):
                 await store.ensure_model(bad)
             with pytest.raises(ModelNotInstalledError):
-                await store.remove(bad)  # unknown ids never resolve to a path
+                await store.remove(bad)
 
     asyncio.run(scenario())
 
@@ -428,7 +415,7 @@ def test_downloads_are_serialized_by_single_lock(tmp_path: Path) -> None:
         (tmp_path / "models").mkdir(parents=True)
 
         await asyncio.gather(store.download("base"), store.download("tiny"))
-        assert fetcher.max_concurrent == 1  # single download
+        assert fetcher.max_concurrent == 1
         assert await store.is_installed("base")
         assert await store.is_installed("tiny")
 
@@ -464,6 +451,6 @@ def test_remove_is_idempotent(tmp_path: Path) -> None:
 
         await store.remove("base")
         assert not final.exists()
-        await store.remove("base")  # no error
+        await store.remove("base")
 
     asyncio.run(scenario())

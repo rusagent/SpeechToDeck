@@ -1,16 +1,3 @@
-/**
- * Curated model catalog port: the backend's `list_models` callable
- * plus the `model_download_progress` / `model_download_complete` events with
- * their manual boundary type guards and the small dedicated store the
- * plugin panel's ModelSelect (dropdown + download modal) consumes.
- *
- * Like setup progress and the level meter this is transport-level UI state:
- * it never enters the dictation state machine and is observed only by
- * the settings panel through `useSyncExternalStore`. Invalid payloads
- * are dropped by the adapter (count-logged), never rendered.
- */
-
-/** One curated model with its install state, as reported by `list_models`. */
 export interface CatalogModel {
     readonly id: string;
     readonly engine: string;
@@ -18,13 +5,10 @@ export interface CatalogModel {
     readonly filename: string;
     readonly installed: boolean;
     readonly sizeBytes?: number;
-    /** Language codes a specialized model was built for; absent = general. */
     readonly languages?: readonly string[];
-    /** One short English sentence from the manifest. */
     readonly description?: string;
 }
 
-/** Versioned `model_download_progress` payload. */
 export interface ModelDownloadProgressPayload {
     readonly protocolVersion: 1;
     readonly modelId: string;
@@ -32,7 +16,6 @@ export interface ModelDownloadProgressPayload {
     readonly totalBytes: number | null;
 }
 
-/** Versioned `model_download_complete` payload. */
 export interface ModelDownloadCompletePayload {
     readonly protocolVersion: 1;
     readonly modelId: string;
@@ -43,7 +26,6 @@ function isRecord(value: unknown): value is Record<string, unknown> {
     return typeof value === "object" && value !== null;
 }
 
-/** Manual type guard for one `list_models` entry. */
 export function isCatalogModel(value: unknown): value is CatalogModel {
     if (!isRecord(value)) {
         return false;
@@ -73,7 +55,6 @@ export function isCatalogModel(value: unknown): value is CatalogModel {
     );
 }
 
-/** Manual type guard for the versioned `list_models` response. */
 export function isModelCatalogPayload(
     value: unknown,
 ): value is { readonly protocolVersion: 1; readonly models: CatalogModel[] } {
@@ -83,7 +64,6 @@ export function isModelCatalogPayload(
     return (value["models"] as unknown[]).every(isCatalogModel);
 }
 
-/** Manual type guard for `model_download_progress` payloads. */
 export function isModelDownloadProgressPayload(
     value: unknown,
 ): value is ModelDownloadProgressPayload {
@@ -101,7 +81,6 @@ export function isModelDownloadProgressPayload(
     );
 }
 
-/** Manual type guard for `model_download_complete` payloads. */
 export function isModelDownloadCompletePayload(
     value: unknown,
 ): value is ModelDownloadCompletePayload {
@@ -121,32 +100,16 @@ export function isModelDownloadCompletePayload(
     );
 }
 
-/**
- * The single in-flight download (one download at a time). After a
- * successful completion the state deliberately HOLDS the final 100% frame
- * of the settled download (honest completion: the modal shows the full bar
- * during its short completion hold) until the next download's first
- * progress frame overwrites it — a failure or cancellation clears it.
- */
 export interface ModelDownloadState {
     readonly modelId: string;
-    /** 0–100, or null while the total size is not (yet) known. */
     readonly percent: number | null;
 }
 
-/**
- * The last FAILED download attempt: the backend detail string plus
- * the model it belonged to, surfaced by the download modal's error state.
- * Cancellations never land here — they are user-initiated completion, not
- * failure. Cleared when the next download starts or completes.
- */
 export interface ModelDownloadFailure {
     readonly modelId: string;
-    /** Backend-provided diagnosable detail (privacy-safe: no transcript content), null when absent. */
     readonly detail: string | null;
 }
 
-/** Immutable render snapshot of the catalog panel (stable identity for React). */
 export interface ModelCatalogSnapshot {
     readonly models: readonly CatalogModel[];
     readonly download: ModelDownloadState | null;
@@ -159,12 +122,6 @@ export const EMPTY_MODEL_CATALOG: ModelCatalogSnapshot = {
     failure: null,
 };
 
-/**
- * Minimal external store for the catalog + download state (external-store
- * shape: `getSnapshot`/`subscribe` pair consumed by `useSyncExternalStore`).
- * Structurally compatible with `StateStore<T>`; the adapter owns payload
- * validation and calls the publish methods with guarded payloads only.
- */
 export class ModelCatalogStore {
     private readonly listeners = new Set<() => void>();
     private snapshot: ModelCatalogSnapshot = EMPTY_MODEL_CATALOG;
@@ -180,13 +137,11 @@ export class ModelCatalogStore {
         };
     }
 
-    /** Replaces the catalog after a guarded `list_models` response. */
     setModels(models: readonly CatalogModel[]): void {
         this.snapshot = { ...this.snapshot, models };
         this.notify();
     }
 
-    /** Ingests an already guarded progress payload; unknown total → null %. */
     publishProgress(payload: ModelDownloadProgressPayload): void {
         const percent =
             payload.totalBytes !== null && payload.totalBytes > 0
@@ -196,15 +151,6 @@ export class ModelCatalogStore {
         this.notify();
     }
 
-    /**
-     * Ingests an already guarded complete payload: marks the model installed
-     * AND keeps the download state as a final percent-100 snapshot. The
-     * throttle-to-2s progress stream previously meant faster downloads could
-     * stall at their last rendered frame; nulling the download atomically
-     * with the install flip let the modal close before any 100% frame ever
-     * painted. The modal reads this snapshot to show the full bar during its
-     * short completion hold before it closes (and the selection persists).
-     */
     publishComplete(payload: ModelDownloadCompletePayload): void {
         this.snapshot = {
             models: this.snapshot.models.map((model) =>
@@ -216,17 +162,11 @@ export class ModelCatalogStore {
         this.notify();
     }
 
-    /**
-     * Records a failed download attempt for the modal's error state. The
-     * in-flight download state clears with it (the attempt is settled);
-     * the failure record stays until the next download starts or completes.
-     */
     publishFailure(modelId: string, detail: string | null): void {
         this.snapshot = { ...this.snapshot, download: null, failure: { modelId, detail } };
         this.notify();
     }
 
-    /** Clears a stale failure record (called when a new download starts). */
     clearFailure(): void {
         if (this.snapshot.failure === null) {
             return;
@@ -235,10 +175,6 @@ export class ModelCatalogStore {
         this.notify();
     }
 
-    /**
-     * Clears the download state (cancellation settle path; publishComplete
-     * and publishFailure manage the state themselves on their settle paths).
-     */
     clearDownload(): void {
         if (this.snapshot.download === null) {
             return;
@@ -247,13 +183,6 @@ export class ModelCatalogStore {
         this.notify();
     }
 
-    /**
-     * Marks one model's install state cleared after a successful
-     * `delete_model` callable (in-app model cleanup): immediate honest
-     * feedback while the authoritative catalog refresh (the existing
-     * `list_models` path) is still in flight. Download state is untouched —
-     * the backend rejects deleting a model whose download is in flight.
-     */
     markDeleted(modelId: string): void {
         this.snapshot = {
             ...this.snapshot,
@@ -271,23 +200,12 @@ export class ModelCatalogStore {
     }
 }
 
-/** Catalog access port (implemented by the Decky speech adapter). */
 export interface ModelCatalogPort {
-    /** Loads the curated catalog into the store and returns it. */
     list(): Promise<readonly CatalogModel[]>;
 
-    /** Starts the single-flight download for one model. */
     download(modelId: string): Promise<void>;
 
-    /** Cancels the active download, if any. */
     cancelDownload(): Promise<void>;
 
-    /**
-     * Deletes one installed model's artifact backend-side (in-app model
-     * cleanup): the id is the ONLY input — the backend resolves the file
-     * path from its strict manifest. The selected model and a model with a
-     * download in flight are coded rejections; an already-absent artifact is
-     * an idempotent success.
-     */
     deleteModel(modelId: string): Promise<void>;
 }

@@ -1,8 +1,3 @@
-/**
- * Mutex tests (async operation mutex): serialized critical sections,
- * rejection containment, result propagation.
- */
-
 import { describe, expect, it } from "vitest";
 
 import { Deferred } from "../../src/shared/Deferred";
