@@ -1,32 +1,4 @@
 #!/usr/bin/env node
-// Package structure validation (CI gate + Decky store contract).
-//
-// Validates a built plugin package against the shipped layout the Decky
-// packager produces (decky CLI `decky plugin build -s <dir>` inside
-// ghcr.io/steamdeckhomebrew/builder:latest):
-//
-// - the archive (or --dir staging root) contains exactly one top-level
-//   directory named exactly `plugin.json` `name`;
-// - `dist/index.js` (the Decky loader entry), `main.py`, `plugin.json`,
-//   `package.json`, `LICENSE` and `README.md` are at the plugin root;
-// - `defaults/` is FLATTENED: `models.json` and `runtime-manifest.json` sit at
-//   the plugin root and no `defaults` directory exists inside the package;
-// - no forbidden content: `src/`, `tests/`, `node_modules`, `__pycache__`,
-//   `.tmp`, `.venv`, `.worktrees` directories or `*.log` files;
-// - `package.json` `.version` is semver (the loader's update detection);
-// - `plugin.json` carries `api_version` >= 1 and a `publish` block
-//   (`tags`, `description`, `image`); an empty `publish.image` is a loud
-//   WARNING only (the image URL is supplied by the plugin author at
-//   submission time).
-//
-// Usage:
-//   node scripts/validate-package.mjs <plugin.zip>   # built archive
-//   node scripts/validate-package.mjs --dir <root>   # staging tree that
-//       mirrors the zip root: <root>/<plugin name>/... (docker-independent)
-//
-// The script uses Node only — no third-party dependencies; zip entries are
-// read through the central directory and inflated with node:zlib.
-// Violations exit 1; warnings never fail the gate.
 
 import { readFileSync, readdirSync, statSync } from "node:fs";
 import path from "node:path";
@@ -50,7 +22,6 @@ const REQUIRED_PLUGIN_ROOT_FILES = [
     "LICENSE",
     "README.md",
     "dist/index.js",
-    // defaults/ files ship flattened at the plugin root (installed layout).
     "models.json",
     "runtime-manifest.json",
 ];
@@ -62,8 +33,6 @@ function fail(message) {
 function warn(message) {
     warnings.push(message);
 }
-
-// ── package views (zip bytes or --dir filesystem) ───────────────────────────
 
 function loadZipEntries(buffer, zipPath) {
     if (buffer.readUInt32LE(0) !== 0x04034b50) {
@@ -156,8 +125,6 @@ function loadDirEntries(dirPath) {
     };
 }
 
-// ── shared contract checks ──────────────────────────────────────────────────
-
 function parseJson(view, entryName, label) {
     let raw;
     try {
@@ -179,7 +146,6 @@ function isPlainObject(value) {
 }
 
 function validatePackage(view, sourceLabel) {
-    // 1. Entry path sanity (zip-slip guard; identical rule for --dir trees).
     for (const name of view.names) {
         if (name.startsWith("/") || name.includes("\\") || name.endsWith("/.")) {
             fail(`${sourceLabel}: unsafe entry path ${JSON.stringify(name)}`);
@@ -191,8 +157,7 @@ function validatePackage(view, sourceLabel) {
     }
     if (violations.length > 0) return;
 
-    // 2. Exactly one top-level directory named exactly plugin.json "name".
-    const topLevel = new Map(); // segment -> whether it is a directory
+    const topLevel = new Map();
     for (const name of view.names) {
         const segments = name.replace(/\/$/, "").split("/");
         const isDir = name.endsWith("/") || segments.length > 1;
@@ -216,7 +181,6 @@ function validatePackage(view, sourceLabel) {
         );
         return;
     }
-    // plugin.json lives INSIDE the package dir; its "name" must match the dir.
     const pluginJson = parseJson(view, `${topEntry}/plugin.json`, "plugin.json");
     if (pluginJson === null) return;
     if (!isPlainObject(pluginJson)) {
@@ -235,11 +199,8 @@ function validatePackage(view, sourceLabel) {
         );
     }
 
-    // Required files are checked against the actual top-level dir so a name
-    // mismatch reports once instead of cascading into missing-file noise.
     const prefix = `${topEntry}/`;
 
-    // 3. plugin.json: api_version + publish block (store metadata).
     const apiVersion = pluginJson.api_version;
     if (typeof apiVersion !== "number" || !Number.isInteger(apiVersion) || apiVersion < 1) {
         fail(
@@ -269,7 +230,6 @@ function validatePackage(view, sourceLabel) {
         }
     }
 
-    // 4. package.json: version must be semver (loader update detection).
     const packageJson = parseJson(view, `${prefix}package.json`, "package.json");
     if (packageJson !== null && isPlainObject(packageJson)) {
         const version = packageJson.version;
@@ -280,14 +240,12 @@ function validatePackage(view, sourceLabel) {
         }
     }
 
-    // 5. Required plugin-root files (incl. flattened defaults files).
     for (const required of REQUIRED_PLUGIN_ROOT_FILES) {
         if (!view.names.includes(`${prefix}${required}`)) {
             fail(`${sourceLabel}: missing required file ${JSON.stringify(prefix + required)}`);
         }
     }
 
-    // 6. defaults/ flattening + forbidden content, on every entry.
     for (const name of view.names) {
         const segments = name.replace(/\/$/, "").split("/");
         if (segments.includes("defaults")) {
@@ -308,8 +266,6 @@ function validatePackage(view, sourceLabel) {
         }
     }
 }
-
-// ── entry point ─────────────────────────────────────────────────────────────
 
 function usage() {
     console.error(

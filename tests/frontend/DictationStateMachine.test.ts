@@ -1,12 +1,3 @@
-/**
- * Pure state machine tests.
- *
- * Oracle: the documented transition table and forbidden-transition list — not
- * implementation constants. Valid edges are exercised with the state kinds and
- * payloads the table requires; forbidden edges must be rejected by returning
- * the current state unchanged with no effects.
- */
-
 import { describe, expect, it } from "vitest";
 
 import type { RuntimeCapabilities } from "../../src/domain/Capability";
@@ -63,7 +54,6 @@ function applied(result: { state: DictationState; effects: readonly unknown[] })
     expect(result.effects).toEqual([]);
 }
 
-/** Asserts a rejected (forbidden or inapplicable) edge: same state, no effects. */
 function rejected(current: DictationState, event: DictationEvent): void {
     const result = transition(current, event);
     expect(result.state).toBe(current);
@@ -398,11 +388,6 @@ describe("purity", () => {
 });
 
 describe("on-device outcome ordering: outcome lands during stopping", () => {
-    // The real backend emits transcript_ready INSIDE the stop_recording
-    // callable window, before the callable response travels back over the
-    // single FIFO decky socket — so the frontend processes the outcome event
-    // while the machine is still in `stopping`. An outcome rejected there is
-    // lost forever and the card sits in `transcribing` (on-device finding).
     it("stopping → inserting on TRANSCRIPT_READY, trimmed, emitting INSERT_TEXT", () => {
         const result = transition(sessionState("stopping"), {
             type: "TRANSCRIPT_READY",

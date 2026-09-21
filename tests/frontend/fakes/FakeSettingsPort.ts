@@ -8,7 +8,6 @@ export const TEST_SETTINGS: PluginSettings = {
     language: "system",
 };
 
-/** In-memory SettingsPort fake; load failures are injectable. */
 export class FakeSettingsPort implements SettingsPort {
     value: PluginSettings = { ...TEST_SETTINGS };
     loadError: Error | null = null;
@@ -20,8 +19,5 @@ export class FakeSettingsPort implements SettingsPort {
         return this.value;
     }
 
-    async save(): Promise<void> {
-        // Persistence is backend-owned; the frontend port shape is
-        // satisfied here without recording.
-    }
+    async save(): Promise<void> {}
 }

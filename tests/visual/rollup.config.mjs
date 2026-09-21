@@ -2,10 +2,6 @@ import resolve from "@rollup/plugin-node-resolve";
 import commonjs from "@rollup/plugin-commonjs";
 import esbuild from "rollup-plugin-esbuild";
 
-// Visual-harness bundle (tests/visual/README.md). Same toolchain and the
-// same externals contract as the plugin build (rollup.config.mjs): react,
-// react-dom and @decky/ui are runtime globals. Outside Steam the harness
-// page provides `DeckyUI` via decky-ui-standin.js.
 const externals = (id) =>
     ["react", "react-dom", "@decky/ui"].some((dep) => id === dep || id.startsWith(`${dep}/`));
 

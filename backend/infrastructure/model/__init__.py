@@ -1,1 +1,0 @@
-"""Model manifest and store."""

@@ -1,19 +1,3 @@
-"""Child-process environment and plugin path policy.
-
-All writable paths live under the Decky plugin data directory; the
-native runtime binaries are read from the plugin install directory (the Decky
-loader places each `remote_binary` entry at `<plugin_dir>/bin/<name>`).
-
-The Voxtype v1.0.1 runtime derives its control sentinels (state file, pid
-file, cancel trigger, per-recording overrides) from `$XDG_RUNTIME_DIR/voxtype`
-(upstream `Config::runtime_dir`), so child processes receive `XDG_RUNTIME_DIR`
-pointed at the plugin runtime directory: every native write stays inside the
-plugin data dir and cannot collide with a system-wide voxtype install. The
-session audio server is the one sanctioned exception: libpipewire must reach
-the REAL session socket, so `child_environment` forwards it under
-`PIPEWIRE_RUNTIME_DIR` (see there for the on-device failure this fixed).
-"""
-
 from __future__ import annotations
 
 import contextlib
@@ -26,13 +10,8 @@ from backend.domain.errors import ManifestInvalidError
 DIR_MODE = 0o700
 PRIVATE_FILE_MODE = 0o600
 
-# Binary file names shipped by the Decky loader `remote_binary` entries
-# (package.json). The variant selects which one runs; names are pinned by
-# defaults/runtime-manifest.json artifact ids.
 VARIANT_BINARY_NAMES = {"cpu": "voxtype-avx2", "vulkan": "voxtype-vulkan"}
 
-# Native runtime files, all inside NATIVE_DIRNAME under the runtime dir
-# (upstream writes state/pid/cancel/overrides next to the state file there).
 NATIVE_DIRNAME = "voxtype"
 STATUS_FILENAME = "state"
 OUTPUT_FILENAME = "transcript.out"
@@ -40,34 +19,13 @@ OUTPUT_SIDECAR_SUFFIX = ".done"
 DAEMON_CONFIG_NAME = "daemon.toml"
 DAEMON_LOG_NAME = "daemon.log"
 SETTINGS_FILENAME = "settings.json"
-# Live audio-level broadcast socket of the pinned runtime (upstream
-# levels.rs `default_socket_path`: `$XDG_RUNTIME_DIR/voxtype/audio.sock`).
 AUDIO_SOCKET_FILENAME = "audio.sock"
 
 DEFAULTS_DIRNAME = "defaults"
 
 
 def resolve_defaults_file(plugin_root: Path, filename: str) -> Path:
-    """The single resolver for shipped defaults files across both layouts.
 
-    Two layouts exist for the same files:
-
-    - Installed package (Decky loader): the packager **flattens**
-      `defaults/` into the plugin root, so the files sit at
-      `<plugin_root>/<filename>` next to `main.py`.
-    - Repository checkout (development): the files are committed under
-      `<plugin_root>/defaults/<filename>`.
-
-    The packaged (flattened) location wins when both exist because the
-    shipped artifact is what users run. When neither exists, the flattened
-    path is returned so fail-closed loaders report a stable location.
-    Read-only existence probes only; no filesystem effects.
-
-    Traversal hardening: after resolution the candidate must stay
-    inside the plugin root (both sanctioned layouts live there); any
-    resolved path that escapes it is rejected with the stable
-    `MANIFEST_INVALID` code instead of being returned.
-    """
     root = plugin_root.resolve()
     flattened = plugin_root / filename
     nested = plugin_root / DEFAULTS_DIRNAME / filename
@@ -87,34 +45,20 @@ def resolve_defaults_file(plugin_root: Path, filename: str) -> Path:
 
 
 class PluginPaths:
-    """Resolved plugin locations.
-
-    Writable paths are pure descriptions with no filesystem effects; the
-    defaults properties additionally probe (read-only) which shipped layout
-    is present via `resolve_defaults_file`.
-    """
-
     def __init__(self, plugin_root: Path, data_dir: Path) -> None:
         self.plugin_root = plugin_root
         self.data_dir = data_dir
 
     @property
     def bin_dir(self) -> Path:
-        # bin/ is NOT flattened by the packager: the shipped layout keeps it.
         return self.plugin_root / "bin"
 
     @property
     def defaults_dir(self) -> Path:
-        """Development layout location; installed packages flatten this away."""
         return self.plugin_root / DEFAULTS_DIRNAME
 
     def runtime_binary(self, variant: str) -> Path:
-        """Pinned binary for a compute variant (resolved, never guessed).
 
-        `variant` is a settings-facing backend (`cpu`/`vulkan`) mapped to the
-        exact loader-installed binary name. Unknown variants fail closed via
-        the KeyError upstream — callers only pass validated settings values.
-        """
         return self.bin_dir / VARIANT_BINARY_NAMES[variant]
 
     @property
@@ -135,41 +79,28 @@ class PluginPaths:
 
     @property
     def native_runtime_dir(self) -> Path:
-        """Directory the native daemon uses for state/pid/cancel/overrides.
 
-        Mirrors the upstream `$XDG_RUNTIME_DIR/voxtype` layout with
-        `XDG_RUNTIME_DIR` pointed at the plugin runtime directory.
-        """
         return self.runtime_dir / NATIVE_DIRNAME
 
     @property
     def status_file(self) -> Path:
-        """Bare-word daemon state file (upstream `state_file` config key)."""
         return self.native_runtime_dir / STATUS_FILENAME
 
     @property
     def output_file(self) -> Path:
-        """Final transcript for the current recording (file output mode)."""
         return self.native_runtime_dir / OUTPUT_FILENAME
 
     @property
     def output_sidecar_file(self) -> Path:
-        """Completion sidecar the daemon writes after the transcript itself."""
         return self.native_runtime_dir / (OUTPUT_FILENAME + OUTPUT_SIDECAR_SUFFIX)
 
     @property
     def audio_socket(self) -> Path:
-        """Daemon's audio-level broadcast socket (upstream levels.rs).
 
-        `Config::runtime_dir()` is `$XDG_RUNTIME_DIR/voxtype` and children get
-        `XDG_RUNTIME_DIR` pointed at the plugin runtime dir, so this mirrors
-        the upstream `default_socket_path()` exactly.
-        """
         return self.native_runtime_dir / AUDIO_SOCKET_FILENAME
 
     @property
     def daemon_config(self) -> Path:
-        """Generated TOML config handed to the daemon via `--config`."""
         return self.runtime_dir / DAEMON_CONFIG_NAME
 
     @property
@@ -182,13 +113,7 @@ class PluginPaths:
 
 
 def ensure_directories(paths: PluginPaths) -> None:
-    """Create writable directories with user-only permissions.
 
-    The native runtime directory must exist before any child starts: the
-    inotify watcher binds to it and the daemon derives it from
-    `XDG_RUNTIME_DIR` (it creates the directory itself if missing, but the
-    watcher has no such fallback).
-    """
     for directory in (
         paths.data_dir,
         paths.models_dir,
@@ -200,7 +125,6 @@ def ensure_directories(paths: PluginPaths) -> None:
 
 
 def _data_dir_owner_uid(data_dir: Path) -> int:
-    """Uid of the plugin data directory's owner (the daemon's user on device)."""
     return os.stat(data_dir).st_uid
 
 
@@ -210,23 +134,7 @@ def session_runtime_dir(
     session_base: Path | None = None,
     uid_resolver: Callable[[Path], int] | None = None,
 ) -> str | None:
-    """The REAL user session runtime dir, for audio-server discovery only.
 
-    Precedence: the plugin process's own `XDG_RUNTIME_DIR`, then the
-    XDG-standard `/run/user/<uid>` when it actually exists. The fallback is
-    load-bearing on device: the Decky-loader-spawned plugin process carries
-    NO `XDG_RUNTIME_DIR` at all (proved from the daemon environment).
-
-    Cold-boot on-device finding: the plugin backend itself was
-    spawned as ROOT, so `os.getuid()` resolved `/run/user/0`, which does
-    not exist — the key was omitted again and every recording failed with
-    `snd_pcm_open: Host is down (112)`. The backend process's uid is
-    therefore NOT a usable signal; the daemon always runs as the data
-    directory's owner (the loader chowns it to `deck`), so the uid comes
-    from `os.stat(data_dir).st_uid` (seam: `uid_resolver`), never from the
-    backend process itself. `None` means "no session known": callers must
-    omit the audio path instead of inventing one.
-    """
     from_env = os.environ.get("XDG_RUNTIME_DIR")
     if from_env:
         return from_env
@@ -238,24 +146,7 @@ def session_runtime_dir(
 
 
 def child_environment(data_dir: Path, *, session_base: Path | None = None) -> dict[str, str]:
-    """Minimal environment for native children.
 
-    Only deterministic variables are forwarded; HOME points into the plugin
-    data dir and XDG_RUNTIME_DIR into the plugin runtime dir so naive child
-    writes cannot escape the plugin data directory. Both directories
-    must exist (see `ensure_directories`) before children are spawned.
-
-    Audio-server exception (on-device finding): the daemon captures
-    through ALSA's pipewire PCM plugin, and libpipewire resolves the session
-    server socket (`pipewire-0`) from PIPEWIRE_RUNTIME_DIR, falling back to
-    XDG_RUNTIME_DIR. With only the override below the daemon had no reachable
-    server at all — every recording failed with `snd_pcm_open: Host is down
-    (112)` before any level frame or transcript could exist. The REAL session
-    runtime dir (`session_runtime_dir`) is therefore re-exposed under the
-    audio-specific name while the voxtype state override stays authoritative.
-    Without a discoverable session dir (tests, CI) the key is simply absent —
-    no invented paths.
-    """
     path_value = os.environ.get("PATH", "/usr/local/bin:/usr/bin:/bin")
     env = {
         "PATH": path_value,
@@ -271,10 +162,6 @@ def child_environment(data_dir: Path, *, session_base: Path | None = None) -> di
 
 
 def apply_private_file_mode(path: Path) -> None:
-    """Best-effort user-only file permissions.
 
-    Permission enforcement is defense in depth; the data dir is already 0o700,
-    so failure here never blocks the operation.
-    """
     with contextlib.suppress(OSError):
         os.chmod(path, PRIVATE_FILE_MODE)

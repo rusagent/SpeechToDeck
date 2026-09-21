@@ -1,14 +1,7 @@
-/**
- * DeckySettingsAdapter — the frontend never writes settings files directly;
- * persistence is backend-owned. `get_settings`/`update_settings` payloads are
- * validated with the settings boundary guard before use.
- */
-
 import type { PluginSettings, SettingsPort } from "../../application/ports/SettingsPort";
 import { isPluginSettings } from "../../application/ports/SettingsPort";
 import type { DeckyBackendClient } from "./DeckyBackendClient";
 
-/** Frozen callable names (shared contract with the backend). */
 export const SETTINGS_CALLABLES = {
     getSettings: "get_settings",
     updateSettings: "update_settings",
@@ -29,10 +22,6 @@ export class DeckySettingsAdapter implements SettingsPort {
         if (!isPluginSettings(settings)) {
             throw new Error("refusing to save a malformed settings document");
         }
-        // schemaVersion is backend-owned; the update payload whitelists
-        // exactly the client-settable fields and never carries it (the backend
-        // rejects a client-side schemaVersion). The removed
-        // maxRecordingSeconds/vadEnabled/outputMode fields are never sent.
         const update = {
             enabled: settings.enabled,
             computeBackend: settings.computeBackend,

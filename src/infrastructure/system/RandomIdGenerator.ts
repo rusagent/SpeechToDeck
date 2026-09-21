@@ -1,8 +1,3 @@
-/**
- * Random id generator adapter (session ids; backs stale-result
- * protection). Uses the platform CSPRNG when available.
- */
-
 import type { IdGeneratorPort } from "../../application/ports/IdGeneratorPort";
 
 export class RandomIdGenerator implements IdGeneratorPort {
@@ -14,7 +9,6 @@ export class RandomIdGenerator implements IdGeneratorPort {
         if (typeof randomUUID === "function") {
             return randomUUID.call(cryptoRef.crypto);
         }
-        // Deterministic fallback for environments without crypto.randomUUID.
         this.fallbackSequence += 1;
         return `id-${String(this.fallbackSequence)}-${Math.random().toString(36).slice(2)}`;
     }

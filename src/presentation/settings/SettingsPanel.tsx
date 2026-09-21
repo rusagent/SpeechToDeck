@@ -1,30 +1,3 @@
-/**
- * SettingsPanel — the Decky plugin panel.
- *
- * Loads the settings document through the SettingsPort (backend-owned
- * persistence) and saves through the same port on every change. The panel
- * sections render as nested titled panel sections. Declutter
- * (deliberate list): the Microphone/Available chip row, the Maximum Recording
- * Duration slider, the VAD toggle, the runtime-health row, the whole
- * Diagnostics section and the Output mode row (clipboard-only is the only
- * output) are gone — the panel reads as Dictation card / (setup
- * when needed) / Runtime (Enabled) / Speech (Model, with
- * the Language picker below it only while the selected model does not pin a
- * language). Application/runtime state is consumed
- * through `useSyncExternalStore` over the controller store; only
- * this panel and the microphone mount subscribe to relevant state.
- * The initial settings load is honest about failure: a load that neither
- * resolves nor rejects within 10 s (a wedged backend callable) leaves the
- * loading state with a failed message and a Retry control instead of an
- * eternal spinner; the deadline is measured on the injected monotonic clock.
- * Self-heal after a torn loader install: the panel reports each settled boot-load
- * outcome to the optional `selfHeal` port — two consecutive full-deadline
- * timeouts (the wedged-callable signature) make the composition-root side
- * reload the plugin backend once, the hint names it, and the loader's
- * re-import broadcast re-arms the load while the panel sits in the failed
- * state. The port owns the gates (session/download) and the loader access.
- */
-
 import * as React from "react";
 import { ButtonItem, DialogButton, PanelSection, PanelSectionRow, ToggleField } from "@decky/ui";
 import type { DictationState } from "../../domain/DictationState";
@@ -49,27 +22,14 @@ export interface SettingsPanelProps {
     readonly store: StateStore<DictationState>;
     readonly setupProgress: StateStore<SetupProgressSnapshot | null>;
     readonly diagnostics: DiagnosticsSource;
-    /** Monotonic clock for the settings-load deadline (durations only). */
     readonly clock: ClockPort;
     readonly locale?: Locale;
-    /**
-     * Additive dictation card wiring: stores + press/copy
-     * handlers composed by the composition root. The card renders only when
-     * provided (additive surface — never a fake control).
-     */
     readonly dictation?: {
         readonly levelMeter: LevelMeterStore;
         readonly transcript: StateStore<PanelTranscriptSnapshot | null>;
         readonly onPress: () => void;
         readonly onCopy: (text: string) => Promise<boolean>;
     };
-    /**
-     * Additive curated model catalog wiring: guarded catalog store
-     * + download handlers composed by the composition root. The model
-     * select renders only when provided (additive surface — never a
-     * fake control). `deleteModel` drives the in-app model cleanup callable;
-     * the Manage models affordance renders only over a loaded catalog.
-     */
     readonly modelCatalog?: {
         readonly store: StateStore<ModelCatalogSnapshot>;
         readonly load: () => Promise<void>;
@@ -77,21 +37,12 @@ export interface SettingsPanelProps {
         readonly cancel: () => void;
         readonly deleteModel: (modelId: string) => Promise<void>;
     };
-    /**
-     * Additive self-heal wiring (after a torn loader install): the panel reports
-     * settled boot-load outcomes; the bound port (composed in the
-     * composition root) owns the gates — dictation session, model download —
-     * and the loader route access. `reportLoadOutcome` returns whether the
-     * reload fired (the hint then names it); `onImportPlugin` subscribes to
-     * the loader's re-import broadcast for the failed-state re-arm.
-     */
     readonly selfHeal?: {
         readonly reportLoadOutcome: (outcome: "timeout" | "rejected" | "success") => boolean;
         readonly onImportPlugin: (listener: () => void) => () => void;
     };
 }
 
-/** How long the initial settings load may stay unanswered before failing. */
 const SETTINGS_LOAD_TIMEOUT_MS = 10_000;
 
 export function SettingsPanel({
@@ -107,26 +58,15 @@ export function SettingsPanel({
 }: SettingsPanelProps): React.ReactElement {
     const [value, setValue] = React.useState<PluginSettings | null>(null);
     const [saveError, setSaveError] = React.useState(false);
-    // Honest load failure (the eternal-spinner fix): set when the load
-    // rejects or outlives the 10 s deadline; `loadAttempt` re-arms the load
-    // effect for Retry.
     const [loadFailed, setLoadFailed] = React.useState(false);
     const [loadAttempt, setLoadAttempt] = React.useState(0);
-    // Self-heal leg: set when the port reports that the loader
-    // reload fired; the failed-state hint then names the reload instead of
-    // the generic advice. Cleared by a success or a re-import re-arm.
     const [reloadPending, setReloadPending] = React.useState(false);
-    // Bound, render-stable store accessors: useSyncExternalStore calls
-    // these as plain functions, so unbound class methods would lose `this`.
-    // Same closure pattern as the microphone-button bridge.
     const subscribe = React.useMemo(
         () => (onChange: () => void) => store.subscribe(onChange),
         [store],
     );
     const getSnapshot = React.useMemo(() => () => store.getSnapshot(), [store]);
     const runtimeState = React.useSyncExternalStore(subscribe, getSnapshot);
-    // Setup progress is transport-level UI state with its own dedicated
-    // store; same bound-accessor pattern, never the dictation machine.
     const subscribeSetup = React.useMemo(
         () => (onChange: () => void) => setupProgress.subscribe(onChange),
         [setupProgress],
@@ -136,8 +76,6 @@ export function SettingsPanel({
         [setupProgress],
     );
     const setup = React.useSyncExternalStore(subscribeSetup, getSetupSnapshot);
-    // Additive: the dictation card's transcript snapshot — same bound
-    // accessor pattern; absent wiring renders no card.
     const subscribeTranscript = React.useMemo(
         () => (onChange: () => void) =>
             dictation?.transcript.subscribe(onChange) ?? (() => undefined),
@@ -148,9 +86,6 @@ export function SettingsPanel({
         [dictation],
     );
     const dictationTranscript = React.useSyncExternalStore(subscribeTranscript, getTranscript);
-    // Additive: the catalog snapshot decides whether the Language
-    // picker renders at all (same bound-accessor pattern). Absent
-    // wiring reads as the unloaded catalog → the picker stays.
     const subscribeCatalog = React.useMemo(
         () => (onChange: () => void) =>
             modelCatalog?.store.subscribe(onChange) ?? (() => undefined),
@@ -161,19 +96,7 @@ export function SettingsPanel({
         [modelCatalog],
     );
     const catalogSnapshot = React.useSyncExternalStore(subscribeCatalog, getCatalogSnapshot);
-    // Shown while the runtime is setting up or failed; terminal `ready`
-    // hides it again, and a disabled plugin shows no progress at all.
     const showSetup = value !== null && value.enabled && setup !== null && setup.step !== "ready";
-    // The Language picker renders ONLY while the selected model declares no
-    // languages at all: an unloaded catalog, an unknown (older-backend)
-    // model id, or a general model without a `languages` field. ANY
-    // declared-language model hides the picker — single-language
-    // declarations are the only shipped case, and for
-    // those the backend forces the declared language regardless of
-    // `settings.language`, so the picker would be a lie. The persisted
-    // `language` value is never cleared or rewritten here — switching back
-    // to a general model restores the prior selection (the backend honors
-    // `language` only when no single language is declared).
     const selectedCatalogModel =
         value === null ? undefined : catalogSnapshot?.models.find((m) => m.id === value.modelId);
     const showLanguagePicker =
@@ -181,17 +104,10 @@ export function SettingsPanel({
 
     React.useEffect(() => {
         let cancelled = false;
-        // The deadline lives on the injected monotonic clock (durations
-        // only); the window timer is just the wakeup, and the clock decides
-        // whether the deadline actually elapsed when it fires.
         const deadline = clock.nowMonotonicMs() + SETTINGS_LOAD_TIMEOUT_MS;
         const wakeup = window.setTimeout(() => {
             if (!cancelled && clock.nowMonotonicMs() >= deadline) {
                 setLoadFailed(true);
-                // Self-heal accounting: a full-deadline timeout is the
-                // wedged callable's signature. The port (gates + once-per-
-                // module-session latch) decides; true means the reload fired
-                // and the hint must say so.
                 if (selfHeal?.reportLoadOutcome("timeout") === true) {
                     setReloadPending(true);
                 }
@@ -201,14 +117,10 @@ export function SettingsPanel({
             .load()
             .then((loaded) => {
                 if (!cancelled) {
-                    // A late success after the timeout fired still renders
-                    // normally (pinned behavior): the data wins over the
-                    // failed state once it arrives.
                     window.clearTimeout(wakeup);
                     setLoadFailed(false);
                     setReloadPending(false);
                     setValue(loaded);
-                    // The backend answered: the timeout streak resets.
                     selfHeal?.reportLoadOutcome("success");
                 }
             })
@@ -216,15 +128,9 @@ export function SettingsPanel({
                 if (!cancelled) {
                     window.clearTimeout(wakeup);
                     setLoadFailed(true);
-                    // A coded reply proves the callable path answers — the
-                    // reload must never fire on it; the streak just resets.
                     selfHeal?.reportLoadOutcome("rejected");
                 }
             });
-        // Failure hydration: a startup failure that fired before this panel
-        // subscribed left no live setup snapshot (on-device finding).
-        // The adapter rebuilds the terminal failed view from the status
-        // report, never overwriting an existing snapshot (live wins).
         void diagnostics.hydrateSetupProgress();
         return () => {
             cancelled = true;
@@ -232,11 +138,6 @@ export function SettingsPanel({
         };
     }, [settings, diagnostics, clock, loadAttempt, selfHeal]);
 
-    // Self-heal re-arm: when the loader re-imports this plugin
-    // (fresh backend is up) while the panel sits in the failed state, retry
-    // the load instead of waiting for the user to find Retry. Subscribed
-    // only while failed, so re-imports outside a failure never restart the
-    // boot load.
     React.useEffect(() => {
         if (selfHeal === undefined || !loadFailed) {
             return;
@@ -248,9 +149,6 @@ export function SettingsPanel({
         });
     }, [selfHeal, loadFailed]);
 
-    // Load the curated catalog once per panel mount; load failures
-    // leave the store empty and the select reports the catalog as
-    // unavailable (availability is reported, never assumed).
     React.useEffect(() => {
         if (modelCatalog === undefined) {
             return;
@@ -270,9 +168,6 @@ export function SettingsPanel({
         });
     };
 
-    // Retry the initial load: back to the loading state with a fresh 10 s
-    // deadline (the effect re-runs per attempt; its cleanup retires the old
-    // wakeup timer).
     const retryLoad = (): void => {
         setLoadFailed(false);
         setLoadAttempt((attempt) => attempt + 1);
@@ -297,8 +192,7 @@ export function SettingsPanel({
                             </span>
                         </PanelSectionRow>
                         <PanelSectionRow>
-                            {/* Same generic retry label as the setup failed
-                                state; the control retries the settings load. */}
+                            {}
                             <ButtonItem
                                 label={translate(locale, "setup.retry")}
                                 onClick={retryLoad}
@@ -369,10 +263,7 @@ export function SettingsPanel({
                         />
                     </PanelSectionRow>
                 ) : null}
-                {/* In-app model cleanup: the affordance
-                    renders only over a LOADED catalog (reported, never
-                    assumed) and opens the manage modal through the
-                    production path. */}
+                {}
                 {modelCatalog !== undefined &&
                 catalogSnapshot !== null &&
                 catalogSnapshot.models.length > 0 ? (

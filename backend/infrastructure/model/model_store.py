@@ -1,28 +1,3 @@
-"""ModelStore: list / is_installed / download / remove.
-
-Download algorithm: validate model id → download to `*.part` →
-stream SHA-256 → validate digest → fsync → atomic rename. A partially
-downloaded model is never considered valid. While a download runs, a
-time-based heartbeat re-checks the progress throttle so the feed (and
-the setup bar fed from it) keeps moving on slow connections.
-
-HTTP transport is isolated behind `ModelHttpFetcher`; the stdlib urllib
-implementation runs the blocking request and every chunk read on a worker
-thread (asyncio.to_thread), and a threading.Event checked per chunk
-carries cancellation across that thread boundary.
-
-TLS context: under the Decky loader
-the plugin process is a fork of the frozen loader binary whose bundled
-OpenSSL does not resolve the OS CA store, so the default context fails with
-CERTIFICATE_VERIFY_FAILED on device. The loader builds one certifi-backed
-context for its own HTTPS (decky-loader helpers.py:9,23) and aliases its
-modules into plugin sys.modules (sandboxed_plugin.py:93-96), so `helpers`
-resolves exactly like the shipped decky-steamgriddb import (main.py:12;
-`urlopen(req, context=get_ssl_context())` at main.py:50,65). Outside the
-loader (tests, local tooling) an explicit system CA chain applies.
-Verification is never disabled.
-"""
-
 from __future__ import annotations
 
 import asyncio
@@ -52,33 +27,17 @@ from backend.domain.errors import (
 from backend.infrastructure.model.model_manifest import MODEL_ID_RE, ModelManifest
 
 CHUNK_SIZE = 64 * 1024
-# Progress callback throttle: emit when the percent delta reaches 1 or
-# when this much time elapsed since the last emission, whichever first.
 PROGRESS_MIN_PERCENT_DELTA = 1
 PROGRESS_MIN_INTERVAL_S = 0.25
-# The chunk pump only emits when a chunk arrives, so on a slow or stalled
-# connection nothing re-checks that throttle. While the pump runs, a
-# background heartbeat re-checks it at this interval (well under the 250 ms
-# gate), keeping consecutive emissions comfortably below 500 ms apart so the
-# setup bar moves steadily on slow connections. Equal-percent frames are
-# expected heartbeat frames.
 PROGRESS_HEARTBEAT_S = 0.1
 
-# Blocking request timeout; one chunk read is bounded by the same budget.
 _URLOPEN_TIMEOUT_S = 30.0
 
 _PART_SUFFIX = ".part"
 
 
 def _user_agent() -> str:
-    """`SpeechToDeck/<version>` request identity for model downloads.
 
-    Citizen-grade hardening: the store's proven failure class was
-    never the transport, but an unidentified default UA invites rate limits
-    on the model hosts. The version comes from the loader-installed
-    package.json once per process; a missing or malformed file degrades to a
-    bare product token instead of failing downloads.
-    """
     try:
         package_json = Path(__file__).resolve().parents[3] / "package.json"
         version = json.loads(package_json.read_text(encoding="utf-8"))["version"]
@@ -91,33 +50,19 @@ _USER_AGENT = _user_agent()
 
 LOGGER = logging.getLogger("speech.model")
 
-# System CA bundle candidates for the no-loader fallback (tests, local
-# tooling), most-specific first: SteamOS/Debian, generic OpenSSL, Fedora/RHEL.
-# Under the loader the certifi context wins before this chain is consulted;
-# with no existing bundle the default verify paths are the last resort. A
-# verification-disabling context is never constructed here.
 _CA_CANDIDATES = (
     "/etc/ssl/certs/ca-certificates.crt",
     "/etc/ssl/cert.pem",
     "/etc/pki/tls/certs/ca-bundle.crt",
 )
 
-# Resolved once per process: the loader aliasing cannot change mid-process.
 _resolved_tls: tuple[ssl.SSLContext, str] | None = None
 
 
 def _loader_ssl_context() -> ssl.SSLContext | None:
-    """The Decky loader's certifi context via its bare-name module aliasing.
 
-    Before executing main.py the loader aliases every `decky_loader.*` module
-    to its bare name (sandboxed_plugin.py:93-96), so `helpers` resolves to
-    decky_loader.helpers — the exact import shape shipped by decky-steamgriddb
-    (main.py:12 `from helpers import get_ssl_context`). Returns None outside
-    the loader (ImportError) or for a malformed alias; only a real SSLContext
-    is accepted, so an unexpected alias can never weaken verification.
-    """
     try:
-        from helpers import get_ssl_context  # type: ignore[import-not-found]
+        from helpers import get_ssl_context
     except ImportError:
         return None
     context = get_ssl_context()
@@ -125,14 +70,7 @@ def _loader_ssl_context() -> ssl.SSLContext | None:
 
 
 def resolve_download_tls_context() -> tuple[ssl.SSLContext, str]:
-    """TLS context for model downloads plus its provenance label.
 
-    Selection: the loader's certifi context when running under the Decky
-    loader, else the first existing system CA bundle, else the default
-    verify paths (never a verification-disabling context). The label travels
-    into the journal so a TLS failure is attributable to the exact context
-    in use (CA paths are not sensitive).
-    """
     global _resolved_tls
     if _resolved_tls is None:
         loader_context = _loader_ssl_context()
@@ -153,42 +91,28 @@ def resolve_download_tls_context() -> tuple[ssl.SSLContext, str]:
 
 
 class ModelDownloadCancelled(Exception):
-    """Internal signal: the active download was cancelled by the user."""
+    pass
 
 
 class DownloadStream(Protocol):
-    """An opened HTTP response body streamed as chunks."""
-
     @property
-    def total_bytes(self) -> int | None:
-        """Content-Length when the server advertises it."""
-        ...
+    def total_bytes(self) -> int | None: ...
 
-    def chunks(self) -> AsyncIterator[bytes]:
-        """Yield body chunks; the final chunk may be short."""
-        ...
+    def chunks(self) -> AsyncIterator[bytes]: ...
 
     async def close(self) -> None: ...
 
 
 class ModelHttpFetcher(Protocol):
-    """HTTP GET port so tests never need network or threads."""
-
     async def open(self, url: str) -> DownloadStream: ...
 
 
 def _url_host(url: str) -> str:
-    """Hostname of a download URL (model hosts are not sensitive)."""
     return urllib.parse.urlsplit(url).hostname or "unknown-host"
 
 
 def _transport_detail(exc: BaseException, host: str) -> str:
-    """`ReasonClass [errno=N] <text> host=<host>` for a transport failure.
 
-    Diagnosability without content: the OS-level reason class, its
-    errno/OS text and the model host — never transcript or audio data.
-    URLError's wrapped OS reason is preferred over the wrapper itself.
-    """
     reason = getattr(exc, "reason", None)
     cause = reason if isinstance(reason, BaseException) else exc
     errno = getattr(cause, "errno", None)
@@ -203,14 +127,6 @@ def _transport_detail(exc: BaseException, host: str) -> str:
 
 
 def _urlopen(url: str) -> http.client.HTTPResponse:
-    """Blocking GET on a worker thread; non-2xx and transport errors map to
-    the stable MODEL_DOWNLOAD_FAILED code with a diagnosable detail
-    (reason class + HTTP status/errno + host; no transcript/audio
-    content). URLError/timeout/connection-reset failures are marked as the
-    transient class the startup path may retry. The request runs with the
-    resolved TLS context (loader certifi context under the Decky loader,
-    explicit system CA chain otherwise) so on-device downloads verify against
-    a CA store the frozen loader interpreter actually resolves."""
     request = urllib.request.Request(
         url, headers={"Accept": "*/*", "User-Agent": _USER_AGENT}, method="GET"
     )
@@ -221,19 +137,19 @@ def _urlopen(url: str) -> http.client.HTTPResponse:
             request, timeout=_URLOPEN_TIMEOUT_S, context=context
         )
     except urllib.error.HTTPError as exc:
-        exc.close()  # the error body is never read
+        exc.close()
         raise ModelDownloadFailedError(
             "model download request failed", detail=f"HTTP {exc.code} host={host}"
         ) from exc
-    except urllib.error.URLError as exc:  # wraps the OS reason (timeout, DNS, reset)
+    except urllib.error.URLError as exc:
         raise TransientModelDownloadError(
             "model download request failed", detail=_transport_detail(exc, host)
         ) from exc
-    except OSError as exc:  # raw socket-level failures without the URLError wrap
+    except OSError as exc:
         raise TransientModelDownloadError(
             "model download request failed", detail=_transport_detail(exc, host)
         ) from exc
-    except ValueError as exc:  # unknown scheme / malformed URL: never transient
+    except ValueError as exc:
         raise ModelDownloadFailedError(
             "model download request failed", detail=f"{type(exc).__name__} host={host}"
         ) from exc
@@ -246,7 +162,6 @@ def _urlopen(url: str) -> http.client.HTTPResponse:
 
 
 def _content_length(response: http.client.HTTPResponse) -> int | None:
-    """Advertised body size; None when the header is absent or malformed."""
     header = response.headers.get("Content-Length")
     if header is None:
         return None
@@ -257,16 +172,6 @@ def _content_length(response: http.client.HTTPResponse) -> int | None:
 
 
 class UrllibModelFetcher:
-    """stdlib urllib transport (stdlib only on the Deck runtime).
-
-    The SteamOS Decky Loader runtime provides no aiohttp. The blocking
-    request and every body read run on a worker thread via asyncio.to_thread,
-    chunk-wise at CHUNK_SIZE; a threading.Event checked per chunk carries
-    cancellation across the thread boundary (a read already in flight is
-    bounded by one chunk). The request carries the resolved TLS context
-    (`resolve_download_tls_context`).
-    """
-
     async def open(self, url: str) -> DownloadStream:
         response = await asyncio.to_thread(_urlopen, url)
         return _UrllibDownloadStream(
@@ -277,8 +182,6 @@ class UrllibModelFetcher:
 
 
 class _UrllibDownloadStream:
-    """DownloadStream over a urllib response, read chunk-wise off the loop."""
-
     def __init__(
         self,
         *,
@@ -305,8 +208,6 @@ class _UrllibDownloadStream:
                 except ModelDownloadCancelled:
                     raise
                 except (http.client.HTTPException, OSError, TimeoutError) as exc:
-                    # Mid-stream connection reset/timeout: the transient
-                    # transport class, diagnosable down to errno + host.
                     raise TransientModelDownloadError(
                         "model download interrupted while streaming",
                         detail=_transport_detail(exc, self._host),
@@ -318,24 +219,17 @@ class _UrllibDownloadStream:
             self._cancel.set()
 
     def _read_chunk(self) -> bytes:
-        """One blocking 64 KiB read on a worker thread.
 
-        The cancel event is checked before reading so a cancellation requested
-        on the event loop stops the pump at the next chunk; a read already in
-        flight is bounded by one chunk and its result is discarded.
-        """
         if self._cancel.is_set():
             return b""
         return self._response.read(CHUNK_SIZE)
 
     async def close(self) -> None:
-        """Stop the pump and release the connection (idempotent)."""
         self._cancel.set()
         await asyncio.to_thread(self._response.close)
 
 
 def _progress_due(received: int, total: int | None, last_percent: int, last_emit: float) -> bool:
-    """Progress-callback throttle: percent delta ≥ 1 or ≥250 ms elapsed."""
     if (
         total is not None
         and total > 0
@@ -346,8 +240,6 @@ def _progress_due(received: int, total: int | None, last_percent: int, last_emit
 
 
 class ModelStore:
-    """Model artifact store: digest-verified installs, one download at a time."""
-
     def __init__(
         self,
         manifest: ModelManifest,
@@ -362,25 +254,17 @@ class ModelStore:
         self._on_progress = on_progress
         self._download_lock = asyncio.Lock()
         self._download_task: asyncio.Task[None] | None = None
-        # The model whose artifact write is under the download lock right now
-        # (in-app model cleanup: `delete_model` must reject exactly this
-        # model). Set inside the lock, so it is authoritative for the file
-        # being written; a queued (not yet started) download holds no claim.
         self._downloading_id: str | None = None
 
     def _resolve(self, model_id: str) -> ModelInfo:
-        """Validate a model id against the manifest."""
         if MODEL_ID_RE.fullmatch(model_id) is None:
             raise ModelNotInstalledError("unknown model id", detail=f"id={model_id!r}")
         info = self._manifest.by_id(model_id)
         if info is None:
-            # Manifest ids are the only allowed identifiers; traversal and
-            # arbitrary ids can never resolve to a file path.
             raise ModelNotInstalledError("unknown model id", detail=f"id={model_id!r}")
         return info
 
     def _model_path(self, info: ModelInfo) -> Path:
-        # Manifest validation already rejected separators and traversal.
         return self._models_dir / info.filename
 
     async def list_models(self) -> list[ModelInfo]:
@@ -392,7 +276,6 @@ class ModelStore:
         return await asyncio.to_thread(path.is_file)
 
     async def ensure_model(self, model_id: str) -> None:
-        """Model must be present and match its committed digest."""
         info = self._resolve(model_id)
         path = self._model_path(info)
         if not await asyncio.to_thread(path.is_file):
@@ -413,9 +296,8 @@ class ModelStore:
         return digest.hexdigest()
 
     async def download(self, model_id: str) -> None:
-        """Download, checksum, fsync and atomically install a model."""
         info = self._resolve(model_id)
-        async with self._download_lock:  # one download at a time
+        async with self._download_lock:
             self._download_task = asyncio.current_task()
             self._downloading_id = info.id
             try:
@@ -431,7 +313,7 @@ class ModelStore:
     async def _download_locked(self, info: ModelInfo) -> None:
         final_path = self._model_path(info)
         if final_path.is_file():
-            return  # already installed; downloads are idempotent
+            return
 
         part_path = final_path.with_name(final_path.name + _PART_SUFFIX)
         part_path.unlink(missing_ok=True)
@@ -450,9 +332,6 @@ class ModelStore:
                 last_emit = time.monotonic()
 
                 async def emit_progress() -> None:
-                    """One throttled progress emission; the chunk pump and the
-                    heartbeat share it (same loop, so check-then-emit is
-                    atomic between awaits)."""
                     nonlocal last_percent, last_emit
                     if on_progress is None:
                         return
@@ -462,12 +341,7 @@ class ModelStore:
                     await _maybe_await(on_progress(info.id, received, reported_total))
 
                 async def heartbeat() -> None:
-                    """Time-based progress feed while the pump runs.
 
-                    Re-checks the throttle every PROGRESS_HEARTBEAT_S and
-                    emits when due, so the feed keeps emitting (equal-percent
-                    heartbeat frames) even when no chunk arrives for a while.
-                    """
                     while True:
                         await asyncio.sleep(PROGRESS_HEARTBEAT_S)
                         if _progress_due(received, reported_total, last_percent, last_emit):
@@ -487,7 +361,7 @@ class ModelStore:
                             ):
                                 await emit_progress()
                         handle.flush()
-                        os.fsync(handle.fileno())  # fsync before rename
+                        os.fsync(handle.fileno())
                 finally:
                     if heartbeat_task is not None:
                         heartbeat_task.cancel()
@@ -503,10 +377,9 @@ class ModelStore:
                 )
 
             final_path.parent.mkdir(parents=True, exist_ok=True)
-            os.chmod(part_path, 0o600)  # user-only artifacts
-            os.replace(part_path, final_path)  # atomic rename
+            os.chmod(part_path, 0o600)
+            os.replace(part_path, final_path)
         except BaseException:
-            # A partially downloaded model is never valid.
             part_path.unlink(missing_ok=True)
             raise
 
@@ -515,13 +388,7 @@ class ModelStore:
             await _maybe_await(self._on_progress(info.id, final_total, reported_total))
 
     async def remove(self, model_id: str) -> int | None:
-        """Remove an installed model; removing a missing model is idempotent.
 
-        Returns the freed artifact size in bytes, or None when the file was
-        already absent (the caller's payload omits the
-        freedBytes field in that case, matching the sizeBytes pattern).
-        A stale `.part` leftover from an interrupted download is removed too.
-        """
         info = self._resolve(model_id)
         path = self._model_path(info)
 
@@ -538,15 +405,10 @@ class ModelStore:
         return await asyncio.to_thread(_remove)
 
     def downloading_model_id(self) -> str | None:
-        """The model whose artifact write is in flight right now, if any.
 
-        Set only while the download lock is held, so a True match is the
-        authoritative per-model claim the delete path must respect.
-        """
         return self._downloading_id
 
     def cancel_download(self) -> bool:
-        """Cancel the active download, if any (one download at a time)."""
         task = self._download_task
         if task is not None and not task.done():
             task.cancel()
@@ -559,6 +421,5 @@ class ModelStore:
 
 
 async def _maybe_await(callback_result: object) -> None:
-    """Support sync and async progress callbacks."""
     if asyncio.iscoroutine(callback_result):
         await callback_result

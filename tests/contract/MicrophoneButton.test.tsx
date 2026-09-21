@@ -1,9 +1,3 @@
-/**
- * MicrophoneButton contract tests: pure rendering of the
- * four visual states with full a11y — accessible name, pressed state,
- * disabled state, and per-state glyphs so state never relies on color only.
- */
-
 import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { MicrophoneButton } from "../../src/presentation/controls/MicrophoneButton";
@@ -33,7 +27,7 @@ describe("MicrophoneButton", () => {
             <MicrophoneButton state="ready" disabled={false} onPress={onPress} />,
         );
         const readyName = screen.getByRole("button").getAttribute("aria-label");
-        expect(screen.getByRole("button").querySelector("[data-state-marker]")).toBeNull(); // ready carries no marker
+        expect(screen.getByRole("button").querySelector("[data-state-marker]")).toBeNull();
 
         rerender(
             <MicrophoneButton
@@ -45,7 +39,6 @@ describe("MicrophoneButton", () => {
         );
         const recordingButton = screen.getByRole("button");
         const recordingName = recordingButton.getAttribute("aria-label");
-        // Recording replaces the mic icon with the ticking timer.
         expect(recordingButton.textContent).toBe("00:42");
         expect(recordingButton.querySelector('[data-state-marker="recording"]')).not.toBeNull();
 
@@ -72,7 +65,7 @@ describe("MicrophoneButton", () => {
 
         rerender(<MicrophoneButton state="processing" disabled={true} onPress={onPress} />);
         fireEvent.click(screen.getByRole("button"));
-        expect(onPress).toHaveBeenCalledTimes(1); // disabled press ignored
+        expect(onPress).toHaveBeenCalledTimes(1);
     });
 
     it("localizes the accessible name", () => {
@@ -123,7 +116,7 @@ describe("MicrophoneButton", () => {
             act(() => {
                 vi.advanceTimersByTime(4000);
             });
-            expect(screen.queryByRole("status")).toBeNull(); // flash over
+            expect(screen.queryByRole("status")).toBeNull();
         } finally {
             vi.useRealTimers();
         }

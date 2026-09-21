@@ -1,12 +1,3 @@
-"""SpeechDaemonSupervisor tests.
-
-Every happy-path test runs the real fixture daemon as a child process: real
-spawns, real signals, real process groups, real exit codes — no STT hardware.
-The supervisor starts the variant binary selected from the settings backend
-through the injected probe (see test_runtime_variant.py for the
-selection/probe decision points themselves).
-"""
-
 from __future__ import annotations
 
 import asyncio
@@ -54,14 +45,13 @@ async def prepare_pinned(
     *,
     extra_daemon_args: list[str] | None = None,
 ) -> PluginPaths:
-    paths = make_paths(tmp_path)  # type: ignore[arg-type]
+    paths = make_paths(tmp_path)
     binary = build_fixture_binary(paths.plugin_root, extra_daemon_args=extra_daemon_args)
     write_pinned_runtime_manifest(paths.plugin_root, binary)
     return paths
 
 
 def write_unpinned_manifest(plugin_root: Path) -> None:
-    """The pre-pin manifest state: present schema, empty provenance."""
     defaults = plugin_root / "defaults"
     defaults.mkdir(parents=True, exist_ok=True)
     (defaults / "runtime-manifest.json").write_text(
@@ -84,13 +74,12 @@ def test_unpinned_manifest_fails_closed_with_runtime_start_failed(tmp_path: Path
         assert str(excinfo.value.code) == "RUNTIME_START_FAILED"
         assert "pinned" in excinfo.value.message
         assert not supervisor.is_running()
-        assert not paths.status_file.exists()  # nothing was ever spawned
+        assert not paths.status_file.exists()
 
     asyncio.run(scenario())
 
 
 def test_committed_manifest_loads_with_both_variants_pinned(tmp_path: Path) -> None:
-    """The repository's real manifest is fully pinned for both variants."""
     from backend.infrastructure.process.runtime_variant import load_pinned_runtime_artifacts
 
     artifacts = load_pinned_runtime_artifacts(
@@ -106,8 +95,6 @@ def test_committed_manifest_loads_with_both_variants_pinned(tmp_path: Path) -> N
 def test_missing_binary_fails_closed(tmp_path: Path) -> None:
     async def scenario() -> None:
         paths = make_paths(tmp_path)
-        # Pin data for binaries that do not exist: pin validation passes,
-        # the missing executable must still fail closed.
         write_pinned_runtime_manifest(paths.plugin_root, digest="ab" * 32)
         supervisor = make_supervisor(paths, FakeEventPublisher())
         with pytest.raises(RuntimeStartError):
@@ -120,7 +107,7 @@ def test_missing_binary_fails_closed(tmp_path: Path) -> None:
 def test_digest_mismatch_fails_closed(tmp_path: Path) -> None:
     async def scenario() -> None:
         paths = make_paths(tmp_path)
-        build_fixture_binary(paths.plugin_root)  # real variant binaries present
+        build_fixture_binary(paths.plugin_root)
         other = paths.plugin_root / "other.bin"
         other.write_bytes(b"different bytes than the real binary")
         write_pinned_runtime_manifest(paths.plugin_root, other)
@@ -134,7 +121,6 @@ def test_digest_mismatch_fails_closed(tmp_path: Path) -> None:
 
 
 def test_generated_daemon_config_carries_upstream_keys(tmp_path: Path) -> None:
-    """The generator maps settings onto the verified upstream TOML keys."""
     import tomllib
 
     async def scenario() -> None:
@@ -148,15 +134,11 @@ def test_generated_daemon_config_carries_upstream_keys(tmp_path: Path) -> None:
         assert config["engine"] == "whisper"
         assert config["state_file"] == str(paths.status_file)
         assert config["hotkey"]["enabled"] is False
-        # The recording bound is the 24 h runaway valve — the
-        # literal is the owner-agreed oracle, not the module constant.
-        # VAD fixed off (silero model not bundled, voxtype continues
-        # without it).
         assert config["audio"]["max_duration_secs"] == 86400
         assert config["audio"]["max_duration_secs"] == DEFAULT_MAX_RECORDING_SECONDS
         assert config["vad"]["enabled"] is False
         assert config["whisper"]["model"] == str(paths.models_dir / "ggml-base.bin")
-        assert config["whisper"]["language"] == "auto"  # "system" → auto mapping
+        assert config["whisper"]["language"] == "auto"
         assert config["whisper"]["on_demand_loading"] is False
         assert config["whisper"]["eager_processing"] is False
         assert config["output"]["mode"] == "file"
@@ -168,7 +150,7 @@ def test_generated_daemon_config_carries_upstream_keys(tmp_path: Path) -> None:
             "on_transcription": False,
         }
         assert config["osd"]["enabled"] is False
-        assert "streaming" not in config  # section omitted: streaming disabled
+        assert "streaming" not in config
 
         await supervisor.stop()
 
@@ -176,10 +158,6 @@ def test_generated_daemon_config_carries_upstream_keys(tmp_path: Path) -> None:
 
 
 def test_generated_daemon_config_maps_language_and_model(tmp_path: Path) -> None:
-    """The removed max-duration/VAD settings no longer reach the
-    config; the audio/vad lines carry the fixed constants (recording valve /
-    disabled — the silero VAD model is not bundled) regardless of what
-    was persisted."""
     import tomllib
 
     from backend.domain.contracts import Settings
@@ -198,21 +176,13 @@ def test_generated_daemon_config_maps_language_and_model(tmp_path: Path) -> None
         model_path=Path("/models/ggml-tiny.bin"),
     )
     config = tomllib.loads(toml)
-    assert config["whisper"]["language"] == "de"  # explicit codes pass through
+    assert config["whisper"]["language"] == "de"
     assert config["whisper"]["model"] == "/models/ggml-tiny.bin"
     assert config["audio"]["max_duration_secs"] == DEFAULT_MAX_RECORDING_SECONDS
     assert config["vad"]["enabled"] is False
 
 
 def test_daemon_config_effective_language_matrix() -> None:
-    """Effective-language derivation, all branches: a model that
-    declares exactly ONE language gets it REGARDLESS of settings.language —
-    a stale persisted override (german model + "en") must never reach the
-    daemon, which would transcribe with the wrong language. Multilingual
-    general models keep the legacy mapping ("system" → "auto", explicit
-    codes pass through). English-only models are covered by the same rule
-    (distil-en declares ["en"]); the multilingual=false fallback
-    stays for admissible entries without declared languages."""
     import tomllib
 
     from backend.domain.contracts import ModelInfo, Settings
@@ -229,25 +199,24 @@ def test_daemon_config_effective_language_matrix() -> None:
             languages=languages,
         )
 
-    german = model(multilingual=True, languages=("de",))  # catalog Primeline shape
-    base = model(multilingual=True, languages=None)  # catalog tiny/base/small shape
-    distil_en = model(multilingual=False, languages=("en",))  # catalog distil shape
-    en_undeclared = model(multilingual=False, languages=None)  # en-only fallback
-    multi = model(multilingual=True, languages=("en", "de"))  # serves several
+    german = model(multilingual=True, languages=("de",))
+    base = model(multilingual=True, languages=None)
+    distil_en = model(multilingual=False, languages=("en",))
+    en_undeclared = model(multilingual=False, languages=None)
+    multi = model(multilingual=True, languages=("en", "de"))
 
     cases = [
-        # (model_info, settings language, expected daemon language)
-        (german, "en", "de"),  # stale override ignored: the model decides
+        (german, "en", "de"),
         (german, "system", "de"),
         (german, "fr", "de"),
-        (base, "fr", "fr"),  # legacy mapping: explicit codes pass through
+        (base, "fr", "fr"),
         (base, "system", "auto"),
-        (distil_en, "de", "en"),  # en-only: explicit code cannot be honored
+        (distil_en, "de", "en"),
         (distil_en, "system", "en"),
-        (en_undeclared, "system", "en"),  # legacy fallback, unchanged
-        (multi, "system", "auto"),  # several languages: settings.language honored
+        (en_undeclared, "system", "en"),
+        (multi, "system", "auto"),
         (multi, "de", "de"),
-        (None, "system", "auto"),  # unwired/unknown model: legacy mapping
+        (None, "system", "auto"),
         (None, "de", "de"),
     ]
     for model_info, language, expected in cases:
@@ -270,10 +239,6 @@ def test_daemon_config_effective_language_matrix() -> None:
 
 
 def test_supervisor_passes_model_languages_to_config(tmp_path: Path) -> None:
-    """The supervisor feeds the selected model's manifest info (declared
-    languages) into the config build (composition wires
-    model_info_for=manifest.by_id): the german catalog model forces "de"
-    even though the settings still carry the "system" sentinel."""
     import tomllib
 
     from backend.domain.contracts import ModelInfo
@@ -295,10 +260,10 @@ def test_supervisor_passes_model_languages_to_config(tmp_path: Path) -> None:
             )
 
         supervisor = make_supervisor(paths, publisher, model_info_for=model_info_for)
-        await supervisor.start(DEFAULT_SETTINGS)  # language="system"
+        await supervisor.start(DEFAULT_SETTINGS)
         assert supervisor.is_running()
         config = tomllib.loads(paths.daemon_config.read_text(encoding="utf-8"))
-        assert config["whisper"]["language"] == "de"  # declared language wins
+        assert config["whisper"]["language"] == "de"
         await supervisor.stop()
 
     asyncio.run(scenario())
@@ -312,10 +277,8 @@ def test_start_run_stop_clean_with_log_drain(tmp_path: Path) -> None:
         await supervisor.start(DEFAULT_SETTINGS)
         assert supervisor.is_running()
         assert supervisor.pid is not None
-        # The probe decision is visible for metrics reporting.
         assert supervisor.selected_backend == "vulkan"
 
-        # The daemon writes its state file; stdout is drained into the log.
         assert await wait_until(lambda: paths.status_file.exists(), timeout=3.0)
         assert paths.status_file.read_text(encoding="utf-8").strip() == "idle"
         assert await wait_until(
@@ -325,11 +288,11 @@ def test_start_run_stop_clean_with_log_drain(tmp_path: Path) -> None:
 
         await supervisor.stop()
         assert not supervisor.is_running()
-        assert supervisor.last_exit_code == 0  # clean SIGTERM exit
+        assert supervisor.last_exit_code == 0
         states = [p["state"] for p in publisher.payloads("runtime_status")]
         assert states[0] == "starting"
         assert states[-1] == "stopped"
-        assert paths.daemon_log.is_file()  # log file under the data dir
+        assert paths.daemon_log.is_file()
 
     asyncio.run(scenario())
 
@@ -341,9 +304,6 @@ def test_sigkill_escalation_when_sigterm_ignored(tmp_path: Path) -> None:
         supervisor = make_supervisor(paths, publisher, shutdown_timeout=0.4)
         await supervisor.start(DEFAULT_SETTINGS)
         assert await wait_until(supervisor.is_running, timeout=3.0)
-        # Wait until the daemon finished booting (pid file written after the
-        # signal handlers were installed) so the fixture really ignores
-        # SIGTERM instead of dying from it.
         pid_file = paths.native_runtime_dir / "pid"
         assert await wait_until(pid_file.exists, timeout=3.0)
         await asyncio.sleep(0.1)
@@ -352,7 +312,6 @@ def test_sigkill_escalation_when_sigterm_ignored(tmp_path: Path) -> None:
         await supervisor.stop()
         elapsed = time.monotonic() - started
 
-        # SIGTERM (ignored by the fixture) → bounded wait → SIGKILL.
         assert elapsed < 3.0
         assert not supervisor.is_running()
         assert supervisor.last_exit_code == -int(signal.SIGKILL)
@@ -368,7 +327,7 @@ def test_restart_policy_is_bounded(tmp_path: Path) -> None:
             paths,
             publisher,
             max_restart_attempts=2,
-            stability_window=3600.0,  # no budget reset mid-test
+            stability_window=3600.0,
         )
         await supervisor.start(DEFAULT_SETTINGS)
 
@@ -384,12 +343,11 @@ def test_restart_policy_is_bounded(tmp_path: Path) -> None:
             await asyncio.sleep(0.05)
         assert exhausted, "restart policy never reported exhaustion"
 
-        # Initial spawn + exactly 2 restart attempts, then give up.
         assert supervisor.restart_attempts == 2
         assert spawn_count(paths) == 3
         assert not supervisor.is_running()
 
-        await asyncio.sleep(0.4)  # no further attempts after exhaustion
+        await asyncio.sleep(0.4)
         assert spawn_count(paths) == 3
 
     asyncio.run(scenario())
@@ -399,7 +357,7 @@ def test_restart_skipped_while_session_pending(tmp_path: Path) -> None:
     async def scenario() -> None:
         paths = await prepare_pinned(tmp_path, extra_daemon_args=["--crash-after", "0.15"])
         publisher = FakeEventPublisher()
-        idle = {"value": False}  # transcript insertion pending
+        idle = {"value": False}
         supervisor = make_supervisor(
             paths,
             publisher,
@@ -441,7 +399,7 @@ def test_unexpected_exit_reported_to_application(tmp_path: Path) -> None:
         deadline = time.monotonic() + 5.0
         while time.monotonic() < deadline and not exit_codes:
             await asyncio.sleep(0.02)
-        assert exit_codes == [3]  # the fixture's crash exit code
+        assert exit_codes == [3]
 
     asyncio.run(scenario())
 
@@ -453,13 +411,9 @@ def test_orphan_prevention_via_process_group_kill(tmp_path: Path) -> None:
             tmp_path,
             extra_daemon_args=["--grandchild-sentinel", str(sentinel)],
         )
-        # The fixture spawns a grandchild inside its own process group; the
-        # supervisor's group stop must reap both.
         supervisor = make_supervisor(paths, FakeEventPublisher())
         await supervisor.start(DEFAULT_SETTINGS)
         assert await wait_until(supervisor.is_running, timeout=3.0)
-        # The grandchild touches the sentinel once its handler is installed;
-        # killing the group before that would prove nothing.
         assert await wait_until(lambda: sentinel.exists(), timeout=5.0), (
             "fixture grandchild never became ready"
         )
@@ -484,12 +438,6 @@ def test_orphan_prevention_via_process_group_kill(tmp_path: Path) -> None:
 
 @pytest.mark.skipif(sys.platform != "linux", reason="PR_SET_PDEATHSIG is Linux-only")
 def test_pdeathsig_ends_daemon_when_backend_process_is_sigkilled(tmp_path: Path) -> None:
-    """The loader kills only the plugin process (KillMode=process; SIGKILL
-    after the 5 s dispose window), so graceful `_unload` teardown never runs.
-    A backend stand-in starts the REAL supervisor (production `_spawn` wiring)
-    and is SIGKILLed; the kernel-level PDEATHSIG from `daemon_preexec` must
-    end the daemon — the fixture's SIGTERM handler (stop semantics) deleted
-    its state file."""
 
     async def scenario() -> None:
         paths = await prepare_pinned(tmp_path)
@@ -520,8 +468,8 @@ def test_pdeathsig_ends_daemon_when_backend_process_is_sigkilled(tmp_path: Path)
             "    paths = PluginPaths(plugin_root=Path(plugin_root), data_dir=Path(data_dir))\n"
             "    ensure_directories(paths)\n"
             "\n"
-            "    async def probe(resolver, config_path):  # auto-policy stand-in, deterministic\n"
-            "        return False  # cpu\n"
+            "    async def probe(resolver, config_path):\n"
+            "        return False\n"
             "\n"
             "    supervisor = SpeechDaemonSupervisor(\n"
             "        paths,\n"
@@ -531,7 +479,7 @@ def test_pdeathsig_ends_daemon_when_backend_process_is_sigkilled(tmp_path: Path)
             "    )\n"
             "    await supervisor.start(DEFAULT_SETTINGS)\n"
             "    Path(pid_file).write_text(str(supervisor.pid), encoding='utf-8')\n"
-            "    await asyncio.Event().wait()  # held until the test SIGKILLs us\n"
+            "    await asyncio.Event().wait()\n"
             "\n"
             "asyncio.run(main())\n",
             encoding="utf-8",
@@ -557,16 +505,12 @@ def test_pdeathsig_ends_daemon_when_backend_process_is_sigkilled(tmp_path: Path)
                 "fixture daemon never became ready"
             )
 
-            # The loader dispose hole: the parent is SIGKILLed with no chance
-            # to run any graceful teardown. The kernel must signal the child.
             os.kill(standin.pid, signal.SIGKILL)
             await standin.wait()
 
             assert await wait_until(lambda: not paths.status_file.exists(), timeout=5.0), (
                 "daemon survived the backend SIGKILL (PDEATHSIG hardening missing)"
             )
-            # The fixture's SIGTERM handler removed the state file: the child
-            # died through the PDEATHSIG SIGTERM path, stop semantics intact.
             assert await wait_until(lambda: _pid_gone(daemon_pid), timeout=3.0), (
                 "daemon process still present after the PDEATHSIG SIGTERM"
             )
@@ -594,17 +538,16 @@ def test_stop_is_idempotent(tmp_path: Path) -> None:
     async def scenario() -> None:
         paths = await prepare_pinned(tmp_path)
         supervisor = make_supervisor(paths, FakeEventPublisher())
-        await supervisor.stop()  # never started
+        await supervisor.stop()
         await supervisor.start(DEFAULT_SETTINGS)
         await supervisor.stop()
-        await supervisor.stop()  # already stopped
+        await supervisor.stop()
         assert not supervisor.is_running()
 
     asyncio.run(scenario())
 
 
 def test_start_with_explicit_cpu_backend_runs_avx2_binary(tmp_path: Path) -> None:
-    """cpu → avx2 variant selection; the log shows which binary ran."""
     from backend.domain.contracts import Settings
 
     async def scenario() -> None:
@@ -621,14 +564,13 @@ def test_start_with_explicit_cpu_backend_runs_avx2_binary(tmp_path: Path) -> Non
         )
         await supervisor.start(settings)
         assert supervisor.selected_backend == "cpu"
-        assert probe_calls == []  # explicit backend: deterministic, no probe
+        assert probe_calls == []
         assert await wait_until(lambda: paths.status_file.exists(), timeout=3.0)
         await supervisor.stop()
 
     asyncio.run(scenario())
 
 
-# ── private executable copy (on-device ETXTBSY fix) ─────────────────────────
 
 
 def exec_copy_dir(paths: PluginPaths) -> Path:
@@ -636,14 +578,7 @@ def exec_copy_dir(paths: PluginPaths) -> Path:
 
 
 def test_spawn_argv_uses_digest_verified_private_copy_not_bin(tmp_path: Path) -> None:
-    """The supervisor spawns the private copy under the data dir, never bin/.
 
-    Installing a zip over the RUNNING plugin rewrites bin/ in place and the
-    direct-executing daemon made that abort with `[Errno 26] Text file busy`.
-    The argv seam is observed with a pass-through spy (the real spawn still
-    happens and must keep the daemon alive) — the executed path is the
-    decisive fact, not a mocked subprocess.
-    """
 
     async def scenario() -> None:
         paths = await prepare_pinned(tmp_path)
@@ -652,7 +587,7 @@ def test_spawn_argv_uses_digest_verified_private_copy_not_bin(tmp_path: Path) ->
 
         async def spy(*argv: object, **kwargs: object) -> object:
             recorded.append([str(a) for a in argv])
-            return await real_exec(*argv, **kwargs)  # type: ignore[arg-type]
+            return await real_exec(*argv, **kwargs)
 
         original = daemon_supervisor_module.asyncio.create_subprocess_exec
         daemon_supervisor_module.asyncio.create_subprocess_exec = spy
@@ -670,7 +605,6 @@ def test_spawn_argv_uses_digest_verified_private_copy_not_bin(tmp_path: Path) ->
         assert recorded[0][0] != str(source)
         assert recorded[0][1:3] == ["--config", str(paths.daemon_config)]
         assert recorded[0][3] == "daemon"
-        # The executed copy matches the pinned source digest.
         assert hash_binary(copy) == hash_binary(source)
         await supervisor.stop()
 
@@ -678,14 +612,7 @@ def test_spawn_argv_uses_digest_verified_private_copy_not_bin(tmp_path: Path) ->
 
 
 def test_copy_refreshed_when_source_digest_changes(tmp_path: Path) -> None:
-    """A changed source (simulated store update) refreshes the cache copy.
 
-    The cache is digest-keyed: after the source bytes change and the manifest
-    is re-pinned, the OLD supervisor (manifest cached for its process
-    lifetime) fails closed against the drifted source; the post-update
-    restart — a fresh supervisor over the same data dir — refreshes the copy
-    atomically (new inode) and the daemon runs the new bytes.
-    """
 
     async def scenario() -> None:
         paths = await prepare_pinned(tmp_path)
@@ -701,30 +628,27 @@ def test_copy_refreshed_when_source_digest_changes(tmp_path: Path) -> None:
         for name in ("voxtype-avx2", "voxtype-vulkan"):
             binary = paths.plugin_root / "bin" / name
             binary.write_text(
-                binary.read_text(encoding="utf-8") + "# store update v2\n", encoding="utf-8"
+                binary.read_text(encoding="utf-8") + "\n", encoding="utf-8"
             )
         write_pinned_runtime_manifest(paths.plugin_root, paths.plugin_root / "bin" / "voxtype-avx2")
 
-        # Same process (stale manifest cache): the drift fails closed.
         with pytest.raises(RuntimeStartError) as excinfo:
             await supervisor.start(DEFAULT_SETTINGS)
         assert "digest" in excinfo.value.message
-        assert copy.stat().st_ino == first_inode  # cache untouched by the refusal
+        assert copy.stat().st_ino == first_inode
 
-        # Post-update restart: fresh process, fresh manifest load.
         restarted = make_supervisor(paths, FakeEventPublisher())
         await restarted.start(DEFAULT_SETTINGS)
         assert await wait_until(lambda: paths.status_file.exists(), timeout=3.0)
         assert copy.read_bytes() == source.read_bytes()
         assert hash_binary(copy) == hash_binary(source)
-        assert copy.stat().st_ino != first_inode  # atomic replace, never in-place
+        assert copy.stat().st_ino != first_inode
         await restarted.stop()
 
     asyncio.run(scenario())
 
 
 def test_stale_tmp_copy_is_cleaned_on_cache_hit(tmp_path: Path) -> None:
-    """A stale `<name>.tmp` from an interrupted write never survives a spawn."""
 
     async def scenario() -> None:
         paths = await prepare_pinned(tmp_path)
@@ -733,7 +657,6 @@ def test_stale_tmp_copy_is_cleaned_on_cache_hit(tmp_path: Path) -> None:
         assert await wait_until(lambda: paths.status_file.exists(), timeout=3.0)
         await supervisor.stop()
 
-        # Interrupted-write leftover in the cache dir (wrong bytes, never run).
         stale = exec_copy_dir(paths) / "voxtype-vulkan.tmp"
         stale.write_bytes(b"partial write from a crashed run")
 
@@ -750,8 +673,6 @@ def test_stale_tmp_copy_is_cleaned_on_cache_hit(tmp_path: Path) -> None:
     reason="permission denial needs Linux and a non-root user",
 )
 def test_copy_failure_fails_closed_without_spawn(tmp_path: Path) -> None:
-    """An unwritable cache dir (disk-full class) fails closed: stable
-    RuntimeStartError, no daemon spawn, no leftover tmp file."""
 
     async def scenario() -> None:
         paths = await prepare_pinned(tmp_path)
@@ -764,7 +685,7 @@ def test_copy_failure_fails_closed_without_spawn(tmp_path: Path) -> None:
                 await supervisor.start(DEFAULT_SETTINGS)
             assert str(excinfo.value.code) == "RUNTIME_START_FAILED"
             assert not supervisor.is_running()
-            assert not paths.status_file.exists()  # nothing unverified was spawned
+            assert not paths.status_file.exists()
             assert not (exec_dir / "voxtype-vulkan.tmp").exists()
         finally:
             os.chmod(exec_dir, 0o755)

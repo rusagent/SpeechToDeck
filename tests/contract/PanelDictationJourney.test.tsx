@@ -1,18 +1,3 @@
-/**
- * Panel dictation journey: ONE test drives the shipped
- * flow end to end over the REAL frontend stack — decky envelope unwrap →
- * boundary guards → state machine → panel card render → system
- * clipboard (the paste leg's input; the physical paste is the user's
- * STEAM+X on-screen-keyboard key, which no test can press).
- *
- * The transport mimics the loader's observable semantics exactly: a single
- * FIFO socket carrying coded `{"ok": ...}` envelopes plus backend events,
- * where an event emitted INSIDE a callable's window is dispatched before
- * that callable's response. That ordering is the on-device finding
- * (transcript_ready always precedes the stop acknowledgement;
- * rejecting it in `stopping` wedged the card in "transcribing" forever).
- */
-
 import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
 import * as React from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -41,11 +26,6 @@ vi.mock("@decky/ui", async () => {
 
 afterEach(cleanup);
 
-/**
- * Loader stand-in: FIFO dispatch, coded Python envelopes, and scripted
- * backend behavior inside a callable's window (the real `stop_recording`
- * emits transcript_ready before its response travels back).
- */
 class ScriptedLoaderTransport implements DeckyTransport {
     readonly calls: { route: string; args: unknown[] }[] = [];
 
@@ -66,17 +46,14 @@ class ScriptedLoaderTransport implements DeckyTransport {
         return deferred.promise;
     }
 
-    /** The Python callable's coded success envelope `{"ok": true, ...}`. */
     respond(route: string, payload: Record<string, unknown> = {}): void {
         this.envelopes.set(route, { ok: true, ...payload });
     }
 
-    /** Backend behavior that runs INSIDE the callable window, before the response. */
     duringCall(route: string, behavior: () => void): void {
         this.behaviors.set(route, behavior);
     }
 
-    /** The Python side emitting one event over the socket. */
     emit(event: string, payload?: unknown): void {
         for (const listener of [...(this.subscriptions.get(event) ?? [])]) {
             listener(payload);
@@ -102,7 +79,6 @@ class ScriptedLoaderTransport implements DeckyTransport {
     }
 }
 
-/** Exact backend payload shapes (captured from a live vulkan daemon). */
 const GET_CAPABILITIES = {
     speechRuntimeAvailable: true,
     microphoneAvailable: true,
@@ -131,7 +107,6 @@ const LEVEL_EVENT = (seq: number) => ({
     frames: [[0.12, 0.88, 0.95] as [number, number, number]],
 });
 
-/** Renders the card exactly like the panel: reactive to store/controller state. */
 function JourneyHarness({
     controller,
     speech,
@@ -168,8 +143,6 @@ describe("panel dictation journey: press → levels → stop → transcript → 
         const transport = new ScriptedLoaderTransport();
         transport.respond("get_capabilities", GET_CAPABILITIES);
         transport.respond("start_recording");
-        // The real stop_recording emits transcript_ready INSIDE the callable
-        // window, before its response — FIFO socket ordering.
         transport.duringCall("stop_recording", () => {
             transport.emit("transcript_ready", TRANSCRIPT_READY_PAYLOAD);
             transport.respond("stop_recording");
@@ -185,9 +158,6 @@ describe("panel dictation journey: press → levels → stop → transcript → 
             new FakeIdGenerator(),
         );
 
-        // The real panel clipboard path; execCommand is the CEF success seam.
-        // jsdom limitation: navigator.clipboard does not exist, so the seam is
-        // defined rather than spied.
         let copiedViaExecCommand: string | null = null;
         Object.defineProperty(document, "execCommand", {
             configurable: true,
@@ -205,7 +175,6 @@ describe("panel dictation journey: press → levels → stop → transcript → 
 
         render(<JourneyHarness controller={controller} speech={speech} onCopy={onCopy} />);
 
-        // ── boot → ready ─────────────────────────────────────────────────────
         await act(async () => {
             await controller.start();
             await flush();
@@ -215,7 +184,6 @@ describe("panel dictation journey: press → levels → stop → transcript → 
         const mic = screen.getByRole("button");
         expect(mic.hasAttribute("disabled")).toBe(false);
 
-        // ── press 1: start recording ─────────────────────────────────────────
         await act(async () => {
             fireEvent.click(mic);
             await flush();
@@ -228,7 +196,6 @@ describe("panel dictation journey: press → levels → stop → transcript → 
         expect(controller.getSnapshot().kind).toBe("recording");
         expect(document.querySelector("[data-level-strip]")).not.toBeNull();
 
-        // ── the user speaks: real recording_level frames light the strip ────
         await act(async () => {
             transport.emit("recording_level", LEVEL_EVENT(1));
             transport.emit("recording_level", LEVEL_EVENT(2));
@@ -239,7 +206,6 @@ describe("panel dictation journey: press → levels → stop → transcript → 
         const lit = bars.filter((bar) => Number(bar.getAttribute("data-level-value")) > 0);
         expect(lit.length).toBeGreaterThan(0);
 
-        // ── press 2: stop; the backend emits the transcript BEFORE the ack ──
         await act(async () => {
             fireEvent.click(screen.getByRole("button"));
             await flush();
@@ -247,7 +213,6 @@ describe("panel dictation journey: press → levels → stop → transcript → 
         const stopCall = transport.calls[transport.calls.length - 1];
         expect(stopCall).toMatchObject({ route: "stop_recording", args: [SESSION_ID] });
 
-        // ── settled: never stuck transcribing, clipboard leg done ───────────
         const finalKind = controller.getSnapshot().kind;
         expect(finalKind).not.toBe("transcribing");
         expect(finalKind).not.toBe("stopping");
@@ -255,21 +220,14 @@ describe("panel dictation journey: press → levels → stop → transcript → 
 
         const preview = document.querySelector("[data-transcript-preview]");
         expect(preview?.textContent).toContain(TRANSCRIPT_TEXT);
-        // The paste leg: the exact transcript reached the clipboard mechanism;
-        // on device the user's STEAM+X paste key inserts it from there.
         expect(copiedViaExecCommand).toBe(TRANSCRIPT_TEXT);
         expect(document.querySelector('[data-clipboard-status="copied"]')).not.toBeNull();
-        // Recording ended: the strip window is gone again.
         expect(document.querySelector("[data-level-strip]")).toBeNull();
     });
 });
 
 describe("panel dictation journey: empty speech must never lock the mic", () => {
     it("settles back to ready with the button pressable again when nothing was said", async () => {
-        // Live-device scenario: press, say NOTHING, stop.
-        // The daemon reports empty speech (CLI exit 3) and — since the
-        // empty-outcome fix — the backend emits an EMPTY transcript_ready
-        // inside the stop callable window instead of staying silent.
         const transport = new ScriptedLoaderTransport();
         transport.respond("get_capabilities", GET_CAPABILITIES);
         transport.respond("start_recording");
@@ -301,7 +259,6 @@ describe("panel dictation journey: empty speech must never lock the mic", () => 
             await flush();
         });
 
-        // Recording 1: press, silence, stop.
         await act(async () => {
             fireEvent.click(screen.getByRole("button"));
             await flush();
@@ -312,13 +269,10 @@ describe("panel dictation journey: empty speech must never lock the mic", () => 
             await flush();
         });
 
-        // Silently back to ready — never wedged in transcribing.
         expect(controller.getSnapshot().kind).toBe("ready");
-        // No transcript block, no copied status, nothing to copy.
         expect(document.querySelector("[data-transcript-preview]")).toBeNull();
         expect(document.querySelector('[data-clipboard-status="copied"]')).toBeNull();
 
-        // The lock regression: the mic must accept a NEW session immediately.
         await act(async () => {
             fireEvent.click(screen.getByRole("button"));
             await flush();

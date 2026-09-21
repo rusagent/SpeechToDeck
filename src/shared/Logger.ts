@@ -1,12 +1,3 @@
-/**
- * Structured, categorized logging.
- *
- * Log entries carry primitives only: state kinds, stable error codes, session
- * and context ids, durations. Transcript text and other spoken content are
- * never passed into this module by application code (privacy: never
- * `Transcript: "..."`).
- */
-
 export type LogLevel = "debug" | "info" | "warn" | "error";
 
 export type LogCategory =
@@ -32,14 +23,8 @@ export interface LogEntry {
 
 export type LogSink = (entry: LogEntry) => void;
 
-/** Sink that drops every entry; the application default until a sink is wired. */
 export const nullSink: LogSink = () => undefined;
 
-/**
- * Development sink rendering `[category] message key=value` lines; the Logger
- * default. Deliberately not exported: nothing outside this module references
- * it.
- */
 const consoleSink: LogSink = (entry) => {
     const fields = Object.entries(entry.fields)
         .map(([key, value]) => `${key}=${String(value)}`)

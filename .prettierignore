@@ -1,10 +1,6 @@
-# Untracked local docs are never formatting inputs; the license text must
-# not be reformatted by tooling.
 docs/spec/
 LICENSE
 
-# Generated artifacts, dependency state, and local tooling scratch space are
-# not formatting inputs.
 pnpm-lock.yaml
 dist/
 .venv/

@@ -1,14 +1,3 @@
-/**
- * DictationController behavioral tests.
- *
- * All infrastructure is in-memory fakes; no network and no microphone. The
- * oracle is the product contract: acknowledgements gate the active indicator,
- * stale results are never processed, the settled transcript travels to the
- * clipboard in exactly one write, and validation governs empty speech and
- * oversized input. (The recording cap was removed — recordings are unlimited
- * on the FE side; the former watchdog suite went with it.)
- */
-
 import { describe, expect, it } from "vitest";
 
 import { DictationController } from "../../src/application/DictationController";
@@ -344,9 +333,6 @@ describe("speech failures during a session", () => {
 });
 
 describe("stale error auto-clear on runtime ready (observed on device)", () => {
-    // On-device defect: a press during a daemon restart window left a
-    // standing recoverable error on the card even after the runtime was
-    // ready again; nothing ever cleared it.
     async function pressFailureError(rig: TestRig): Promise<void> {
         await startReady(rig);
         await rig.controller.handlePanelMicrophonePressed();
@@ -368,8 +354,6 @@ describe("stale error auto-clear on runtime ready (observed on device)", () => {
         await flush();
         expect(rig.controller.getSnapshot().kind).toBe("ready");
 
-        // Only the STALE error clears: a NEW failing press produces its own
-        // error state again (never honesty).
         await rig.controller.handlePanelMicrophonePressed();
         await flush();
         rig.speech.rejectStart("id-2", new Error("still broken"));
@@ -465,8 +449,6 @@ describe("on-device event ordering: transcript precedes the stop acknowledgement
         await flush();
         expect(rig.controller.getSnapshot().kind).toBe("stopping");
 
-        // Real decky FIFO order: the backend emits transcript_ready inside the
-        // stop_recording callable, before its response resolves the await.
         rig.speech.emitTranscript(sessionId, "hello world");
         rig.speech.resolveStop(sessionId);
         await flush();
@@ -476,11 +458,8 @@ describe("on-device event ordering: transcript precedes the stop acknowledgement
     });
 });
 
-// ── boot watchdog (no startup wait is unbounded) ────────────────────────────
-
 type TimeoutHandle = ReturnType<typeof setTimeout>;
 
-/** Manual scheduler: expiry fires only when the test calls fire() — no sleeps. */
 class ManualStartupTimer {
     cancelCount = 0;
     private handler: (() => void) | null = null;
@@ -508,7 +487,6 @@ class ManualStartupTimer {
     }
 }
 
-/** Torn-loader stand-in: the initialize callable never resolves on its own. */
 class HangingInitializeSpeechPort extends FakeSpeechPort {
     private readonly gate = new Deferred<void>();
 
@@ -553,7 +531,7 @@ function createWatchdogRig(speechPort?: (trace: string[]) => FakeSpeechPort): {
 describe("startup watchdog (a torn loader registration must not wedge booting)", () => {
     it("expires into the existing SPEECH_RUNTIME_UNAVAILABLE path and ignores a late resolution", async () => {
         const { rig, timer } = createWatchdogRig((trace) => new HangingInitializeSpeechPort(trace));
-        void rig.controller.start(); // parked inside the hanging initialize
+        void rig.controller.start();
         await flush();
         expect(rig.trace).toContain("speech.initialize");
         expect(rig.controller.getSnapshot().kind).toBe("booting");
@@ -566,7 +544,6 @@ describe("startup watchdog (a torn loader registration must not wedge booting)",
             reason: "SPEECH_RUNTIME_UNAVAILABLE",
         });
 
-        // The torn callable resolves late: the state must not flip back.
         (rig.speech as HangingInitializeSpeechPort).resolveInitialize();
         await flush();
         expect(rig.controller.getSnapshot()).toEqual({
@@ -582,7 +559,7 @@ describe("startup watchdog (a torn loader registration must not wedge booting)",
         expect(timer.cancelCount).toBe(1);
         expect(timer.armed).toBe(false);
 
-        timer.fire(); // no handler left: a cleared watchdog cannot fire
+        timer.fire();
         await flush();
         expect(rig.controller.getSnapshot().kind).toBe("ready");
     });

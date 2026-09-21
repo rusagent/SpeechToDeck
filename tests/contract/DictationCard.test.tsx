@@ -1,11 +1,3 @@
-/**
- * DictationCard contract tests: the card renders the
- * REAL state union through MicrophoneButtonModel semantics, a level strip
- * built ONLY from real received frames (published through the real store),
- * and the transcript/clipboard block with the copy-again action. The press
- * routes to the injected handler (the controller's panel press path).
- */
-
 import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { DictationCard } from "../../src/presentation/settings/DictationCard";
@@ -30,8 +22,6 @@ const RECORDING: DictationState = {
     session: { sessionId: "panel-1", startedAtMonotonicMs: 0 },
 };
 const READY: DictationState = { kind: "ready" };
-// On-device press failure class: the coded envelope came back, but the
-// card showed only the generic mic label.
 const ERROR: DictationState = {
     kind: "error",
     error: new DictationError("RUNTIME_UNAVAILABLE"),
@@ -86,7 +76,6 @@ describe("DictationCard", () => {
 
         fireEvent.click(button);
         expect(onPress).toHaveBeenCalledTimes(1);
-        // No strip while idle; no transcript block yet.
         expect(document.querySelector("[data-level-strip]")).toBeNull();
         expect(document.querySelector("[data-transcript-block]")).toBeNull();
     });
@@ -98,9 +87,6 @@ describe("DictationCard", () => {
             new FakeSnapshotStore<PanelTranscriptSnapshot | null>(null),
         );
 
-        // The stable code chip plus the mapped message right in the card
-        // (same pair as the Diagnostics last-error row and the setup-failed
-        // chip) — not only the generic mic label.
         const details = document.querySelector("[data-dictation-error]");
         expect(details).not.toBeNull();
         expect(details?.textContent).toContain("RUNTIME_UNAVAILABLE");
@@ -114,8 +100,6 @@ describe("DictationCard", () => {
             new FakeSnapshotStore<PanelTranscriptSnapshot | null>(null),
         );
 
-        // The old generic mic label promised "details in the plugin panel" —
-        // a section removed in 40768ed. The card carries the detail itself.
         expect(document.body.textContent).not.toContain("plugin panel");
         expect(document.querySelector("[data-dictation-error]")).not.toBeNull();
     });
@@ -131,17 +115,11 @@ describe("DictationCard", () => {
         const strip = document.querySelector("[data-level-strip]");
         expect(strip).not.toBeNull();
         expect(document.querySelectorAll("[data-level-bar]")).toHaveLength(24);
-        // The compact style picker is ALWAYS visible (not a recording-only
-        // control): it rides beneath the strip while recording.
         expect(document.querySelector("[data-level-style-picker]")).not.toBeNull();
-        // Before any event: the window is the all-zero idle snapshot.
         expect(
             strip?.querySelector('[data-level-bar="23"]')?.getAttribute("data-level-value"),
         ).toBe("0.00");
 
-        // Real frames through the real store → real bars (never synthetic).
-        // Levels come from peakDbfs over the -60..0 dBFS range: -30 → 0.50,
-        // -6 → 0.90; the min/max extrema no longer drive magnitude.
         await act(async () => {
             store.publish(framePayload(41, -0.03, 0.03, -30));
             store.publish(framePayload(42, -0.5, 0.5, -6));
@@ -162,9 +140,6 @@ describe("DictationCard", () => {
             new FakeSnapshotStore<PanelTranscriptSnapshot | null>(null),
         );
 
-        // A user picks the visualizer style BEFORE starting a recording: the
-        // compact picker row renders in every state, while the strip itself
-        // still appears only while recording.
         expect(document.querySelector("[data-level-style-picker]")).not.toBeNull();
         expect(document.querySelector("[data-level-strip]")).toBeNull();
     });
@@ -192,7 +167,6 @@ describe("DictationCard", () => {
             view.rerender(<DictationCard {...props(READY)} />);
         });
         expect(document.querySelector("[data-level-strip]")).toBeNull();
-        // The picker row survives the transition out of recording: always visible.
         expect(document.querySelector("[data-level-style-picker]")).not.toBeNull();
         const block = document.querySelector("[data-transcript-block]");
         expect(block).not.toBeNull();
@@ -214,7 +188,7 @@ describe("DictationCard", () => {
 
         const preview = document.querySelector("[data-transcript-preview]");
         expect(preview?.textContent).toBe(`${"x".repeat(140)}…`);
-        expect(onCopy).not.toHaveBeenCalled(); // backend leg already copied
+        expect(onCopy).not.toHaveBeenCalled();
     });
 
     it("auto-copies a skipped backend leg and reports the panel outcome", async () => {
@@ -242,7 +216,6 @@ describe("DictationCard", () => {
 
         expect(document.querySelector('[data-clipboard-status="failed"]')).not.toBeNull();
 
-        // The user retries; now the copy succeeds and the status flips.
         outcome = true;
         const again = document.querySelector("[data-copy-again]") as HTMLButtonElement | null;
         expect(again).not.toBeNull();

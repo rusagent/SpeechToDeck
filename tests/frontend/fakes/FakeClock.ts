@@ -1,6 +1,5 @@
 import type { ClockPort } from "../../../src/application/ports/ClockPort";
 
-/** In-memory monotonic clock; tests advance it explicitly. */
 export class FakeClock implements ClockPort {
     private currentMs: number;
 

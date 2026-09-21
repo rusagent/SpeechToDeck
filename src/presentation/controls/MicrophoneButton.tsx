@@ -1,18 +1,3 @@
-/**
- * MicrophoneButton — pure presentation component.
- *
- * No backend logic. Accessibility: implicit button role, accessible
- * name per state, `aria-pressed` for the recording state, disabled state,
- * and a per-state glyph/marker so the state never relies on color alone.
- *
- * State craft: recording adds a pulsing ring, a solid badge and the
- * optional mm:ss elapsed label (driven by the caller from the session state,
- * never a free-running idle loop); processing shows a spinner;
- * error shows a badge plus a brief localized message flash (the detailed
- * error remains in the plugin panel). Motion respects the user's
- * reduced-motion preference.
- */
-
 import * as React from "react";
 import { translateMicLabel } from "../i18n/messages";
 import type { Locale } from "../i18n/messages";
@@ -23,26 +8,12 @@ export interface MicrophoneButtonProps {
     readonly disabled: boolean;
     readonly onPress: () => void;
     readonly locale?: Locale;
-    /**
-     * Recording elapsed label (mm:ss). Pure display, `aria-hidden` — the
-     * accessible name stays stable instead of churning every second.
-     */
     readonly elapsedLabel?: string | undefined;
-    /**
-     * Localized error message for the brief error flash. Announced via
-     * `role="status"`; hides itself after a few seconds.
-     */
     readonly errorMessage?: string | undefined;
-    /**
-     * Rendered diameter in px (additive: the QAM dictation card renders
-     * a larger control). Same 44 px default and identical visual-state
-     * semantics at every size.
-     */
     readonly size?: number;
 }
 
 const BUTTON_SIZE_PX = 44;
-/** One-shot flash duration; the timer exists only while a message shows. */
 const ERROR_FLASH_MS = 4000;
 
 const RECORDING_COLOR = "#ff5c5c";
@@ -150,15 +121,10 @@ function spinnerIcon(size: number): React.ReactElement {
     );
 }
 
-/** Glyph diameter: proportional to the button, with sane bounds. */
 function glyphSize(buttonSize: number): number {
     return Math.round(Math.min(40, Math.max(18, buttonSize * 0.45)));
 }
 
-/**
- * Motion styles, injected once. Both animations are active-state feedback
- * (recording ring / spinner) and switch off under `prefers-reduced-motion`.
- */
 const MOTION_STYLES = `
 @keyframes speechtodeck-pulse {
     0% { box-shadow: 0 0 0 0 rgba(255, 92, 92, 0.55); }
@@ -188,7 +154,6 @@ function injectMotionStyles(): void {
     motionStylesInjected = true;
 }
 
-/** Brief error flash: one timer per message, disposed on change/unmount. */
 function useErrorFlash(errorMessage: string | undefined): boolean {
     const [visible, setVisible] = React.useState(false);
     React.useEffect(() => {

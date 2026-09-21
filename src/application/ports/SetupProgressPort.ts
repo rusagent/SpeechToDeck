@@ -1,19 +1,6 @@
-/**
- * Versioned backend `setup_progress` payload (frozen contract) with its
- * manual boundary type guard and the small dedicated snapshot store
- * the plugin panel consumes.
- *
- * Setup progress is transport-level UI state: it never enters the dictation
- * state machine and is only observed by the settings panel through
- * `useSyncExternalStore`. Invalid payloads are dropped by the adapter
- * (count-logged), never rendered.
- */
-
-/** The frozen setup steps plus the two terminal markers. */
 export type SetupStep =
     "runtime.verify" | "model.ensure" | "daemon.start" | "model.warmup" | "ready" | "failed";
 
-/** i18n keys for the current step (exactly the translation message keys). */
 export type SetupLabelKey =
     | "setup.step.runtimeVerify"
     | "setup.step.modelEnsure"
@@ -22,7 +9,6 @@ export type SetupLabelKey =
     | "setup.state.ready"
     | "setup.state.failed";
 
-/** Optional i18n keys describing what the current step is doing. */
 export type SetupDetailKey =
     | "setup.detail.checksum"
     | "setup.detail.downloading"
@@ -30,17 +16,12 @@ export type SetupDetailKey =
     | "setup.detail.spawning"
     | "setup.detail.warmup";
 
-/**
- * Latest setup-progress report. `ready` is terminal success (the panel
- * hides), `failed` is terminal failure (the panel offers retry).
- */
 export interface SetupProgressSnapshot {
     readonly protocolVersion: 1;
     readonly step: SetupStep;
     readonly labelKey: SetupLabelKey;
     readonly stepIndex: number;
     readonly totalSteps: number;
-    /** 0–100 progress of the current step; 0 while indeterminate. */
     readonly percent: number;
     readonly indeterminate: boolean;
     readonly detailKey?: SetupDetailKey;
@@ -81,7 +62,6 @@ function isPercent(value: unknown): value is number {
     return typeof value === "number" && Number.isFinite(value) && value >= 0 && value <= 100;
 }
 
-/** Manual type guard for payloads crossing the backend boundary. */
 export function isSetupProgressSnapshot(value: unknown): value is SetupProgressSnapshot {
     if (!isRecord(value)) {
         return false;
@@ -124,12 +104,6 @@ export function isSetupProgressSnapshot(value: unknown): value is SetupProgressS
     return true;
 }
 
-/**
- * Minimal external store for the latest setup snapshot (external-store
- * shape: `getSnapshot`/`subscribe` pair consumed by `useSyncExternalStore`).
- * Structurally compatible with `StateStore<T>`; the latest valid payload
- * wins, listeners are notified on every publish.
- */
 export class SetupProgressStore {
     private readonly listeners = new Set<() => void>();
     private snapshot: SetupProgressSnapshot | null = null;
@@ -145,7 +119,6 @@ export class SetupProgressStore {
         };
     }
 
-    /** Publishes an already guarded payload (the adapter owns validation). */
     publish(snapshot: SetupProgressSnapshot): void {
         this.snapshot = snapshot;
         for (const listener of [...this.listeners]) {

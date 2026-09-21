@@ -1,19 +1,3 @@
-/**
- * ModelSelect tests (redesign).
- *
- * Named production defect (on-device session): the old row-based
- * picker reused ONE button as Download when idle and Cancel while
- * downloading, so a rapid tap rhythm cancelled every second download and
- * the backend mapped each cancel to MODEL_DOWNLOAD_FAILED — a pure UX
- * problem that read like repeated network failures. Oracle: the new
- * two-dropdown flow persists only installed selections, opens the download
- * modal for not-installed ones (dropdown stays bound to the persisted
- * model), drives live progress through the guarded store, holds the full
- * 100% bar on completion and closes the modal before persisting, and
- * distinguishes cancel (no persist) from failure (backend detail in the
- * error state).
- */
-
 import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { ReactNode } from "react";
@@ -21,11 +5,6 @@ import { ModelSelect } from "../../src/presentation/settings/ModelSelect";
 import { ModelCatalogStore, type CatalogModel } from "../../src/application/ports/ModelCatalogPort";
 import type { Locale } from "../../src/presentation/i18n/messages";
 
-// The picker renders through @decky/ui components that expect the Steam UI
-// environment. The stubs keep the selection logic (persist vs download
-// modal, grouped options, controlled revert) the subject: every dropdown
-// option renders as a button, showModal captures its modal node + close
-// handle, and ProgressBar exposes its determinate/indeterminate state.
 vi.mock("@decky/ui", async () => {
     const React = await import("react");
     const h = React.createElement;
@@ -42,13 +21,6 @@ vi.mock("@decky/ui", async () => {
         update: ReturnType<typeof vi.fn>;
     }[] = [];
     return {
-        // Semi-controlled Steam semantics (the P1 oracle): WITHOUT the
-        // `controlled` flag the internal value lives in component state and
-        // a selection moves it; WITH `controlled: true` the displayed value
-        // ALWAYS derives from selectedOption — so a cancelled or failed
-        // download (which persists nothing) snaps the rendered label back.
-        // Optgroup labels (entries without `data`) render as marked headers
-        // so the grouping contract is queryable.
         DropdownItem: (props: {
             label: string;
             rgOptions: GroupEntry[];
@@ -93,12 +65,6 @@ vi.mock("@decky/ui", async () => {
                 ),
             );
         },
-        // Steam modal structure (the on-device fix): ModalRoot is
-        // Steam's GenericDialogModal — it draws the dialog box and funnels
-        // EVERY dismissal (Esc key, X close icon, background mousedown) into
-        // the ONE closeModal callback. The mock exposes that funnel as the
-        // [data-modal-dismiss] probe surface; the dialog primitives render
-        // plain divs, forwarding data-* contract markers.
         ModalRoot: (props: { closeModal?: () => void; children?: Children }) =>
             h(
                 "div",
@@ -146,7 +112,6 @@ vi.mock("@decky/ui", async () => {
     };
 });
 
-// The test-only export from the mock (typed through the module shape).
 const deckyUi = await import("@decky/ui");
 const capturedModals = (deckyUi as unknown as { __capturedModals: CapturedModal[] })
     .__capturedModals;
@@ -235,7 +200,6 @@ function lastModal(): CapturedModal {
     return modal!;
 }
 
-/** The rendered dropdown label (the semi-controlled revert oracle). */
 function expectSelectedLabel(label: string): void {
     const node = document.querySelector("[data-selected]");
     expect(node).not.toBeNull();
@@ -248,16 +212,12 @@ describe("ModelSelect", () => {
         seedStore(store);
         renderSelect(store);
 
-        // The General group carries the localized name + decimal size; the
-        // two turbo picks carry the localized "Recommended" suffix.
         expect(screen.getByText("Tiny (fastest) · 78 MB")).not.toBeNull();
         expect(screen.getByText("Large v3 Turbo Q5_0 · 574 MB · Recommended")).not.toBeNull();
-        // Every language group renders, labeled with its native endonym.
         expect(screen.getByText("Large v3 Turbo German Q5_0 · 574 MB")).not.toBeNull();
         expect(screen.getByText("Distil Small (English) · 336 MB")).not.toBeNull();
         expect(screen.getByText("Large v3 French Q5_0 · 1.1 GB")).not.toBeNull();
         expect(screen.getByText("Kotoba v2.0 Japanese Q5_0 · 538 MB")).not.toBeNull();
-        // The controlled value renders as the persisted model's label.
         expectSelectedLabel("Base (default) · 148 MB");
     });
 
@@ -266,17 +226,11 @@ describe("ModelSelect", () => {
         seedStore(store);
         renderSelect(store);
 
-        // Fixed groups: General (models WITHOUT `languages`) first, then the
-        // language groups with locale-invariant native endonyms.
         const groupLabels = Array.from(document.querySelectorAll("[data-group-label]")).map(
             (node) => node.textContent,
         );
         expect(groupLabels).toEqual(["General", "Deutsch", "English", "Français", "日本語"]);
 
-        // Grouping keys off `languages` presence, NEVER the `multilingual`
-        // flag: the general catalog models are multilingual:true and stay in
-        // General, while the multilingual de/fr/ja specialists land in their
-        // language groups (the German specialist is multilingual:true too).
         const generalGroup = document.querySelector('[data-group="General"]');
         expect(generalGroup?.querySelector('[data-model-option="base"]')).not.toBeNull();
         expect(
@@ -292,9 +246,6 @@ describe("ModelSelect", () => {
     it("lists every language group regardless of the language setting", () => {
         const store = new ModelCatalogStore();
         seedStore(store);
-        // The persisted language is the "system" sentinel — irrelevant to the
-        // catalog: the old per-language filtering (which hid the specialists
-        // behind a concrete language selection) is gone.
         renderSelect(store);
 
         expect(screen.getByText("Large v3 Turbo German Q5_0 · 574 MB")).not.toBeNull();
@@ -327,10 +278,6 @@ describe("ModelSelect", () => {
             screen.getByRole("button", { name: "Large v3 Turbo Q5_0 · 574 MB · Recommended" }),
         );
 
-        // The download starts, nothing persists, and the controlled dropdown
-        // stays bound to the previously selected model while the download
-        // runs (single-flight UI contract): the rendered label still
-        // shows the persisted model, never the picked one.
         expect(onDownload).toHaveBeenCalledTimes(1);
         expect(onDownload).toHaveBeenCalledWith("whisper-large-v3-turbo-q5_0");
         expect(onChange).not.toHaveBeenCalled();
@@ -339,11 +286,6 @@ describe("ModelSelect", () => {
         expectSelectedLabel("Base (default) · 148 MB");
     });
 
-    // Honest completion (on-device finding): the old atomic
-    // complete-nulls-download-and-flips-installed path closed the modal
-    // before any 100% frame painted, and the throttled progress stream let
-    // faster downloads finish from a stale lower frame. Completion now holds
-    // the full bar for a fixed delay before the close-then-persist order.
     it("shows live progress, holds the full 100% bar on completion, then closes before persisting", async () => {
         vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
         try {
@@ -358,9 +300,6 @@ describe("ModelSelect", () => {
             const modal = lastModal();
             render(modal.node);
 
-            // The title is rendered by the modal content (DialogHeader) — real
-            // Steam never creates a header from the showModal strTitle, so the
-            // raw-div modal shipped earlier had NO title element at all.
             expect(
                 screen.getByText("Large v3 Turbo Q5_0", { selector: "[data-modal-header]" }),
             ).not.toBeNull();
@@ -377,10 +316,6 @@ describe("ModelSelect", () => {
             expect(screen.getByText("40%", { selector: "[data-model-percent]" })).not.toBeNull();
             expect(document.querySelector('[data-nprogress="40"]')).not.toBeNull();
 
-            // model_download_complete: the install state flips and the store
-            // keeps the final percent-100 snapshot — the modal shows the full
-            // bar and does NOT close (nor persist) immediately anymore. The
-            // settled download cannot be cancelled anymore.
             await act(async () => {
                 store.publishComplete({
                     protocolVersion: 1,
@@ -394,8 +329,6 @@ describe("ModelSelect", () => {
             expect(document.querySelector('[data-nprogress="100"]')).not.toBeNull();
             expect(screen.queryByRole("button", { name: "Cancel" })).toBeNull();
 
-            // After the fixed completion hold the modal closes and THEN the
-            // selection persists (restart fires once).
             await act(async () => {
                 await vi.advanceTimersByTimeAsync(500);
             });
@@ -432,9 +365,6 @@ describe("ModelSelect", () => {
                 });
             });
 
-            // ModalRoot is Steam's dismissal funnel (Esc/X/background click).
-            // During the hold it routes to the completion path — the download
-            // settled, so a dismissal must close + persist, never cancel.
             const dismiss = document.querySelector("[data-modal-dismiss]");
             expect(dismiss).not.toBeNull();
             fireEvent.click(dismiss!);
@@ -444,7 +374,6 @@ describe("ModelSelect", () => {
             expect(onChange).toHaveBeenCalledTimes(1);
             expect(onChange).toHaveBeenCalledWith("whisper-large-v3-turbo-q5_0");
 
-            // The hold timer after the settled completion is a no-op.
             await act(async () => {
                 await vi.advanceTimersByTimeAsync(500);
             });
@@ -487,9 +416,6 @@ describe("ModelSelect", () => {
         expect(onCancel).toHaveBeenCalledTimes(1);
         expect(onChange).not.toHaveBeenCalled();
         expect(modal.close).toHaveBeenCalledTimes(1);
-        // The P1 revert: nothing persisted, so the controlled dropdown label
-        // is back on the previously selected model — never stuck on the
-        // picked (not-installed) one.
         expectSelectedLabel("Base (default) · 148 MB");
     });
 
@@ -505,10 +431,6 @@ describe("ModelSelect", () => {
         const modal = lastModal();
         render(modal.node);
 
-        // ModalRoot is Steam's dismissal funnel: Esc key, the X close icon
-        // and a background mousedown all end in the ONE closeModal callback
-        // (Steam client bundle, GenericDialogModal/ModalPosition). The mock
-        // exposes it as the [data-modal-dismiss] probe surface.
         const dismiss = document.querySelector("[data-modal-dismiss]");
         expect(dismiss).not.toBeNull();
         fireEvent.click(dismiss!);
@@ -518,9 +440,6 @@ describe("ModelSelect", () => {
         expect(modal.close).toHaveBeenCalledTimes(1);
         expectSelectedLabel("Base (default) · 148 MB");
 
-        // The fnOnClose backstop (Steam teardown not routed through
-        // closeModal) must not double-fire the cancel after the funnel
-        // already settled the modal.
         act(() => {
             modal.props.fnOnClose?.();
         });
@@ -545,8 +464,6 @@ describe("ModelSelect", () => {
         expect(screen.getByText("Download failed")).not.toBeNull();
         expect(screen.getByText("HTTP 403 host=huggingface.co")).not.toBeNull();
 
-        // Close on the error state: the download already settled, so nothing
-        // is cancelled and nothing persists — the dropdown label snaps back.
         fireEvent.click(screen.getByRole("button", { name: "Close" }));
         expect(modal.close).toHaveBeenCalledTimes(1);
         expect(onCancel).not.toHaveBeenCalled();

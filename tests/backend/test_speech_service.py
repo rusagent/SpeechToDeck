@@ -1,8 +1,3 @@
-"""SpeechApplicationService tests.
-
-Uses the deterministic FakeSpeechRuntime: no hardware.
-"""
-
 from __future__ import annotations
 
 import asyncio
@@ -30,8 +25,6 @@ ERROR = "speech_error"
 
 
 class FakeClipboardWriter:
-    """ClipboardWriter double recording the handed-over text (privacy oracle:
-    the writer must receive the NORMALIZED transcript, never the raw one)."""
 
     def __init__(
         self,
@@ -95,7 +88,7 @@ def test_happy_stop_emits_correlated_transcript_ready() -> None:
         payload = ready[0]
         assert payload["protocolVersion"] == 1
         assert payload["sessionId"] == "session-1"
-        assert payload["text"] == "hello world"  # trimmed only
+        assert payload["text"] == "hello world"
         metrics = payload["metrics"]
         assert metrics["audioDurationMs"] == 1234.0
         assert metrics["transcriptionDurationMs"] == 42.0
@@ -119,7 +112,6 @@ def test_duplicate_start_conflicts_and_session_survives() -> None:
         with pytest.raises(SessionConflictError):
             await harness.service.start_recording("session-2")
         assert harness.publisher.codes(ERROR) == ["SESSION_CONFLICT"]
-        # Original session is still the one active session.
         status = harness.service.get_status()
         assert status["activeSessionId"] == "session-1"
 
@@ -147,7 +139,7 @@ def test_invalid_session_id_rejected_before_runtime() -> None:
         for bad in ("", "has space", "../traversal", "x" * 200, "new\nline"):
             with pytest.raises(InvalidSessionIdError):
                 await harness.service.start_recording(bad)
-        assert harness.runtime.calls == []  # never reached the runtime
+        assert harness.runtime.calls == []
 
     asyncio.run(scenario())
 
@@ -164,7 +156,6 @@ def test_cancel_discards_result_and_emits_no_transcript() -> None:
         await harness.service.cancel_recording("session-1")
         await asyncio.wait_for(stop_wait, 2.0)
 
-        # Cancellation removes the session, emits no transcript.
         assert harness.publisher.payloads(READY) == []
         assert "cancel_recording" in harness.runtime.calls
         states = [p["state"] for p in harness.publisher.payloads(EVENTS)]
@@ -196,7 +187,7 @@ def test_nul_transcript_rejected() -> None:
             await asyncio.wait_for(stop_task, 2.0)
         assert harness.publisher.payloads(READY) == []
         assert harness.publisher.codes(ERROR) == ["INVALID_TRANSCRIPT"]
-        assert not harness.service.has_pending_work()  # session cleaned up
+        assert not harness.service.has_pending_work()
 
     asyncio.run(scenario())
 
@@ -226,16 +217,8 @@ def test_empty_transcript_is_not_an_error() -> None:
             harness.service.stop_recording("session-1")
         )
         await asyncio.sleep(0.05)
-        # The real runtime reports empty speech as an empty result (client
-        # maps the `record stop --wait` exit 3 outcome).
         await harness.runtime.emit_transcript("   ")
         await asyncio.wait_for(stop_task, 2.0)
-        # Empty speech: no transcript, no insertion, no error. The EMPTY
-        # `transcript_ready` event is still the outcome channel the frontend
-        # machine consumes to leave the stop flow — it never subscribes to
-        # `speech_status`, and without the event the machine wedged in
-        # `transcribing` and locked the mic button (on-device finding:
-        # owner: "nichts gesagt → locked").
         ready = harness.publisher.payloads(READY)
         assert len(ready) == 1
         assert ready[0]["text"] == ""
@@ -259,7 +242,6 @@ def test_stop_acknowledgement_timeout_clears_session() -> None:
         with pytest.raises(RecordingStopError):
             await harness.service.stop_recording("session-1")
         assert harness.publisher.codes(ERROR) == ["RECORDING_STOP_FAILED"]
-        # Cleanup happened; a new session can start immediately.
         harness.runtime.stop_hangs = False
         await harness.service.start_recording("session-2")
         await harness.service.cancel_recording("session-2")
@@ -269,15 +251,11 @@ def test_stop_acknowledgement_timeout_clears_session() -> None:
 
 def test_final_transcription_timeout(monkeypatch: pytest.MonkeyPatch) -> None:
     async def scenario() -> None:
-        # The bound is max(watchdog floor, recorded * factor +
-        # grace); a short recording rides the floor (a module-level
-        # constant), so patch it down to keep the bounded wait fast — the
-        # timeout mapping is identical at any floor value.
         monkeypatch.setattr(speech_service, "TRANSCRIPTION_WATCHDOG_FLOOR_S", 2)
         harness = Harness(transcript_grace_seconds=0.1)
         await harness.service.start_recording("session-1")
         with pytest.raises(TranscriptionTimeoutError):
-            await harness.service.stop_recording("session-1")  # nothing ever emitted
+            await harness.service.stop_recording("session-1")
         assert harness.publisher.codes(ERROR) == ["TRANSCRIPTION_TIMEOUT"]
         assert not harness.service.has_pending_work()
 
@@ -285,18 +263,13 @@ def test_final_transcription_timeout(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 def test_transcription_timeout_scales_with_recorded_duration() -> None:
-    """The final-wait budget grows with what was actually recorded
-    while short recordings keep the exact historical floor (60 s cap + 30 s
-    grace = 90 s) — the 24 h valve must not turn into a fixed 24 h wait nor
-    into an under-budgeted one. Deterministic in the recorded span."""
 
     async def scenario() -> None:
-        harness = Harness()  # default grace: 30 s
+        harness = Harness()
         assert harness.service._transcription_timeout(0.0) == 90.0
-        assert harness.service._transcription_timeout(20.0) == 90.0  # floor kept
+        assert harness.service._transcription_timeout(20.0) == 90.0
         assert harness.service._transcription_timeout(60.0) == 150.0
         assert harness.service._transcription_timeout(600.0) == 1230.0
-        # An hour of audio gets an hour-scale budget, not the 90 s floor.
         assert harness.service._transcription_timeout(3600.0) == 7230.0
 
     asyncio.run(scenario())
@@ -330,7 +303,6 @@ def test_runtime_crash_during_transcription_wait_supersedes_stop() -> None:
         await harness.service.notify_runtime_lost(None)
         with pytest.raises(RuntimeCrashedError):
             await asyncio.wait_for(stop_task, 2.0)
-        # Exactly one speech_error for the crash (published via the stop path).
         assert harness.publisher.codes(ERROR) == ["RUNTIME_CRASHED"]
 
     asyncio.run(scenario())
@@ -340,7 +312,6 @@ def test_transcript_without_waiting_stop_is_discarded() -> None:
     async def scenario() -> None:
         harness = Harness()
         await harness.service.start_recording("session-1")
-        # A result arriving outside an active stop must never surface.
         await harness.runtime.emit_transcript("stale words")
         await harness.service.cancel_recording("session-1")
         assert harness.publisher.payloads(READY) == []
@@ -348,7 +319,6 @@ def test_transcript_without_waiting_stop_is_discarded() -> None:
     asyncio.run(scenario())
 
 
-# ── v0.2 additive clipboard leg (transcript_ready "clipboard" field) ────────
 
 
 def _run_transcript_scenario(harness: Harness, text: str = "  hello world  ") -> None:
@@ -372,9 +342,7 @@ def test_clipboard_ok_travels_in_transcript_ready() -> None:
     ready = harness.publisher.payloads(READY)
     assert len(ready) == 1
     assert ready[0]["clipboard"] == "ok"
-    # The writer received the normalized text, never the raw payload.
     assert writer.texts == ["hello world"]
-    # The dictation flow is otherwise unchanged.
     states = [p["state"] for p in harness.publisher.payloads(EVENTS)]
     assert states == ["recording", "transcribing", "ready"]
 
@@ -386,8 +354,8 @@ def test_clipboard_writer_crash_never_fails_the_transcription() -> None:
 
     ready = harness.publisher.payloads(READY)
     assert len(ready) == 1
-    assert ready[0]["clipboard"] == "failed"  # contained, reported
-    assert ready[0]["text"] == "hello world"  # the transcript still delivered
+    assert ready[0]["clipboard"] == "failed"
+    assert ready[0]["text"] == "hello world"
     states = [p["state"] for p in harness.publisher.payloads(EVENTS)]
     assert states == ["recording", "transcribing", "ready"]
     assert harness.publisher.payloads(ERROR) == []
@@ -411,8 +379,6 @@ def test_unavailable_writer_reports_skipped() -> None:
 
 
 def test_unwired_clipboard_reports_skipped_and_changes_nothing_else() -> None:
-    # Default (no writer wired): the frozen transcript_ready core is intact,
-    # only the additive field reports the skipped backend leg.
     harness = Harness()
     _run_transcript_scenario(harness)
 
@@ -427,12 +393,9 @@ def test_unwired_clipboard_reports_skipped_and_changes_nothing_else() -> None:
 def test_empty_transcript_writes_no_clipboard() -> None:
     writer = FakeClipboardWriter("ok")
     harness = Harness(clipboard_writer=writer)
-    _run_transcript_scenario(harness, text="   ")  # empty-speech path
+    _run_transcript_scenario(harness, text="   ")
 
-    assert writer.texts == []  # nothing copied
-    # The empty outcome event still travels (the frontend machine consumes
-    # it to leave the stop flow) — but the clipboard leg is skipped, never
-    # attempted with empty text.
+    assert writer.texts == []
     ready = harness.publisher.payloads(READY)
     assert len(ready) == 1
     assert ready[0]["text"] == ""

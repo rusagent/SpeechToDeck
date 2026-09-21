@@ -1,5 +1,3 @@
-"""SpeechSessionCoordinator tests: single-session invariant."""
-
 from __future__ import annotations
 
 import asyncio
@@ -16,7 +14,6 @@ def test_second_session_conflicts_while_first_active() -> None:
         assert first.session_id == "session-a"
         with pytest.raises(SessionConflictError):
             await coordinator.begin("session-b", started_monotonic=2.0)
-        # The active session survived the rejected attempt.
         active = await coordinator.active()
         assert active is not None and active.session_id == "session-a"
 
@@ -27,7 +24,6 @@ def test_require_enforces_stale_session_protection() -> None:
     async def scenario() -> None:
         coordinator = SpeechSessionCoordinator()
 
-        # No session at all: every id is stale.
         with pytest.raises(StaleSessionError):
             await coordinator.require("session-a")
 

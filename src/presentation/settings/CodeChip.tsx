@@ -1,10 +1,3 @@
-/**
- * CodeChip — monospace chip showing the raw stable error code next to its
- * mapped text (the code is a fixed enum, sanitized by construction).
- * Shared by the setup-progress panel and the dictation card so both error
- * surfaces read identically.
- */
-
 import * as React from "react";
 
 export function CodeChip({ code }: { code: string }): React.ReactElement {

@@ -1,41 +1,12 @@
-/**
- * LevelVisualizer — the dictation card's live level
- * strip with three user-selectable styles over the SAME real-frame window:
- *
- * - `heatmap` (default): a scrolling time-column heat map in a
- *   magma/fire palette (deep purple floor →
- *   magenta → red-orange → amber → near-white yellow core) where each column
- *   is one real frame, the newest stays on the right, and amplitude maps to
- *   color temperature with a soft glow on hot columns. Faint horizontal
- *   scanlines echo the reference image.
- * - `classic`: the extracted 24-bar strip, pixel-identical.
- * - `mirror`: the same bars folded vertically around a center line.
- *
- * Privacy/no fabrication: every style renders ONLY the real received
- * `recording_level` amplitudes passed in `bars` (the adapter-guarded
- * LevelMeterStore window) — a level visualization, never synthetic content.
- * Bars re-render on publishes, never on a timer; the height/color
- * transitions run only while events arrive and are disabled under
- * `prefers-reduced-motion`. All strings via i18n.
- *
- * The style choice is frontend-local by design (a pure presentation
- * preference, NOT a backend setting): it persists in `localStorage` under the
- * `speechtodeck.` prefix; unknown or unavailable stored values fail closed to
- * the `heatmap` default.
- */
-
 import * as React from "react";
 import { LEVEL_BAR_COUNT } from "../../application/ports/LevelMeterPort";
 import { translate } from "../i18n/messages";
 import type { Locale, MessageKey } from "../i18n/messages";
 
-/** The selectable visualizer styles (stable storage values). */
 export type VisualizerStyle = "heatmap" | "classic" | "mirror";
 
-/** Frontend-local storage key (a presentation preference, not a backend setting). */
 export const LEVEL_STYLE_STORAGE_KEY = "speechtodeck.levelStyle";
 
-/** Default when nothing (or garbage) is stored: the headline style. */
 const DEFAULT_STYLE: VisualizerStyle = "heatmap";
 
 const STYLE_VALUES: readonly VisualizerStyle[] = ["heatmap", "classic", "mirror"];
@@ -46,16 +17,10 @@ const STYLE_LABEL_KEYS: Record<VisualizerStyle, MessageKey> = {
     mirror: "dictation.level.style.mirror",
 };
 
-/** Manual guard for the value read back across the localStorage boundary. */
 function isVisualizerStyle(value: unknown): value is VisualizerStyle {
     return typeof value === "string" && (STYLE_VALUES as readonly string[]).includes(value);
 }
 
-/**
- * Reads the persisted style, failing closed to the default on garbage,
- * missing keys, or unavailable storage. The storage parameter is injectable
- * for tests; production passes the (guarded) global localStorage.
- */
 export function loadLevelStyle(storage: Pick<Storage, "getItem"> | null): VisualizerStyle {
     if (storage === null) {
         return DEFAULT_STYLE;
@@ -68,7 +33,6 @@ export function loadLevelStyle(storage: Pick<Storage, "getItem"> | null): Visual
     }
 }
 
-/** localStorage can throw on access in embedded webviews; never fatal. */
 function safeStorage(): Storage | null {
     try {
         return typeof window === "undefined" ? null : window.localStorage;
@@ -83,18 +47,13 @@ function clamp01(value: number): number {
 
 type RgbChannels = readonly [number, number, number];
 
-/**
- * Magma-style color ramp matching the `heatmap` style: deep
- * purple-black floor → violet → magenta → red-orange → amber → near-white
- * yellow core. Piecewise-linear in RGB; `amplitude` is clamped to 0..1.
- */
 const MAGMA_STOPS: readonly (readonly [number, RgbChannels])[] = [
-    [0.0, [16, 8, 44]], // deep purple-black (the spectrogram floor)
-    [0.25, [86, 24, 118]], // violet
-    [0.5, [186, 34, 106]], // magenta
-    [0.7, [232, 74, 46]], // red-orange
-    [0.85, [250, 160, 56]], // amber
-    [1.0, [255, 243, 186]], // near-white yellow (the hottest cores)
+    [0.0, [16, 8, 44]],
+    [0.25, [86, 24, 118]],
+    [0.5, [186, 34, 106]],
+    [0.7, [232, 74, 46]],
+    [0.85, [250, 160, 56]],
+    [1.0, [255, 243, 186]],
 ];
 
 function heatChannels(amplitude: number): RgbChannels {
@@ -114,11 +73,9 @@ function heatChannels(amplitude: number): RgbChannels {
             Math.round(lowerColor[2] + (upperColor[2] - lowerColor[2]) * t),
         ];
     }
-    // Unreachable in practice: the clamped value is ≤ the final stop's 1.0.
     return [255, 243, 186];
 }
 
-/** Amplitude → magma temperature as an `rgb()` color string. */
 export function heatColor(amplitude: number): string {
     const [red, green, blue] = heatChannels(amplitude);
     return `rgb(${red}, ${green}, ${blue})`;
@@ -129,12 +86,6 @@ function heatAlpha(amplitude: number, alpha: number): string {
     return `rgba(${red}, ${green}, ${blue}, ${alpha.toFixed(2)})`;
 }
 
-/**
- * One heat-map time column: a bottom-up gradient whose hot region rises with
- * the amplitude (a brighter cap at the leading edge, like the reference's
- * hot cores), plus a soft glow scaled by the amplitude. Silent frames stay
- * on the dark floor with no glow.
- */
 function heatColumn(amplitude: number): { background: string; boxShadow: string } {
     const value = clamp01(amplitude);
     const hot = heatColor(value);
@@ -150,17 +101,10 @@ function heatColumn(amplitude: number): { background: string; boxShadow: string 
     return { background, boxShadow };
 }
 
-/** The classic strip's bar color (hot tip past 75%, otherwise neutral). */
 function barColor(amplitude: number): string {
     return amplitude > 0.75 ? "rgba(255, 92, 92, 0.9)" : "rgba(255, 255, 255, 0.55)";
 }
 
-/**
- * The dictation card's shared dark-panel surface fragment: ONE palette
- * source for the strip frame, the style picker, the transcript preview and
- * the copy controls, so every inset panel of the card reads as the same
- * surface (visually identical to the previous per-element literals).
- */
 export const DARK_PANEL_SURFACE: React.CSSProperties = {
     background: "rgba(25, 28, 34, 0.85)",
     border: "1px solid rgba(255, 255, 255, 0.25)",
@@ -176,7 +120,6 @@ const STRIP_BASE_STYLE: React.CSSProperties = {
     position: "relative",
 };
 
-/** Faint horizontal scanlines echoing the reference spectrogram's grid. */
 const SCANLINE_OVERLAY_STYLE: React.CSSProperties = {
     position: "absolute",
     inset: 0,
@@ -186,7 +129,6 @@ const SCANLINE_OVERLAY_STYLE: React.CSSProperties = {
         "rgba(255, 255, 255, 0.14) 1px, transparent 1px, transparent 9px)",
 };
 
-/** Mirror style's center line. */
 const CENTER_LINE_STYLE: React.CSSProperties = {
     position: "absolute",
     left: 6,
@@ -198,7 +140,6 @@ const CENTER_LINE_STYLE: React.CSSProperties = {
     pointerEvents: "none",
 };
 
-/** Motion styles, injected once; off under `prefers-reduced-motion`. */
 const VISUALIZER_MOTION_STYLES = `
 .speechtodeck-level-bar { transition: height 90ms linear; }
 .speechtodeck-heat-col { transition: background 90ms linear, box-shadow 90ms linear; }
@@ -362,7 +303,6 @@ const STRIPS: Record<
     mirror: MirrorStrip,
 };
 
-/** The compact picker row beneath the button/strip area (always visible). */
 const STYLE_PICKER_ROW_STYLE: React.CSSProperties = {
     display: "flex",
     alignItems: "center",
@@ -371,7 +311,6 @@ const STYLE_PICKER_ROW_STYLE: React.CSSProperties = {
     fontSize: 11,
 };
 
-/** The style select: the shared dark-panel surface in a compact control. */
 const STYLE_PICKER_SELECT_STYLE: React.CSSProperties = {
     ...DARK_PANEL_SURFACE,
     flex: 1,
@@ -382,23 +321,11 @@ const STYLE_PICKER_SELECT_STYLE: React.CSSProperties = {
 };
 
 export interface LevelVisualizerProps {
-    /** Real amplitudes 0..1 from the guarded LevelMeterStore window. */
     readonly bars: readonly number[];
-    /**
-     * Whether the live strip renders. The card shows the strip only while
-     * `recording`; the style picker row stays visible in every state so the
-     * style can be chosen before a recording starts.
-     */
     readonly showStrip?: boolean;
     readonly locale?: Locale;
 }
 
-/**
- * The dictation card's level visualizer: the strip in the selected style
- * (rendered only when `showStrip`, default true) plus the compact style
- * picker, which is always visible. The choice persists frontend-local; it
- * never touches the backend settings schema.
- */
 export function LevelVisualizer({
     bars,
     showStrip = true,
@@ -409,17 +336,14 @@ export function LevelVisualizer({
 
     const selectStyle = (raw: string): void => {
         if (!isVisualizerStyle(raw)) {
-            return; // fail closed: unknown values never leave the default
+            return;
         }
         setStyle(raw);
         const storage = safeStorage();
         if (storage !== null) {
             try {
                 storage.setItem(LEVEL_STYLE_STORAGE_KEY, raw);
-            } catch {
-                // Persistence is best-effort (quota/security errors): the
-                // in-memory choice still applies for this session.
-            }
+            } catch {}
         }
     };
 

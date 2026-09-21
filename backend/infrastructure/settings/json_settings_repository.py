@@ -1,13 +1,3 @@
-"""Settings persistence: atomic writes and the schema migration chain.
-
-The backend owns persistence; the frontend never writes settings files
-directly. Writes are atomic (serialize → tmp file → flush → fsync →
-rename). Unknown fields are rejected deliberately; removed legacy fields
-(`maxRecordingSeconds`, `vadEnabled`, `outputMode`) are tolerated on load
-and dropped on the next save. Schema versions migrate upward through an
-explicit chain and fail closed on gaps.
-"""
-
 from __future__ import annotations
 
 import asyncio
@@ -16,17 +6,13 @@ import os
 import re
 from collections.abc import Callable
 from pathlib import Path
+from typing import cast
 
-from backend.domain.contracts import Settings
+from backend.domain.contracts import ComputeBackend, Settings
 from backend.domain.errors import SettingsInvalidError
 
 CURRENT_SCHEMA_VERSION = 1
 
-# Migration chain: key = source schemaVersion, value = migrator producing
-# version + 1.
-# v1 is the current format, so the chain is empty today. When v2 is designed,
-# register `1: migrate_v1_to_v2` here; `load` walks the chain upward and fails
-# closed on any missing step.
 MIGRATIONS: dict[int, Callable[[dict[str, object]], dict[str, object]]] = {}
 
 _SETTINGS_FILENAME = "settings.json"
@@ -40,20 +26,11 @@ _WIRE_FIELDS = (
 )
 _KNOWN_FIELDS = frozenset(_WIRE_FIELDS)
 
-# `maxRecordingSeconds` and `vadEnabled` left the settings document.
-# Devices updated from earlier releases carry both keys in
-# their persisted settings.json (e.g. maxRecordingSeconds 110 / vadEnabled
-# true), so load TOLERATES them — stripped before validation, never
-# rejected, and never written back (the wire snapshot no longer carries
-# them). The same applies to `outputMode`: the output is clipboard-only
-# since the in-keyboard insertion feature was removed, and v0.2.2 device
-# files carry "outputMode": "direct-insert".
 _LEGACY_FIELDS = frozenset({"maxRecordingSeconds", "vadEnabled", "outputMode"})
 
 _COMPUTE_BACKENDS = frozenset({"auto", "vulkan", "cpu"})
 
 _MODEL_ID_RE = re.compile(r"^[a-z0-9][a-z0-9._-]{0,63}$")
-# "system" | "auto" | explicit language code (e.g. "en", "pt-BR").
 _LANGUAGE_RE = re.compile(r"^(system|auto|[a-zA-Z]{2,8}(-[a-zA-Z0-9]{1,8})*)$")
 
 
@@ -81,7 +58,6 @@ def _require_str(raw: dict[str, object], key: str) -> str:
 
 
 def _validate_fields(raw: dict[str, object]) -> Settings:
-    """Validate a v{CURRENT_SCHEMA_VERSION} payload into a Settings snapshot."""
     schema_version = raw.get("schemaVersion")
     if schema_version != CURRENT_SCHEMA_VERSION:
         raise SettingsInvalidError(
@@ -107,14 +83,13 @@ def _validate_fields(raw: dict[str, object]) -> Settings:
     return Settings(
         schema_version=CURRENT_SCHEMA_VERSION,
         enabled=_require_bool(raw, "enabled"),
-        compute_backend=compute_backend,  # type: ignore[arg-type]  # validated above
+        compute_backend=cast(ComputeBackend, compute_backend),
         model_id=model_id,
         language=language,
     )
 
 
 def _apply_migrations(raw: dict[str, object]) -> dict[str, object]:
-    """Walk the migration chain upward; fail closed on gaps."""
     version = raw.get("schemaVersion")
     if not isinstance(version, int) or isinstance(version, bool):
         raise SettingsInvalidError("schemaVersion must be an integer")
@@ -144,15 +119,7 @@ def _apply_migrations(raw: dict[str, object]) -> dict[str, object]:
 
 
 def settings_from_payload(raw: object) -> Settings:
-    """Validate a wire payload (post-migration shape) into Settings.
 
-    Legacy keys (`maxRecordingSeconds`, `vadEnabled`, `outputMode`) are
-    tolerated on load: they are stripped before the unknown-field check, so
-    a settings file from an older release loads unchanged instead of being
-    rejected — and since the
-    resulting wire snapshot omits them, the next save drops them (never
-    written back).
-    """
     data = _require_dict(raw)
     data = {key: value for key, value in data.items() if key not in _LEGACY_FIELDS}
     unknown = sorted(set(data) - _KNOWN_FIELDS)
@@ -171,8 +138,6 @@ def settings_from_payload(raw: object) -> Settings:
 
 
 class JsonSettingsRepository:
-    """Atomic JSON settings persistence under the plugin data dir."""
-
     def __init__(self, path: Path) -> None:
         self._path = path
         self._lock = asyncio.Lock()
@@ -189,7 +154,6 @@ class JsonSettingsRepository:
         try:
             raw_bytes = self._path.read_bytes()
         except FileNotFoundError:
-            # First run: the shipped defaults, never persisted implicitly.
             return Settings(
                 schema_version=CURRENT_SCHEMA_VERSION,
                 enabled=True,
@@ -220,7 +184,6 @@ class JsonSettingsRepository:
         self._path.parent.mkdir(parents=True, exist_ok=True)
         tmp_path = self._path.with_name(self._path.name + ".tmp")
         try:
-            # Serialize → write temporary file → flush → rename.
             fd = os.open(tmp_path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
             with os.fdopen(fd, "w", encoding="utf-8") as handle:
                 handle.write(serialized)
@@ -228,7 +191,6 @@ class JsonSettingsRepository:
                 os.fsync(handle.fileno())
             os.chmod(tmp_path, 0o600)
             os.replace(tmp_path, self._path)
-            # Make the rename itself durable.
             dir_fd = os.open(self._path.parent, os.O_RDONLY)
             try:
                 os.fsync(dir_fd)

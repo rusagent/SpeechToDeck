@@ -1,11 +1,3 @@
-/**
- * DeckySpeechAdapter — maps the application SpeechPort onto
- * the frozen Decky callables and backend events. No domain logic: every
- * payload crossing the boundary is validated with the boundary type guards
- * before it is emitted into the application; unvalidated payloads are dropped
- * with a warning instead of being passed on.
- */
-
 import { DictationError, isDictationErrorCode } from "../../domain/DictationError";
 import type { DictationErrorCode } from "../../domain/DictationError";
 import type { Disposable } from "../../shared/Disposable";
@@ -39,10 +31,6 @@ import {
 import { PanelTranscriptStore } from "../../application/ports/PanelTranscriptPort";
 import type { DeckyBackendClient } from "./DeckyBackendClient";
 
-/**
- * Frozen callable and event names (the Python backend implements
- * the same names).
- */
 export const SPEECH_CALLABLES = {
     getCapabilities: "get_capabilities",
     getStatus: "get_status",
@@ -66,10 +54,8 @@ const SPEECH_EVENTS = {
     modelDownloadComplete: "model_download_complete",
 } as const;
 
-/** The four setup steps of the frozen `setup_progress` contract. */
 const SETUP_TOTAL_STEPS = 4;
 
-/** Versioned `speech_error` backend payload: stable code, no parsing. */
 export interface SpeechErrorPayload {
     readonly code: DictationErrorCode;
     readonly message?: string;
@@ -95,12 +81,6 @@ function isSpeechErrorPayload(value: unknown): value is SpeechErrorPayload {
     return true;
 }
 
-/**
- * Versioned backend `runtime_status` payload: the daemon supervisor and
- * the status monitor publish `{protocolVersion, state, ...}` with the
- * supervisor states (starting/stopped/crashed/unavailable/restarted) and the
- * daemon states (idle/recording/transcribing/error/stopped).
- */
 interface BackendRuntimeStatusPayload {
     readonly protocolVersion: unknown;
     readonly state: string;
@@ -114,10 +94,6 @@ function isBackendRuntimeStatusPayload(value: unknown): value is BackendRuntimeS
     return record["protocolVersion"] === 1 && typeof record["state"] === "string";
 }
 
-/**
- * Maps the backend's versioned payload onto the application runtime status
- * (unknown states are dropped, never guessed).
- */
 function mapBackendRuntimeStatus(payload: BackendRuntimeStatusPayload): SpeechRuntimeStatus | null {
     switch (payload.state) {
         case "starting":
@@ -142,39 +118,16 @@ function mapBackendRuntimeStatus(payload: BackendRuntimeStatusPayload): SpeechRu
 export class DeckySpeechAdapter implements SpeechPort {
     private readonly listeners = new Set<SpeechEventListener>();
     private backendEventDisposables: Disposable[] = [];
-    /** Dropped `setup_progress` payloads for the count-logged boundary guard. */
     private droppedSetupProgress = 0;
-    /** Dropped `recording_level` payloads for the count-logged boundary guard. */
     private droppedRecordingLevel = 0;
-    /** Dropped download-event payloads for the count-logged boundary guard. */
     private droppedModelDownload = 0;
 
-    /**
-     * Latest guarded `setup_progress` snapshot for the plugin panel. Setup
-     * progress is transport-level UI state and stays out of the dictation
-     * events on purpose (consumers subscribe only to relevant state).
-     */
     readonly setupProgress = new SetupProgressStore();
 
-    /**
-     * Live level strip state (additive): guarded `recording_level`
-     * frames only — transport-level UI state, never dictation events,
-     * so the 15 Hz stream cannot touch the session flow.
-     */
     readonly levelMeter = new LevelMeterStore();
 
-    /**
-     * Latest guarded `transcript_ready` snapshot for the panel card
-     * (additive), including the backend clipboard outcome.
-     */
     readonly panelTranscript = new PanelTranscriptStore();
 
-    /**
-     * Curated model catalog + download state: guarded `list_models`
-     * results and `model_download_*` events only — transport-level UI state
-     * for the ModelSelect dropdown + download modal, never dictation
-     * events.
-     */
     readonly modelCatalog = new ModelCatalogStore();
 
     constructor(
@@ -205,11 +158,6 @@ export class DeckySpeechAdapter implements SpeechPort {
         await this.backend.call(SPEECH_CALLABLES.cancelRecording, sessionId);
     }
 
-    /**
-     * Loads the curated model catalog into the store. The backend
-     * is the catalog authority; an unexpected payload fails with a
-     * stable code instead of being passed on unvalidated.
-     */
     async listModels(): Promise<readonly CatalogModel[]> {
         const payload = await this.backend.call(SPEECH_CALLABLES.listModels);
         if (!isModelCatalogPayload(payload)) {
@@ -222,22 +170,6 @@ export class DeckySpeechAdapter implements SpeechPort {
         return payload.models;
     }
 
-    /**
-     * Starts the single-flight model download. The store's download
-     * state is fed by the live `model_download_progress` events and settled
-     * per outcome: a successful completion KEEPS the store's final
-     * percent-100 frame (the `model_download_complete` event holds it; the
-     * modal shows the full bar during its completion hold), a cancellation
-     * clears it, and a failure replaces it with the failure record.
-     *
-     * Failure vs cancellation: a real failure is recorded in the
-     * store (`publishFailure`, backend detail included) for the download
-     * modal's error state and rethrown so the composition-level log keeps
-     * its diagnosability line. A user-initiated cancel arrives as the
-     * MODEL_DOWNLOAD_CANCELLED code — completion, not failure: it is logged
-     * at info, never published as a failure, and not rethrown (the modal
-     * already closed on the cancel action).
-     */
     async downloadModel(modelId: string): Promise<void> {
         this.modelCatalog.clearFailure();
         try {
@@ -257,21 +189,10 @@ export class DeckySpeechAdapter implements SpeechPort {
         }
     }
 
-    /** Cancels the active download, if any. */
     async cancelModelDownload(): Promise<void> {
         await this.backend.call(SPEECH_CALLABLES.cancelModelDownload);
     }
 
-    /**
-     * Deletes one installed model's artifact backend-side (in-app model
-     * cleanup): the id is the only input — the backend resolves the path
-     * from its strict manifest (never a frontend path). On success the
-     * catalog store's install state flips immediately (markDeleted); the
-     * authoritative refresh stays with the existing `list_models` path the
-     * caller drives afterwards. A coded rejection (selected model, download
-     * in flight, unknown id) propagates untouched — the manage modal owns
-     * the inline error presentation; the store keeps its previous state.
-     */
     async deleteModel(modelId: string): Promise<void> {
         await this.backend.call(SPEECH_CALLABLES.deleteModel, modelId);
         this.modelCatalog.markDeleted(modelId);
@@ -287,11 +208,6 @@ export class DeckySpeechAdapter implements SpeechPort {
         };
     }
 
-    /**
-     * Unsubscribes the backend events. Idempotent; the frontend maps
-     * `runtime_status` and `setup_progress`; `speech_status` carries no
-     * distinct consumer and is not subscribed.
-     */
     async shutdown(): Promise<void> {
         for (const disposable of this.backendEventDisposables) {
             disposable.dispose();
@@ -334,12 +250,6 @@ export class DeckySpeechAdapter implements SpeechPort {
             this.logger.warn("dropped transcript_ready payload: boundary guard failed");
             return;
         }
-        // Panel card side-channel (additive): same guarded payload,
-        // published as transport-level UI state — but empty
-        // speech renders no transcript block and must not trigger the
-        // card's auto-copy (empty text can never copy successfully). The
-        // machine event below always dispatches: the EMPTY outcome is what
-        // settles the stop flow back to ready (verified against a live device).
         if (payload.text.trim().length > 0) {
             this.panelTranscript.publish({
                 sessionId: payload.sessionId,
@@ -363,8 +273,6 @@ export class DeckySpeechAdapter implements SpeechPort {
     }
 
     private onRuntimeStatus(payload: unknown): void {
-        // Canonical backend form is the versioned payload; a bare status
-        // string is also accepted (both are guarded).
         let status: SpeechRuntimeStatus | null = null;
         if (isBackendRuntimeStatusPayload(payload)) {
             status = mapBackendRuntimeStatus(payload);
@@ -422,16 +330,6 @@ export class DeckySpeechAdapter implements SpeechPort {
         this.modelCatalog.publishComplete(payload);
     }
 
-    /**
-     * Hydrates the setup store from the status report so a startup
-     * failure that fired before this frontend subscribed still surfaces
-     * (on-device finding: the terminal `failed` event preceded the
-     * panel mount and was never seen again). Runtime down with a stored last
-     * failure and no download in flight → synthesized terminal `failed`
-     * view with the failing step from the report (0 when absent). Live wins:
-     * an existing snapshot — a live event or an earlier hydration — is never
-     * overwritten, and any later live `setup_progress` event replaces it.
-     */
     async hydrateSetupFromStatus(): Promise<void> {
         if (this.setupProgress.getSnapshot() !== null) {
             return;

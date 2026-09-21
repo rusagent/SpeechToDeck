@@ -1,10 +1,3 @@
-/**
- * Explicit success/failure value for port methods whose failure is an expected
- * outcome rather than an exceptional condition (e.g. `BulkTextInserter.insert`).
- * Errors inside the domain are `DictationError`; `Result` is the
- * transport for the ones a caller is expected to act on.
- */
-
 export type Result<T, E> =
     { readonly ok: true; readonly value: T } | { readonly ok: false; readonly error: E };
 

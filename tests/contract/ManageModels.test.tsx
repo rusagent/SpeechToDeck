@@ -1,18 +1,3 @@
-/**
- * ManageModels tests (in-app model management).
- *
- * Named decision points: (1) the destructive confirmation must name the
- * model, its freed size and the re-download path BEFORE anything is deleted
- * (irreversible-feeling action on a 100+ MB artifact — DeckyEQ-pattern
- * ConfirmModal with bDestructiveWarning); (2) the selected model can never
- * be deleted — its control is visibly disabled AND no confirm can open (the
- * backend rejects it anyway; the UI must not offer a lying control);
- * (3) during an in-flight delete the modal controls lock, dismissal is
- * ignored and an inline "Deleting…" status shows — state-refresh feedback
- * via the existing list_models path, no toasts; (4) "Delete all inactive"
- * confirms ONCE and loops the same per-model callable (no bulk route).
- */
-
 import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { ReactNode } from "react";
@@ -20,11 +5,6 @@ import { openManageModelsModal } from "../../src/presentation/settings/ManageMod
 import { ModelCatalogStore, type CatalogModel } from "../../src/application/ports/ModelCatalogPort";
 import type { Locale } from "../../src/presentation/i18n/messages";
 
-// The modal renders through @decky/ui components that expect the Steam UI
-// environment. The stubs keep the modal's own logic (installed list, guard,
-// confirm, lock, refresh) the subject: ConfirmModal captures its props and
-// exposes OK/Cancel probes; showModal captures the opened modal node and its
-// close handle; ModalRoot exposes Steam's dismissal funnel.
 vi.mock("@decky/ui", async () => {
     const React = await import("react");
     const h = React.createElement;
@@ -96,7 +76,6 @@ const capturedConfirms = (deckyUi as unknown as { __confirms: Record<string, unk
     .__confirms;
 const showModalNodes = (deckyUi as unknown as { __showModalNodes: ReactNode[] }).__showModalNodes;
 
-/** Renders the confirm dialog captured by the last showModal call. */
 function renderLastModal(): void {
     const node = showModalNodes.at(-1);
     expect(node).toBeDefined();
@@ -189,8 +168,6 @@ describe("ManageModels", () => {
         expect(
             screen.getByText("Manage models", { selector: "[data-modal-header]" }),
         ).not.toBeNull();
-        // Installed rows carry display name + decimal size; the not-installed
-        // catalog entry (turbo) never renders a row.
         expect(document.querySelector('[data-manage-row="tiny"]')?.textContent).toContain(
             "Tiny (fastest) · 78 MB",
         );
@@ -203,12 +180,10 @@ describe("ManageModels", () => {
         expect(
             document.querySelector('[data-manage-row="whisper-large-v3-turbo-q5_0"]'),
         ).toBeNull();
-        // The selected model is marked and its delete is visibly disabled.
         expect(document.querySelector('[data-manage-row="base"]')?.textContent).toContain(
             "selected",
         );
         expect(deleteButton("base").disabled).toBe(true);
-        // Two installed non-selected models → the bulk action renders.
         expect(document.querySelector("[data-manage-delete-all]")).not.toBeNull();
     });
 
@@ -243,12 +218,9 @@ describe("ManageModels", () => {
 
         expect(onDelete).toHaveBeenCalledTimes(1);
         expect(onDelete).toHaveBeenCalledWith("tiny");
-        // State-refresh feedback through the existing list_models path (the
-        // store flip itself lives in the adapter, covered by
-        // DeckyAdapters.test.ts) — no toasts.
         expect(onRefresh).toHaveBeenCalledTimes(1);
         expect(document.querySelector("[data-manage-status]")).toBeNull();
-        expect(capturedConfirms).toHaveLength(1); // still exactly ONE confirm
+        expect(capturedConfirms).toHaveLength(1);
     });
 
     it("locks the modal during a delete: controls disabled, dismissal ignored, inline status shown", async () => {
@@ -273,9 +245,6 @@ describe("ManageModels", () => {
             await Promise.resolve();
         });
 
-        // In-flight: every delete control and Close lock; the inline status
-        // shows; Steam's dismissal funnel (Esc / X / background click) is a
-        // no-op so the modal cannot vanish under the status line.
         expect(document.querySelector('[data-manage-status="deleting"]')?.textContent).toBe(
             "Deleting…",
         );
@@ -293,7 +262,6 @@ describe("ManageModels", () => {
             await Promise.resolve();
             await Promise.resolve();
         });
-        // Settled: controls unlock and dismissal closes again.
         expect(document.querySelector("[data-manage-status]")).toBeNull();
         expect(deleteButton("distil-small-en").disabled).toBe(false);
         fireEvent.click(document.querySelector("[data-modal-dismiss]")!);
@@ -319,8 +287,6 @@ describe("ManageModels", () => {
         expect(error).not.toBeNull();
         expect(error?.textContent).toContain("Deleting the model failed.");
         expect(error?.textContent).toContain("MODEL_DOWNLOAD_FAILED (id=tiny)");
-        // The refresh reports the honest state even after a rejection, and
-        // the controls unlock again.
         expect(onRefresh).toHaveBeenCalledTimes(1);
         expect(deleteButton("distil-small-en").disabled).toBe(false);
     });
@@ -361,7 +327,6 @@ describe("ManageModels", () => {
             await Promise.resolve();
         });
 
-        // One confirm, two per-model calls (id-only input), one refresh.
         expect(onDelete).toHaveBeenCalledTimes(2);
         expect(onDelete).toHaveBeenNthCalledWith(1, "tiny");
         expect(onDelete).toHaveBeenNthCalledWith(2, "distil-small-en");

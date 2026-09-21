@@ -6,10 +6,6 @@ readme = "README.md"
 requires-python = ">=3.11"
 license = { file = "LICENSE" }
 
-# Runtime dependencies are intentionally empty. The backend runs inside the
-# Decky Loader Python runtime on SteamOS: stdlib only (no
-# third-party package is provided there; downloads use urllib). No additional
-# runtime framework is permitted.
 dependencies = []
 
 [tool.ruff]
@@ -25,5 +21,12 @@ select = ["E", "F", "W", "I", "UP", "B", "SIM", "RUF"]
 python_version = "3.11"
 strict = true
 files = ["backend", "main.py"]
-# Platform parity with the Decky runtime; override per-module if needed.
 ignore_missing_imports = false
+
+[tool.ruff.lint.per-file-ignores]
+"main.py" = ["E402"]
+"tests/backend/conftest.py" = ["E402"]
+
+[[tool.mypy.overrides]]
+module = ["decky_plugin", "helpers"]
+ignore_missing_imports = true

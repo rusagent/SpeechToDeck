@@ -71,43 +71,37 @@ one file per start under the plugin data dir). Key mapping (verified against
 `config/default.toml` and `src/config/*.rs`):
 
 ```toml
-engine = "whisper"                  # top-level engine
+engine = "whisper"
 state_file = "<runtime>/voxtype/state"
 
 [hotkey]
-enabled = false                     # recording is driven by our client only
+enabled = false
 
 [audio]
-max_duration_secs = 86400           # FIXED since v0.2.10: 24 h runaway-recording
-                                    # VALVE — recording is practically unlimited; upstream
-                                    # has no true unlimited mode (0 auto-stops in ~100 ms)
+max_duration_secs = 86400
 
 [whisper]
-model = "<abs path to our ggml file>"   # absolute path to OUR downloaded model
-language = "<code | auto>"          # single-language models force their declared
-                                    # language (stale settings ignored); otherwise settings
-                                    # "system" maps to "auto", explicit codes pass through
-on_demand_loading = false           # model stays loaded
-eager_processing = false            # one-shot dictation only
+model = "<abs path to our ggml file>"
+language = "<code | auto>"
+on_demand_loading = false
+eager_processing = false
 
 [vad]
-enabled = true                      # FIXED v0.2.5 (was settings.vadEnabled; v0.2.4 default)
+enabled = true
 
 [output]
 mode = "file"
 file_path = "<runtime>/voxtype/transcript.out"
 file_mode = "overwrite"
 
-[output.notification]               # all off — no UI side effects
+[output.notification]
 on_recording_start = false
 on_recording_stop = false
 on_transcription = false
 
 [osd]
-enabled = false                     # upstream OSD default is enabled
+enabled = false
 
-# [streaming] is OMITTED entirely: upstream treats the section as opt-in
-# (Option<StreamingConfig>), so streaming stays disabled.
 ```
 
 Required daemon behaviour (upstream `src/daemon.rs`):
