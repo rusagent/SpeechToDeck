@@ -84,12 +84,13 @@ jobs:
                   print(json.dumps({'tracked_files': len(paths), 'python_files': count, 'comments': 0, 'docstrings': 0}))
                   PY
                   git diff --exit-code
-            - name: Commit cleanup to review branch
+            - name: Commit source cleanup to review branch
               run: |
                   set -euo pipefail
+                  git restore --source=HEAD --staged --worktree .github/workflows
                   git config user.name 'github-actions[bot]'
                   git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-                  git commit -m 'refactor: remove repository comments and document conventions'
+                  git commit -m 'refactor: remove source comments and document conventions'
                   git push origin HEAD:chore/comment-cleanup-20260921
                   git rev-parse HEAD > "$RUNNER_TEMP/cleanup-commit.txt"
             - name: Archive reviewed source and patch
